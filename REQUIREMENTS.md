@@ -1,4 +1,4 @@
-# Requirements Document: KanBoard
+# Requirements Document: Shuffle
 
 **Version:** 1.2
 **Date:** 2026-02-12
@@ -32,7 +32,7 @@
 
 ## 1. Executive Summary
 
-**KanBoard** is a self-hosted, open-source Kanban-style task management system designed as a reliable alternative to hosted SaaS solutions like Trello. The project is motivated by the need for full control over availability, data ownership, and infrastructure independence.
+**Shuffle** is a self-hosted, open-source Kanban-style task management system designed as a reliable alternative to hosted SaaS solutions like Trello. The project is motivated by the need for full control over availability, data ownership, and infrastructure independence.
 
 The system provides multiple Kanban boards with configurable lanes, rich cards with Markdown descriptions, comments, file attachments, checklists, assignments, and due dates. It supports organizations, role-based access control, and includes a Trello migration tool for importing existing data.
 
@@ -58,7 +58,7 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 
 ### Current State vs. Desired State
 
-| Aspect | Current (Trello) | Desired (KanBoard) |
+| Aspect | Current (Trello) | Desired (Shuffle) |
 |---|---|---|
 | Hosting | Third-party SaaS | Self-hosted |
 | Availability | Dependent on vendor | Controlled by team |
@@ -170,7 +170,7 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 
 ### System Admin
 
-- **Role**: Manages the KanBoard instance
+- **Role**: Manages the Shuffle instance
 - **Responsibilities**: Invites users, manages organizations, assigns roles
 - **Technical proficiency**: Comfortable with server administration
 - **Access pattern**: Infrequent, configuration-focused
@@ -599,7 +599,7 @@ A web-based setup wizard displayed on first visit when the application detects n
 ### Adoption Success
 
 - [ ] Stakeholders agree the system is a viable Trello replacement
-- [ ] Team migrates daily workflow to KanBoard
+- [ ] Team migrates daily workflow to Shuffle
 - [ ] Mobile apps (Flutter) are available for on-the-go access
 
 ### Long-Term Success

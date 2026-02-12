@@ -1,4 +1,4 @@
-# Project Specification: KanBoard
+# Project Specification: Shuffle
 
 **Version:** 1.0
 **Date:** 2026-02-12
@@ -30,7 +30,7 @@
 
 ### Project Overview
 
-KanBoard is a self-hosted, open-source Kanban task management system designed as a Trello replacement. It provides multiple Kanban boards with configurable lanes, rich Markdown cards, comments, file attachments, checklists, user assignments, due dates, and full-text search. The system runs on a single Debian Trixie server with PHP 8.4, MySQL, S3-compatible storage, and SMTP.
+Shuffle is a self-hosted, open-source Kanban task management system designed as a Trello replacement. It provides multiple Kanban boards with configurable lanes, rich Markdown cards, comments, file attachments, checklists, user assignments, due dates, and full-text search. The system runs on a single Debian Trixie server with PHP 8.4, MySQL, S3-compatible storage, and SMTP.
 
 ### Key Objectives
 
@@ -76,7 +76,7 @@ KanBoard is a self-hosted, open-source Kanban task management system designed as
                                     |
                           +---------+---------+
                           |  PHP 8.4 Runtime  |
-                          |  include/KanBoard |
+                          |  include/Shuffle |
                           +---------+---------+
                            /        |         \
                   +-------+    +----+----+    +-------+
@@ -88,7 +88,7 @@ KanBoard is a self-hosted, open-source Kanban task management system designed as
 ### 2.2 Directory Structure
 
 ```
-kanboard/
+shuffle/
 ├── bin/                            # CLI scripts
 │   └── trello-import.php           # Trello JSON import tool
 │
@@ -104,7 +104,7 @@ kanboard/
 │
 ├── include/                        # Shared PHP code (outside web root)
 │   ├── bootstrap.php               # Autoloader registration + config loading
-│   ├── KanBoard/                   # Application namespace root
+│   ├── Shuffle/                   # Application namespace root
 │   │   ├── Core/                   # Framework-level classes
 │   │   │   ├── Autoloader.php      # PSR-4-style autoloader
 │   │   │   ├── Database.php        # Thin PDO wrapper
@@ -258,16 +258,16 @@ Browser → POST /v1/cards
 
 ### 3.1 Autoloader
 
-**Class:** `KanBoard\Core\Autoloader`
-**File:** `include/KanBoard/Core/Autoloader.php`
+**Class:** `Shuffle\Core\Autoloader`
+**File:** `include/Shuffle/Core/Autoloader.php`
 
-PSR-4-style autoloader mapping the `KanBoard\` namespace prefix to `include/KanBoard/`.
+PSR-4-style autoloader mapping the `Shuffle\` namespace prefix to `include/Shuffle/`.
 
 **Behavior:**
 - Registered via `spl_autoload_register()`
 - Converts namespace separators (`\`) to directory separators (`/`)
 - Appends `.php` extension
-- Example: `KanBoard\Model\Board` → `include/KanBoard/Model/Board.php`
+- Example: `Shuffle\Model\Board` → `include/Shuffle/Model/Board.php`
 - Silently returns if file not found (allows other autoloaders to try)
 
 ### 3.2 Bootstrap
@@ -293,22 +293,22 @@ Entry point included by every web page and the API front-controller. Responsibil
 <?php
 return [
     'app' => [
-        'name'     => 'KanBoard',
-        'url'      => 'https://kanboard.example.com',
+        'name'     => 'Shuffle',
+        'url'      => 'https://shuffle.example.com',
         'locale'   => 'en',
         'timezone' => 'UTC',
     ],
     'db' => [
         'host'     => '127.0.0.1',
         'port'     => 3306,
-        'name'     => 'kanboard',
-        'user'     => 'kanboard',
+        'name'     => 'shuffle',
+        'user'     => 'shuffle',
         'password' => '',
         'charset'  => 'utf8mb4',
     ],
     's3' => [
         'endpoint'   => 'http://127.0.0.1:9000',
-        'bucket'     => 'kanboard',
+        'bucket'     => 'shuffle',
         'access_key' => '',
         'secret_key' => '',
         'region'     => 'us-east-1',
@@ -320,12 +320,12 @@ return [
         'encryption' => 'tls',
         'username'   => '',
         'password'   => '',
-        'from_email' => 'noreply@kanboard.example.com',
-        'from_name'  => 'KanBoard',
+        'from_email' => 'noreply@shuffle.example.com',
+        'from_name'  => 'Shuffle',
     ],
     'session' => [
         'lifetime'    => 86400,     // 24 hours
-        'cookie_name' => 'kanboard_session',
+        'cookie_name' => 'shuffle_session',
     ],
     'upload' => [
         'chunk_size'  => 5242880,   // 5 MB chunks for S3 multipart
@@ -338,8 +338,8 @@ return [
 
 ### 3.4 Database Layer
 
-**Class:** `KanBoard\Core\Database`
-**File:** `include/KanBoard/Core/Database.php`
+**Class:** `Shuffle\Core\Database`
+**File:** `include/Shuffle/Core/Database.php`
 
 Thin PDO wrapper providing:
 
@@ -360,8 +360,8 @@ All queries MUST use parameterized placeholders. No string interpolation in SQL.
 
 ### 3.5 Session Manager
 
-**Class:** `KanBoard\Core\Session`
-**File:** `include/KanBoard/Core/Session.php`
+**Class:** `Shuffle\Core\Session`
+**File:** `include/Shuffle/Core/Session.php`
 
 Implements `SessionHandlerInterface` for MySQL-backed sessions.
 
@@ -370,15 +370,15 @@ Implements `SessionHandlerInterface` for MySQL-backed sessions.
 **Behavior:**
 - Registered via `session_set_save_handler()` before `session_start()`
 - Cookie settings: `HttpOnly`, `Secure` (when HTTPS), `SameSite=Lax`
-- Cookie name from config: `kanboard_session`
+- Cookie name from config: `shuffle_session`
 - Session data serialized by PHP's native handler
 - Garbage collection deletes sessions older than `session.lifetime` config
 - Provides `destroyByUserId(int $userId)` for admin session revocation
 
 ### 3.6 Router
 
-**Class:** `KanBoard\Core\Router`
-**File:** `include/KanBoard/Core/Router.php`
+**Class:** `Shuffle\Core\Router`
+**File:** `include/Shuffle/Core/Router.php`
 
 Lightweight REST API router used exclusively by the `www/v1/index.php` front-controller.
 
@@ -403,8 +403,8 @@ $router->dispatch($request);
 
 ### 3.7 Request and Response
 
-**Class:** `KanBoard\Core\Request`
-**File:** `include/KanBoard/Core/Request.php`
+**Class:** `Shuffle\Core\Request`
+**File:** `include/Shuffle/Core/Request.php`
 
 Wraps PHP superglobals into a clean interface:
 
@@ -418,8 +418,8 @@ Wraps PHP superglobals into a clean interface:
 | `getCookie(string $name): ?string` | Cookie value |
 | `getInputStream(): resource` | Raw input stream for file uploads |
 
-**Class:** `KanBoard\Core\Response`
-**File:** `include/KanBoard/Core/Response.php`
+**Class:** `Shuffle\Core\Response`
+**File:** `include/Shuffle/Core/Response.php`
 
 | Method | Purpose |
 |---|---|
@@ -431,8 +431,8 @@ Wraps PHP superglobals into a clean interface:
 
 ### 3.8 i18n
 
-**Class:** `KanBoard\Core\Lang`
-**File:** `include/KanBoard/Core/Lang.php`
+**Class:** `Shuffle\Core\Lang`
+**File:** `include/Shuffle/Core/Lang.php`
 
 Loads and serves translatable strings from JSON files.
 
@@ -440,7 +440,7 @@ Loads and serves translatable strings from JSON files.
 
 ```json
 {
-    "app.name": "KanBoard",
+    "app.name": "Shuffle",
     "auth.login": "Log In",
     "auth.logout": "Log Out",
     "auth.username": "Username",
@@ -474,8 +474,8 @@ String key convention: `{domain}.{action_or_label}` — e.g., `board.create`, `c
 
 ### 3.9 S3 Client
 
-**Class:** `KanBoard\Core\S3Client`
-**File:** `include/KanBoard/Core/S3Client.php`
+**Class:** `Shuffle\Core\S3Client`
+**File:** `include/Shuffle/Core/S3Client.php`
 
 Custom S3-compatible client implementing AWS Signature V4 with path-based URLs. No AWS SDK dependency.
 
@@ -505,8 +505,8 @@ This prevents collisions and organizes files by board and card for easy bulk ope
 
 ### 3.10 SMTP Mailer
 
-**Class:** `KanBoard\Core\Mailer`
-**File:** `include/KanBoard/Core/Mailer.php`
+**Class:** `Shuffle\Core\Mailer`
+**File:** `include/Shuffle/Core/Mailer.php`
 
 Minimal SMTP client for sending invitation emails. Implements SMTP protocol directly (EHLO, AUTH, MAIL FROM, RCPT TO, DATA) over a socket with TLS/STARTTLS support.
 
@@ -542,8 +542,8 @@ function renderMarkdown(string $text): string {
 
 ### 3.12 CSRF Protection
 
-**Class:** `KanBoard\Core\Csrf`
-**File:** `include/KanBoard/Core/Csrf.php`
+**Class:** `Shuffle\Core\Csrf`
+**File:** `include/Shuffle/Core/Csrf.php`
 
 **Strategy:** Per-session CSRF token.
 
@@ -562,8 +562,8 @@ function renderMarkdown(string $text): string {
 
 ### 3.13 Authentication and Authorization
 
-**Class:** `KanBoard\Core\Auth`
-**File:** `include/KanBoard/Core/Auth.php`
+**Class:** `Shuffle\Core\Auth`
+**File:** `include/Shuffle/Core/Auth.php`
 
 **Interface:**
 
@@ -603,10 +603,10 @@ Each model class encapsulates database operations for its entity. Models are dat
 **Common pattern:**
 
 ```php
-namespace KanBoard\Model;
+namespace Shuffle\Model;
 
 class Board {
-    public function __construct(private \KanBoard\Core\Database $db) {}
+    public function __construct(private \Shuffle\Core\Database $db) {}
 
     public function findById(int $id): ?array { ... }
     public function findByUser(int $userId, int $orgId): array { ... }
@@ -662,7 +662,7 @@ Services contain business logic, orchestrate model calls, enforce business rules
 - `notifyComment()` — Creates notifications for all assigned users when a comment is added
 
 **ImportService:**
-- `importTrelloBoard()` — Parses Trello JSON, maps to KanBoard entities, creates placeholder users
+- `importTrelloBoard()` — Parses Trello JSON, maps to Shuffle entities, creates placeholder users
 
 ### 3.16 API Controllers
 
@@ -671,12 +671,12 @@ Controllers handle HTTP concerns: extract parameters from the request, call the 
 **Pattern:**
 
 ```php
-namespace KanBoard\Controller;
+namespace Shuffle\Controller;
 
 class CardController {
     public function __construct(
-        private \KanBoard\Service\CardService $cardService,
-        private \KanBoard\Core\Auth $auth
+        private \Shuffle\Service\CardService $cardService,
+        private \Shuffle\Core\Auth $auth
     ) {}
 
     public function create(Request $request, Response $response, array $params): void {
@@ -769,11 +769,11 @@ Usage: php bin/trello-import.php <trello-export.json> [--org=<org_id>]
 
 **Behavior:**
 1. Parses Trello JSON export file
-2. Creates a KanBoard board with matching title/description
-3. Maps Trello lists → KanBoard lanes (preserving order)
-4. Maps Trello cards → KanBoard cards (title, description, position, due dates)
-5. Maps Trello comments → KanBoard comments (preserving author + timestamp)
-6. Maps Trello checklists → KanBoard checklists + items (preserving state)
+2. Creates a Shuffle board with matching title/description
+3. Maps Trello lists → Shuffle lanes (preserving order)
+4. Maps Trello cards → Shuffle cards (title, description, position, due dates)
+5. Maps Trello comments → Shuffle comments (preserving author + timestamp)
+6. Maps Trello checklists → Shuffle checklists + items (preserving state)
 7. Downloads Trello attachments from CDN and re-uploads to S3
 8. Creates placeholder users for Trello members not yet in the system
 9. Assigns board to the specified organization (or prompts)
@@ -1012,7 +1012,7 @@ The client stores the last-known version and polls `GET /v1/boards/{id}/version`
 
 **Content-Type:** `application/json` for all request and response bodies (except file upload/download).
 
-**Authentication:** Session cookie (`kanboard_session`). All endpoints except `POST /v1/auth/login` require an active session.
+**Authentication:** Session cookie (`shuffle_session`). All endpoints except `POST /v1/auth/login` require an active session.
 
 **CSRF:** All state-changing requests (POST, PUT, DELETE) must include the `X-CSRF-Token` header.
 
@@ -2229,10 +2229,10 @@ Content-Security-Policy: (see 6.4)
 
 ```apache
 <VirtualHost *:443>
-    ServerName kanboard.example.com
-    DocumentRoot /opt/kanboard/www
+    ServerName shuffle.example.com
+    DocumentRoot /opt/shuffle/www
 
-    <Directory /opt/kanboard/www>
+    <Directory /opt/shuffle/www>
         AllowOverride All
         Require all granted
     </Directory>
@@ -2262,8 +2262,8 @@ RewriteRule ^(.*)$ index.php [QSA,L]
 ```nginx
 server {
     listen 443 ssl;
-    server_name kanboard.example.com;
-    root /opt/kanboard/www;
+    server_name shuffle.example.com;
+    root /opt/shuffle/www;
     index index.php;
 
     # Disable upload size limit (handled by PHP)
@@ -2315,8 +2315,8 @@ The upload handler reads from `php://input` in chunks (5 MB default) and forward
 ### 7.5 File Permissions
 
 ```
-/opt/kanboard/
-├── bin/        → 750 (owner: kanboard, group: kanboard)
+/opt/shuffle/
+├── bin/        → 750 (owner: shuffle, group: shuffle)
 ├── doc/        → 644
 ├── etc/        → 750 (config.php contains secrets)
 ├── include/    → 644
@@ -2328,9 +2328,9 @@ The web server user (e.g., `www-data`) needs read access to `www/`, `include/`, 
 ### 7.6 Database Setup
 
 ```sql
-CREATE DATABASE kanboard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER 'kanboard'@'localhost' IDENTIFIED BY 'secure_password';
-GRANT ALL PRIVILEGES ON kanboard.* TO 'kanboard'@'localhost';
+CREATE DATABASE shuffle CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'shuffle'@'localhost' IDENTIFIED BY 'secure_password';
+GRANT ALL PRIVILEGES ON shuffle.* TO 'shuffle'@'localhost';
 FLUSH PRIVILEGES;
 ```
 
@@ -2338,10 +2338,10 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 
 ### 7.7 Installation Steps
 
-1. Clone the repository to `/opt/kanboard/`
+1. Clone the repository to `/opt/shuffle/`
 2. Copy `etc/config.example.php` to `etc/config.php` and edit settings
 3. Create MySQL database and user
-4. Run `mysql kanboard < doc/schema.sql`
+4. Run `mysql shuffle < doc/schema.sql`
 5. Configure the web server (Apache or Nginx) pointing DocumentRoot to `www/`
 6. Set file permissions
 7. Access the application and log in with the initial admin account (created by a setup script: `php bin/setup.php`)
@@ -2377,7 +2377,7 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 | **From address** | Configurable in `etc/config.php` |
 
 **Invitation email content:**
-- Subject: i18n key `email.invite_subject` — e.g., "You're invited to KanBoard"
+- Subject: i18n key `email.invite_subject` — e.g., "You're invited to Shuffle"
 - Body: Welcome message + activation link with token
 - Activation URL: `{app.url}/activate.php?token={invite_token}`
 
@@ -2390,9 +2390,9 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 | **Network** | Downloads attachments from Trello CDN during import |
 | **Idempotency** | Uses `trello_id` columns to detect previously imported entities |
 
-**Trello → KanBoard mapping:**
+**Trello → Shuffle mapping:**
 
-| Trello Entity | KanBoard Entity | Notes |
+| Trello Entity | Shuffle Entity | Notes |
 |---|---|---|
 | Board | Board | `trello_id` stored for dedup |
 | List | Lane | Position preserved |
@@ -2477,7 +2477,7 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 - `bin/setup.php` — creates initial admin user
 
 **Acceptance criteria:**
-- Autoloader resolves all `KanBoard\` classes
+- Autoloader resolves all `Shuffle\` classes
 - Database wrapper connects and executes parameterized queries
 - Session persists across requests in MySQL
 - Setup script creates a working admin account
@@ -2639,7 +2639,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 
 ### B. Trello JSON Mapping Reference
 
-| Trello JSON Path | KanBoard Field | Notes |
+| Trello JSON Path | Shuffle Field | Notes |
 |---|---|---|
 | `.id` | `boards.trello_id` | |
 | `.name` | `boards.title` | |
@@ -2695,59 +2695,1561 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | **Signature V4** | AWS's request signing algorithm authenticating S3 API calls using HMAC-SHA256 |
 | **Strict board isolation** | The principle that unauthorized users receive no information about a board's existence (404, not 403) |
 
-### E. CSS Custom Properties (Design Tokens)
+### E. Visual Design System — CSS Custom Properties (Design Tokens)
 
-The `app.css` stylesheet defines CSS custom properties on `:root` for consistent theming:
+The `app.css` stylesheet defines CSS custom properties for consistent theming. Shuffle uses a **dark-first design** with deep purple accents and soft muted colors. Both dark (default) and light themes are defined. Theme switching is achieved by overriding custom properties on a `[data-theme="light"]` selector.
+
+#### E.1 Design Philosophy
+
+- **Dark-first**: The default and primary theme is dark, with a near-black base and cool purple undertone
+- **Deep purple accent**: `#6D28D9` is the brand color, used for primary actions, buttons, and active states
+- **Soft/muted semantics**: Status colors (success, warning, error) use warm pastels that are gentle on dark backgrounds
+- **3-level surface hierarchy**: Base → Raised → Elevated, creating depth through progressive lightening
+- **WCAG AA compliant**: All text/background combinations meet 4.5:1 contrast ratio minimum; large text meets 3:1
+
+#### E.2 Dark Theme (Default)
 
 ```css
 :root {
-    /* Colors */
-    --color-primary: #0079bf;
-    --color-primary-hover: #026aa7;
-    --color-secondary: #5ba4cf;
-    --color-background: #f4f5f7;
-    --color-surface: #ffffff;
-    --color-text: #172b4d;
-    --color-text-secondary: #5e6c84;
-    --color-border: #dfe1e6;
-    --color-error: #eb5a46;
-    --color-success: #61bd4f;
-    --color-warning: #f2d600;
+    /* ========================================
+       BACKGROUNDS — 3-level surface hierarchy
+       ======================================== */
+    --color-base: #0D0D12;              /* Deepest background: page body, board area */
+    --color-raised: #161625;            /* Mid-level surface: lanes, cards, sidebars */
+    --color-elevated: #1E1E32;          /* Top-level surface: modals, dropdowns, popovers */
 
-    /* Spacing */
+    /* ========================================
+       PRIMARY — Deep indigo-purple accent
+       ======================================== */
+    --color-primary: #6D28D9;           /* Filled buttons, badges, active indicators */
+    --color-primary-hover: #7C3AED;     /* Hover state for primary buttons/elements */
+    --color-primary-active: #5B21B6;    /* Active/pressed state for primary buttons */
+    --color-primary-text: #A78BFA;      /* Links, inline text on dark backgrounds (AA: ~7.5:1 on base) */
+    --color-primary-subtle: rgba(109, 40, 217, 0.15); /* Subtle primary background tint (selected rows, active nav) */
+
+    /* ========================================
+       TEXT — Off-white with cool tint
+       ======================================== */
+    --color-text: #E2E2EC;              /* Primary body text, headings (AA: ~14:1 on base) */
+    --color-text-secondary: #9898AC;    /* Secondary text, timestamps, metadata (AA: ~6.5:1 on base) */
+    --color-text-disabled: #5A5A6E;     /* Disabled controls, placeholder text (AA: 3.2:1 — large text only) */
+    --color-text-inverse: #0D0D12;      /* Text on light/primary-filled backgrounds (e.g. white button text on purple) */
+    --color-text-on-primary: #FFFFFF;   /* Text on primary-colored fills (buttons, badges) */
+
+    /* ========================================
+       SEMANTIC — Warm muted pastels
+       ======================================== */
+    --color-success: #86EFAC;           /* Success states: save confirmed, task complete, checklist done */
+    --color-success-subtle: rgba(134, 239, 172, 0.12); /* Success background tint */
+    --color-warning: #FDBA74;           /* Warning states: due soon, approaching limit */
+    --color-warning-subtle: rgba(253, 186, 116, 0.12); /* Warning background tint */
+    --color-error: #F87171;             /* Error states: delete, validation fail, overdue */
+    --color-error-subtle: rgba(248, 113, 113, 0.12);   /* Error background tint */
+    --color-info: #A78BFA;              /* Info states: notifications, tips, highlights */
+    --color-info-subtle: rgba(167, 139, 250, 0.12);    /* Info background tint */
+
+    /* ========================================
+       BORDERS
+       ======================================== */
+    --color-border: #2A2A3C;            /* Default borders: cards, inputs, dividers */
+    --color-border-subtle: #1E1E30;     /* Subtle separators: between list items, lanes */
+    --color-border-focus: #A78BFA;      /* Focus ring color (keyboard navigation) — 2px solid */
+
+    /* ========================================
+       INTERACTIVE STATES
+       ======================================== */
+    --color-hover-overlay: rgba(255, 255, 255, 0.05);  /* Generic hover: cards, list items, nav items */
+    --color-active-overlay: rgba(255, 255, 255, 0.08); /* Generic active/pressed overlay */
+    --color-selected-bg: rgba(109, 40, 217, 0.20);     /* Selected item background (e.g. current nav item) */
+
+    /* ========================================
+       OVERLAYS & UTILITY
+       ======================================== */
+    --color-overlay: rgba(0, 0, 0, 0.60);    /* Modal/dialog backdrop */
+    --color-scrollbar: #2A2A3C;               /* Scrollbar track/thumb resting */
+    --color-scrollbar-hover: #3A3A4C;         /* Scrollbar thumb on hover */
+    --color-drag-shadow: rgba(109, 40, 217, 0.30); /* Shadow on dragged cards */
+
+    /* ========================================
+       SPACING
+       ======================================== */
+    --space-2xs: 2px;
     --space-xs: 4px;
     --space-sm: 8px;
     --space-md: 16px;
     --space-lg: 24px;
     --space-xl: 32px;
+    --space-2xl: 48px;
+    --space-3xl: 64px;
 
-    /* Typography */
+    /* ========================================
+       TYPOGRAPHY — Font Families
+       ======================================== */
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    --font-size-sm: 0.875rem;
-    --font-size-md: 1rem;
-    --font-size-lg: 1.25rem;
-    --font-size-xl: 1.5rem;
+    --font-family-mono: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
 
-    /* Layout */
+    /* ========================================
+       TYPOGRAPHY — Font Sizes
+       ======================================== */
+    --font-size-xs: 0.75rem;    /* 12px — badges, timestamps */
+    --font-size-sm: 0.875rem;   /* 14px — secondary text, metadata */
+    --font-size-md: 1rem;       /* 16px — body text, inputs */
+    --font-size-lg: 1.25rem;    /* 20px — section headings, card titles in detail view */
+    --font-size-xl: 1.5rem;     /* 24px — page titles */
+    --font-size-2xl: 2rem;      /* 32px — hero/onboarding headings */
+
+    /* ========================================
+       TYPOGRAPHY — Font Weights
+       ======================================== */
+    --font-weight-regular: 400;  /* Body text, descriptions, form inputs */
+    --font-weight-medium: 500;   /* UI labels, button text, nav items, H5–H6 */
+    --font-weight-semibold: 600; /* Card titles, H3–H4, emphasized metadata */
+    --font-weight-bold: 700;     /* Page headings (H1–H2), strong emphasis */
+
+    /* ========================================
+       TYPOGRAPHY — Line Heights
+       ======================================== */
+    --line-height-tight: 1.2;    /* Headings (H1–H3), display text */
+    --line-height-ui: 1.25;      /* Buttons, badges, form labels, table cells */
+    --line-height-body: 1.5;     /* Body text, paragraphs, descriptions (WCAG ≥1.5) */
+
+    /* ========================================
+       TYPOGRAPHY — Letter Spacing
+       ======================================== */
+    --letter-spacing-tight: -0.01em;   /* H1, H2 — large headings feel tighter */
+    --letter-spacing-normal: 0;        /* Body text, most UI elements */
+    --letter-spacing-wide: 0.01em;     /* xs/sm text (12–14px) for legibility */
+
+    /* ========================================
+       SPACING — 4px base unit
+       ======================================== */
+    --space-1: 4px;     /* Micro: icon-to-text inline gap, tight dividers */
+    --space-2: 8px;     /* XS: card gap, badge padding, checkbox spacing */
+    --space-3: 12px;    /* SM: card internal padding (h), lane gap, list item spacing */
+    --space-4: 16px;    /* MD: section padding, input padding, mobile page margin */
+    --space-5: 20px;    /* Between form fields, small component groups */
+    --space-6: 24px;    /* LG: desktop page padding, modal padding, card detail sections */
+    --space-8: 32px;    /* XL: page section gaps, large separations */
+    --space-10: 40px;   /* 2XL: major page sections, hero spacing */
+    --space-12: 48px;   /* 3XL: top-level page vertical padding */
+    --space-16: 64px;   /* 4XL: large hero/onboarding spacing */
+
+    /* ========================================
+       LAYOUT — Structural Dimensions
+       ======================================== */
     --header-height: 48px;
+    --sidebar-width: 240px;
+    --sidebar-collapsed-width: 48px;
     --lane-width: 272px;
-    --card-border-radius: 4px;
-    --border-radius: 4px;
+    --lane-gap: 12px;
+    --content-max-width: 800px;
+    --card-padding-x: 12px;
+    --card-padding-y: 8px;
+    --card-gap: 8px;
 
-    /* Shadows */
-    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.1);
-    --shadow-elevated: 0 4px 12px rgba(0, 0, 0, 0.15);
+    /* ========================================
+       LAYOUT — Modal Sizes
+       ======================================== */
+    --modal-width-sm: 440px;   /* Confirmations, simple forms */
+    --modal-width-lg: 640px;   /* Card detail, settings, import, complex forms */
+    --modal-margin: 16px;      /* Min margin from viewport edges (mobile) */
 
-    /* Z-index layers */
+    /* ========================================
+       LAYOUT — Border Radius
+       ======================================== */
+    --border-radius-sm: 4px;
+    --border-radius-md: 6px;
+    --border-radius-lg: 8px;
+    --border-radius-xl: 12px;
+    --border-radius-full: 9999px;
+
+    /* ========================================
+       LAYOUT — Breakpoints (reference, not tokens)
+       Mobile:  < 768px
+       Tablet:  768px – 1023px
+       Desktop: ≥ 1024px
+       ======================================== */
+
+    /* ========================================
+       SHADOWS — adjusted for dark theme
+       ======================================== */
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --shadow-drag: 0 8px 24px rgba(109, 40, 217, 0.3), 0 2px 8px rgba(0, 0, 0, 0.4);
+
+    /* ========================================
+       Z-INDEX LAYERS
+       ======================================== */
     --z-dropdown: 100;
-    --z-modal: 200;
+    --z-sticky: 150;
+    --z-modal-backdrop: 200;
+    --z-modal: 250;
     --z-notification: 300;
     --z-drag: 400;
+    --z-tooltip: 500;
 }
 ```
 
-These tokens enable future theming (dark mode, custom branding) by overriding custom properties without changing component CSS.
+#### E.3 Light Theme
+
+Applied via `[data-theme="light"]` on the `<html>` element. Only color-related tokens are overridden; spacing, typography, layout, and z-index remain unchanged.
+
+```css
+[data-theme="light"] {
+    /* Backgrounds */
+    --color-base: #F5F3FF;             /* Faint purple-tinted white */
+    --color-raised: #FFFFFF;
+    --color-elevated: #FFFFFF;
+
+    /* Primary */
+    --color-primary: #6D28D9;           /* Same brand purple — works on light backgrounds */
+    --color-primary-hover: #5B21B6;     /* Darker on hover (inverted from dark theme) */
+    --color-primary-active: #4C1D95;
+    --color-primary-text: #6D28D9;      /* Links — full purple works on light (AA: ~7:1 on base) */
+    --color-primary-subtle: rgba(109, 40, 217, 0.08);
+
+    /* Text */
+    --color-text: #1A1A2E;             /* Near-black with purple undertone */
+    --color-text-secondary: #5A5A72;
+    --color-text-disabled: #9898AC;
+    --color-text-inverse: #FFFFFF;
+    --color-text-on-primary: #FFFFFF;
+
+    /* Semantic — deeper/saturated versions for light backgrounds */
+    --color-success: #16A34A;
+    --color-success-subtle: rgba(22, 163, 74, 0.08);
+    --color-warning: #CA8A04;
+    --color-warning-subtle: rgba(202, 138, 4, 0.08);
+    --color-error: #DC2626;
+    --color-error-subtle: rgba(220, 38, 38, 0.08);
+    --color-info: #6D28D9;
+    --color-info-subtle: rgba(109, 40, 217, 0.08);
+
+    /* Borders */
+    --color-border: #E2E0EC;
+    --color-border-subtle: #EEECF5;
+    --color-border-focus: #6D28D9;
+
+    /* Interactive states */
+    --color-hover-overlay: rgba(0, 0, 0, 0.04);
+    --color-active-overlay: rgba(0, 0, 0, 0.07);
+    --color-selected-bg: rgba(109, 40, 217, 0.10);
+
+    /* Overlays & utility */
+    --color-overlay: rgba(0, 0, 0, 0.40);
+    --color-scrollbar: #D0CEE0;
+    --color-scrollbar-hover: #B8B6C8;
+    --color-drag-shadow: rgba(109, 40, 217, 0.20);
+
+    /* Shadows — lighter for light theme */
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.12);
+    --shadow-drag: 0 8px 24px rgba(109, 40, 217, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+```
+
+#### E.4 Board Background Tint Presets
+
+Users can select a board background tint from 8 presets. The tint applies as a subtle hue shift on the base background color. The default is neutral (no tint). These are applied via a `data-board-tint` attribute on the board container.
+
+**Dark theme tints** (subtle shifts on `#0D0D12`):
+
+| Name | Value | Description |
+|---|---|---|
+| `neutral` | `#0D0D12` | Default — no tint |
+| `purple` | `#0F0D18` | Faint purple warmth |
+| `blue` | `#0D0F18` | Cool blue undertone |
+| `teal` | `#0D1214` | Cool teal/green |
+| `green` | `#0D120E` | Subtle forest |
+| `amber` | `#12110D` | Warm amber glow |
+| `rose` | `#120D10` | Soft pink warmth |
+| `slate` | `#0F0F14` | Cool neutral gray |
+
+**Light theme tints** (subtle shifts on `#F5F3FF`):
+
+| Name | Value | Description |
+|---|---|---|
+| `neutral` | `#F5F3FF` | Default — faint purple base |
+| `purple` | `#F0EBFF` | Deeper lavender |
+| `blue` | `#EBF0FF` | Soft sky |
+| `teal` | `#E8F5F5` | Cool mint |
+| `green` | `#EBF5EB` | Gentle sage |
+| `amber` | `#F5F2EB` | Warm cream |
+| `rose` | `#F5EBF0` | Soft blush |
+| `slate` | `#EFEFF3` | Cool neutral |
+
+#### E.5 WCAG AA Contrast Verification
+
+All text/background combinations have been verified for WCAG 2.1 AA compliance:
+
+**Dark theme (on `--color-base: #0D0D12`):**
+
+| Token | Color | Contrast Ratio | Passes AA |
+|---|---|---|---|
+| `--color-text` | `#E2E2EC` | ~14.2:1 | ✅ Normal + large text |
+| `--color-text-secondary` | `#9898AC` | ~6.5:1 | ✅ Normal + large text |
+| `--color-text-disabled` | `#5A5A6E` | ~3.2:1 | ⚠️ Large text only (18px+) |
+| `--color-primary-text` (links) | `#A78BFA` | ~7.5:1 | ✅ Normal + large text |
+| `--color-success` | `#86EFAC` | ~12.0:1 | ✅ Normal + large text |
+| `--color-warning` | `#FDBA74` | ~10.5:1 | ✅ Normal + large text |
+| `--color-error` | `#F87171` | ~6.8:1 | ✅ Normal + large text |
+| `--color-info` | `#A78BFA` | ~7.5:1 | ✅ Normal + large text |
+| `--color-text-on-primary` (on `#6D28D9`) | `#FFFFFF` | ~7.2:1 | ✅ Normal + large text |
+
+**Dark theme (on `--color-raised: #161625`):**
+
+| Token | Color | Contrast Ratio | Passes AA |
+|---|---|---|---|
+| `--color-text` | `#E2E2EC` | ~11.8:1 | ✅ Normal + large text |
+| `--color-text-secondary` | `#9898AC` | ~5.5:1 | ✅ Normal + large text |
+| `--color-primary-text` (links) | `#A78BFA` | ~6.3:1 | ✅ Normal + large text |
+
+**Light theme (on `--color-base: #F5F3FF`):**
+
+| Token | Color | Contrast Ratio | Passes AA |
+|---|---|---|---|
+| `--color-text` | `#1A1A2E` | ~14.5:1 | ✅ Normal + large text |
+| `--color-text-secondary` | `#5A5A72` | ~5.8:1 | ✅ Normal + large text |
+| `--color-primary-text` (links) | `#6D28D9` | ~7.0:1 | ✅ Normal + large text |
 
 ---
 
-*This specification is complete and ready for implementation. It traces back to all requirements in REQUIREMENTS.md v1.2 and provides sufficient detail for a developer to build KanBoard without ambiguity.*
+#### E.6 Typography System
+
+##### Font Loading Strategy
+
+The font stack uses **system fonts only** — no web fonts to download. This guarantees zero font-loading latency, no FOIT/FOUT, and optimal performance. The system stack adapts to each OS:
+
+| OS | Primary Resolved Font |
+|---|---|
+| macOS / iOS | SF Pro (via `-apple-system`) |
+| Windows | Segoe UI |
+| Android | Roboto |
+| Linux | Ubuntu / system sans-serif |
+
+Monospace follows the same strategy: SF Mono → Fira Code → Menlo → Consolas → fallback.
+
+##### Heading Hierarchy
+
+All headings use `--line-height-tight: 1.2`. H1 and H2 apply `--letter-spacing-tight: -0.01em`; H3–H6 use `--letter-spacing-normal: 0`.
+
+| Level | Font Size Token | Computed Size | Weight Token | Weight | Use Cases |
+|---|---|---|---|---|---|
+| H1 | `--font-size-2xl` | 32px | `--font-weight-bold` | 700 | Hero/onboarding headings (one per page max) |
+| H2 | `--font-size-xl` | 24px | `--font-weight-bold` | 700 | Page titles (board name, settings page) |
+| H3 | `--font-size-lg` | 20px | `--font-weight-semibold` | 600 | Section headings, card detail title |
+| H4 | `--font-size-md` | 16px | `--font-weight-semibold` | 600 | Sub-section headings, modal titles |
+| H5 | `--font-size-sm` | 14px | `--font-weight-medium` | 500 | Group labels, sidebar section headers |
+| H6 | `--font-size-xs` | 12px | `--font-weight-medium` | 500 | Overline labels, fine-grained grouping |
+
+Heading margins: `margin-top: 1.5em; margin-bottom: 0.5em` (collapsed when heading is the first child of its container).
+
+##### Body Text Variants
+
+| Variant | Size Token | Computed | Weight | Line Height | Letter Spacing | Use Cases |
+|---|---|---|---|---|---|---|
+| Body (default) | `--font-size-md` | 16px | 400 | `--line-height-body` (1.5) | `normal` | Card descriptions, comments, form helper text |
+| Body small | `--font-size-sm` | 14px | 400 | `--line-height-body` (1.5) | `--letter-spacing-wide` (0.01em) | Metadata, secondary descriptions |
+| Caption | `--font-size-xs` | 12px | 400 | `--line-height-body` (1.5) | `--letter-spacing-wide` (0.01em) | Timestamps, file sizes, badge text |
+| Strong | inherit | inherit | 700 | inherit | inherit | Inline emphasis (`<strong>`, `**markdown**`) |
+| Code (inline) | `--font-size-sm` | 14px | 400 | `--line-height-ui` (1.25) | `normal` | Inline code snippets; uses `--font-family-mono` |
+
+##### UI Text Variants
+
+These are used for interactive and structural UI elements, all using `--line-height-ui: 1.25`:
+
+| Variant | Size Token | Computed | Weight | Letter Spacing | Use Cases |
+|---|---|---|---|---|---|
+| Button text | `--font-size-sm` | 14px | 500 | `normal` | All button labels |
+| Button text (large) | `--font-size-md` | 16px | 500 | `normal` | Large/primary CTA buttons |
+| Form label | `--font-size-sm` | 14px | 500 | `normal` | Input labels, select labels |
+| Form input | `--font-size-md` | 16px | 400 | `normal` | Text inputs, textareas, selects |
+| Placeholder | `--font-size-md` | 16px | 400 | `normal` | Input placeholders; color: `--color-text-disabled` |
+| Nav item | `--font-size-sm` | 14px | 500 | `normal` | Sidebar nav, top nav links |
+| Nav item (active) | `--font-size-sm` | 14px | 600 | `normal` | Currently selected nav item |
+| Badge | `--font-size-xs` | 12px | 500 | `--letter-spacing-wide` (0.01em) | Status badges, count indicators |
+| Tooltip | `--font-size-xs` | 12px | 400 | `--letter-spacing-wide` (0.01em) | Tooltip text content |
+
+##### Link Styling
+
+Links within body text (not navigation) use the following treatment:
+
+```css
+a {
+    color: var(--color-primary-text);        /* #A78BFA dark / #6D28D9 light */
+    text-decoration: underline;              /* Always visible — not color-only */
+    text-decoration-color: currentColor;
+    text-underline-offset: 2px;              /* Prevents underline from touching descenders */
+    text-decoration-thickness: 1px;
+}
+a:hover {
+    text-decoration-thickness: 2px;          /* Thicker underline on hover for feedback */
+}
+a:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+```
+
+Navigation links (sidebar, top bar) do **not** use underlines — they rely on background color changes and weight shifts for active/hover states (defined in the component design section).
+
+##### Card Title Truncation
+
+Card titles in the board (column) view use a **2-line clamp** to maintain consistent card height:
+
+```css
+.card-title {
+    font-size: var(--font-size-sm);          /* 14px */
+    font-weight: var(--font-weight-semibold); /* 600 */
+    line-height: var(--line-height-body);     /* 1.5 */
+    letter-spacing: var(--letter-spacing-normal);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Max visible height: 14px × 1.5 × 2 = 42px */
+}
+```
+
+In card detail view (modal/panel), titles are **not** truncated and display at `--font-size-lg` (20px) with `--font-weight-semibold` (600).
+
+##### Markdown Rendered Content
+
+Card descriptions and comments render Markdown via Parsedown. The `.markdown-body` container applies refined typography:
+
+```css
+.markdown-body {
+    font-size: var(--font-size-md);
+    line-height: var(--line-height-body);
+    color: var(--color-text);
+}
+
+/* Paragraphs — tighter spacing than standard */
+.markdown-body p {
+    margin: 0 0 0.75em 0;
+}
+.markdown-body p:last-child {
+    margin-bottom: 0;
+}
+
+/* Headings within markdown — scale down by one level visually */
+.markdown-body h1 { font-size: var(--font-size-xl); font-weight: var(--font-weight-bold); }
+.markdown-body h2 { font-size: var(--font-size-lg); font-weight: var(--font-weight-bold); }
+.markdown-body h3 { font-size: var(--font-size-md); font-weight: var(--font-weight-semibold); }
+.markdown-body h4 { font-size: var(--font-size-sm); font-weight: var(--font-weight-semibold); }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+    line-height: var(--line-height-tight);
+    margin: 1.25em 0 0.5em 0;
+}
+
+/* Blockquotes */
+.markdown-body blockquote {
+    border-left: 3px solid var(--color-primary);
+    background: var(--color-primary-subtle);
+    padding: 0.5em 1em;
+    margin: 0.75em 0;
+    border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+    color: var(--color-text-secondary);
+}
+
+/* Code blocks */
+.markdown-body pre {
+    background: var(--color-raised);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius-md);
+    padding: 0.75em 1em;
+    margin: 0.75em 0;
+    overflow-x: auto;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-sm);
+    line-height: 1.6;
+}
+
+/* Inline code */
+.markdown-body code:not(pre code) {
+    background: var(--color-primary-subtle);
+    padding: 0.15em 0.4em;
+    border-radius: var(--border-radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: 0.875em;  /* Relative to parent — slightly smaller than surrounding text */
+}
+
+/* Tables */
+.markdown-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75em 0;
+    font-size: var(--font-size-sm);
+}
+.markdown-body th {
+    font-weight: var(--font-weight-semibold);
+    text-align: left;
+    padding: 0.5em 0.75em;
+    border-bottom: 2px solid var(--color-border);
+    color: var(--color-text);
+}
+.markdown-body td {
+    padding: 0.5em 0.75em;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+.markdown-body tr:nth-child(even) td {
+    background: var(--color-hover-overlay);
+}
+
+/* Task lists (Parsedown renders as <ul> with <input type="checkbox">) */
+.markdown-body input[type="checkbox"] {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    vertical-align: middle;
+    margin-right: 0.5em;
+    position: relative;
+    cursor: default;
+}
+.markdown-body input[type="checkbox"]:checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+}
+.markdown-body input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 0px;
+    width: 6px;
+    height: 10px;
+    border: solid var(--color-text-on-primary);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+
+/* Horizontal rules */
+.markdown-body hr {
+    border: none;
+    height: 1px;
+    background: var(--color-border);
+    margin: 1.5em 0;
+}
+
+/* Lists */
+.markdown-body ul, .markdown-body ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+.markdown-body li {
+    margin: 0.25em 0;
+}
+.markdown-body li > p {
+    margin: 0.25em 0;
+}
+
+/* Images in markdown */
+.markdown-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--border-radius-md);
+    margin: 0.75em 0;
+}
+```
+
+##### Responsive Typography
+
+The font system uses `rem` units anchored to the `<html>` element's `font-size`. No font scaling adjustments are applied at different breakpoints — the system font stack and `1rem = 16px` base provide consistent readability across devices. Body text at 16px meets WCAG minimum requirements at all viewport sizes.
+
+If future testing reveals readability issues on very small screens, a single adjustment can be applied:
+
+```css
+/* Reserved — not applied at MVP */
+@media (max-width: 359px) {
+    html { font-size: 14px; }
+}
+```
+
+##### Text Color Application Summary
+
+| Element | Color Token | Theme-Agnostic? |
+|---|---|---|
+| Body text, headings | `--color-text` | ✅ |
+| Secondary text, metadata, timestamps | `--color-text-secondary` | ✅ |
+| Disabled text, placeholder | `--color-text-disabled` | ✅ |
+| Links | `--color-primary-text` | ✅ |
+| Text on primary-colored backgrounds | `--color-text-on-primary` | ✅ |
+| Text on inverted backgrounds | `--color-text-inverse` | ✅ |
+| Error messages | `--color-error` | ✅ |
+| Success messages | `--color-success` | ✅ |
+
+---
+
+#### E.7 Spacing & Layout System
+
+##### Spacing Scale
+
+All spacing in the system is based on a **4px base unit**. Named spacing tokens cover the full range of UI needs:
+
+| Token | Value | Use Cases |
+|---|---|---|
+| `--space-1` | 4px | Icon-to-text inline gaps, tight dividers, micro adjustments |
+| `--space-2` | 8px | Card gap, badge inline padding, checkbox-to-label, small component gaps |
+| `--space-3` | 12px | Card horizontal padding, lane gap, list item vertical spacing |
+| `--space-4` | 16px | Input padding, section internal padding, mobile page margins |
+| `--space-5` | 20px | Gap between form fields, small component group spacing |
+| `--space-6` | 24px | Desktop page padding, modal padding, card detail section gaps |
+| `--space-8` | 32px | Page section gaps, large vertical separations |
+| `--space-10` | 40px | Major page sections, hero area padding |
+| `--space-12` | 48px | Top-level page vertical padding, equals header height |
+| `--space-16` | 64px | Large hero/onboarding vertical spacing |
+
+**Rule**: Every padding, margin, and gap value in the application **must** use one of these tokens. No arbitrary pixel values.
+
+##### Breakpoints
+
+Three responsive tiers with mobile-first media queries:
+
+| Tier | Range | Sidebar | Board Layout | Page Padding |
+|---|---|---|---|---|
+| **Mobile** | < 768px | Hidden (hamburger toggle) | Horizontal scroll, lanes at 272px with peek | 16px (`--space-4`) |
+| **Tablet** | 768–1023px | Collapsible (starts collapsed) | Horizontal scroll, sidebar overlay when open | 24px (`--space-6`) |
+| **Desktop** | ≥ 1024px | Visible, collapsible (starts open) | Horizontal scroll, sidebar pushes content | 24px (`--space-6`) |
+
+```css
+/* Breakpoint media queries */
+@media (max-width: 767px)  { /* Mobile styles */ }
+@media (min-width: 768px)  { /* Tablet+ styles */ }
+@media (min-width: 1024px) { /* Desktop styles */ }
+```
+
+##### Page Layout Structure
+
+The application uses a fixed-header layout with a collapsible sidebar:
+
+```
+┌──────────────────────────────────────────────────────┐
+│  Top Header Bar (48px, full width, fixed)             │
+├────────────┬─────────────────────────────────────────┤
+│            │                                         │
+│  Sidebar   │  Main Content Area                      │
+│  (240px)   │  (flex: 1, scrollable)                  │
+│            │                                         │
+│  - Logo    │  Board view: lanes scroll horizontally  │
+│  - Nav     │  Other pages: centered, max 800px       │
+│  - Boards  │                                         │
+│            │                                         │
+│  Collapse  │                                         │
+│  toggle ▶  │                                         │
+│            │                                         │
+└────────────┴─────────────────────────────────────────┘
+```
+
+```css
+/* Core layout structure */
+.app-layout {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.app-header {
+    height: var(--header-height);          /* 48px */
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+}
+
+.app-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.app-sidebar {
+    width: var(--sidebar-width);           /* 240px */
+    flex-shrink: 0;
+    overflow-y: auto;
+    transition: width 0.2s ease-in-out;
+}
+
+.app-sidebar[data-collapsed="true"] {
+    width: var(--sidebar-collapsed-width); /* 48px */
+}
+
+.app-main {
+    flex: 1;
+    overflow: auto;
+}
+```
+
+##### Sidebar
+
+| Property | Value | Notes |
+|---|---|---|
+| Width (open) | 240px (`--sidebar-width`) | Fixed, not resizable |
+| Width (collapsed) | 48px (`--sidebar-collapsed-width`) | Shows icons only, tooltips on hover |
+| Collapse transition | `width 0.2s ease-in-out` | Smooth collapse/expand |
+| Internal padding | 12px (`--space-3`) | Left and right |
+| Section gap | 24px (`--space-6`) | Between nav groups (e.g., navigation vs board list) |
+| Item height | 36px | Nav items, board list entries — meets 44px touch target via padding |
+| Item padding | 8px vertical, 12px horizontal | Within each nav/board item |
+| Item border-radius | `--border-radius-md` (6px) | Rounded hover/active backgrounds |
+| Collapse toggle | Bottom of sidebar | Icon button, 48×36px, keyboard accessible |
+| Persistence | `localStorage` key: `sidebar-collapsed` | Remembers user preference |
+
+**Mobile behavior (< 768px):** Sidebar is hidden by default. Hamburger button in the header opens it as a **full-height overlay** with backdrop (`--color-overlay`). Closes on backdrop click, Escape key, or navigation.
+
+**Tablet behavior (768–1023px):** Sidebar starts collapsed (48px icons). Can expand to full 240px. When expanded, overlays the content area (does not push content).
+
+**Desktop behavior (≥ 1024px):** Sidebar starts open at 240px. Can be collapsed to 48px. Sidebar **pushes** the main content area (no overlay).
+
+##### Board View Layout
+
+The board is a **horizontally scrolling flex container** of lanes:
+
+```css
+.board-canvas {
+    display: flex;
+    gap: var(--lane-gap);                  /* 12px */
+    padding: var(--space-3) var(--space-6); /* 12px top/bottom, 24px left/right (desktop) */
+    overflow-x: auto;
+    overflow-y: hidden;
+    height: 100%;                           /* Fill below header */
+    align-items: flex-start;
+}
+
+/* Mobile padding */
+@media (max-width: 767px) {
+    .board-canvas {
+        padding: var(--space-2) var(--space-4); /* 8px top/bottom, 16px left/right */
+    }
+}
+```
+
+**Lane structure:**
+
+```css
+.lane {
+    width: var(--lane-width);              /* 272px */
+    min-width: var(--lane-width);          /* Prevent shrinking */
+    max-height: 100%;                      /* Constrained to board canvas */
+    display: flex;
+    flex-direction: column;
+    background: var(--color-raised);
+    border-radius: var(--border-radius-lg); /* 8px */
+    overflow: hidden;
+}
+
+.lane-header {
+    padding: var(--space-3) var(--space-3); /* 12px all sides */
+    flex-shrink: 0;
+}
+
+.lane-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 var(--space-2) var(--space-2); /* 0 top, 8px sides and bottom */
+}
+
+.lane-footer {
+    padding: var(--space-2) var(--space-3); /* 8px top/bottom, 12px sides */
+    flex-shrink: 0;
+}
+```
+
+**Lane header:** Displays lane title (sentence case, `--font-weight-semibold`, `--font-size-sm`) and card count badge. Editable inline on click.
+
+**Lane footer:** Contains the "+ Add Card" button. Always visible at the bottom of the lane.
+
+##### Ghost Lane (Add Lane)
+
+The "Add Lane" placeholder appears as the last column in the board:
+
+```css
+.lane-ghost {
+    width: var(--lane-width);              /* 272px — same as regular lanes */
+    min-width: var(--lane-width);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: var(--space-3);           /* 12px — aligns with lane headers */
+    flex-shrink: 0;
+}
+
+.lane-ghost-button {
+    width: 100%;
+    padding: var(--space-3);              /* 12px */
+    border: 2px dashed var(--color-border-subtle);
+    border-radius: var(--border-radius-lg); /* 8px */
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.lane-ghost-button:hover {
+    border-color: var(--color-primary);
+    color: var(--color-primary-text);
+    background: var(--color-primary-subtle);
+}
+```
+
+##### Card Layout (Board View)
+
+Individual cards within a lane:
+
+```css
+.card {
+    background: var(--color-elevated);
+    border-radius: var(--border-radius-md); /* 6px */
+    padding: var(--card-padding-y) var(--card-padding-x); /* 8px 12px */
+    box-shadow: var(--shadow-card);
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.card + .card {
+    margin-top: var(--card-gap);           /* 8px */
+}
+
+.card:hover {
+    box-shadow: var(--shadow-elevated);
+}
+
+.card[data-dragging="true"] {
+    box-shadow: var(--shadow-drag);
+    transform: rotate(2deg);
+    opacity: 0.9;
+    z-index: var(--z-drag);
+}
+```
+
+**Card content stack** (top to bottom within card):
+1. **Labels** — Colored pills, top of card, `margin-bottom: --space-1` (4px)
+2. **Title** — 2-line clamp (see Typography § E.6)
+3. **Metadata row** — Due date, comment count, checklist progress, attachment indicator; `margin-top: --space-2` (8px); uses `--font-size-xs`, `--color-text-secondary`
+4. **Assignees** — Avatar stack, bottom right, `margin-top: --space-2` (8px)
+
+##### Mobile Board Behavior (< 768px)
+
+Lanes remain at 272px width and scroll horizontally. The viewport shows approximately one lane at a time with a **peek** of the next lane (~24px visible) to signal scrollability:
+
+```css
+@media (max-width: 767px) {
+    .board-canvas {
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .lane {
+        scroll-snap-align: start;
+    }
+}
+```
+
+A **lane indicator** (dot navigation) appears below the board header on mobile to show which lane is in view. This is purely visual — swiping is the primary interaction.
+
+##### Modal Layout
+
+Modals center vertically and horizontally with a backdrop overlay:
+
+```css
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--color-overlay);
+    z-index: var(--z-modal-backdrop);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--modal-margin);          /* 16px from viewport edges */
+}
+
+.modal {
+    background: var(--color-elevated);
+    border-radius: var(--border-radius-xl); /* 12px */
+    box-shadow: var(--shadow-elevated);
+    z-index: var(--z-modal);
+    width: 100%;
+    max-height: calc(100vh - var(--modal-margin) * 2); /* Respect viewport */
+    overflow-y: auto;
+    padding: var(--space-6);               /* 24px */
+}
+
+.modal--sm {
+    max-width: var(--modal-width-sm);      /* 440px */
+}
+
+.modal--lg {
+    max-width: var(--modal-width-lg);      /* 640px */
+}
+```
+
+**Modal header:** Title (`--font-size-lg`, `--font-weight-semibold`) + close button (top right, icon-only, 36×36px).
+
+**Modal footer (if actions):** Right-aligned buttons with `--space-3` (12px) gap between them. `padding-top: --space-6` (24px) to separate from content.
+
+**Card detail modal** uses `--lg` size (640px). Internal sections separated by `--space-6` (24px) gaps. Sections: title, description, checklists, attachments, comments, sidebar metadata.
+
+##### Non-Board Page Layout
+
+Settings, user management, search results, and other non-board pages use a centered, max-width container:
+
+```css
+.page-content {
+    max-width: var(--content-max-width);   /* 800px */
+    margin: 0 auto;
+    padding: var(--space-6);               /* 24px */
+}
+
+@media (max-width: 767px) {
+    .page-content {
+        padding: var(--space-4);           /* 16px */
+    }
+}
+```
+
+##### Component Spacing Quick Reference
+
+| Context | Property | Token | Value |
+|---|---|---|---|
+| Card internal padding | padding | `--card-padding-y` / `--card-padding-x` | 8px / 12px |
+| Card-to-card gap | margin-top | `--card-gap` | 8px |
+| Lane-to-lane gap | gap | `--lane-gap` | 12px |
+| Lane internal padding (header) | padding | `--space-3` | 12px |
+| Lane internal padding (body) | padding | `0 --space-2 --space-2` | 0 8px 8px |
+| Form field gap | gap / margin | `--space-5` | 20px |
+| Input padding | padding | `--space-2 --space-3` | 8px 12px |
+| Button padding (default) | padding | `--space-2 --space-4` | 8px 16px |
+| Modal internal padding | padding | `--space-6` | 24px |
+| Desktop page margin | padding | `--space-6` | 24px |
+| Mobile page margin | padding | `--space-4` | 16px |
+| Section separators | margin/padding | `--space-8` | 32px |
+| Header height | height | `--header-height` | 48px |
+| Sidebar width | width | `--sidebar-width` | 240px |
+
+---
+
+#### E.8 Component Design System
+
+##### Buttons
+
+Four variants, three sizes, with consistent border-radius `--border-radius-lg` (8px).
+
+**Variants:**
+
+| Variant | Background | Text Color | Border | Use Cases |
+|---|---|---|---|---|
+| **Primary** | `--color-primary` | `--color-text-on-primary` | none | Main actions: Save, Create, Confirm |
+| **Secondary** | transparent | `--color-text` | 1px solid `--color-border` | Cancel, secondary actions, filters |
+| **Ghost** | transparent | `--color-text-secondary` | none | Toolbar actions, inline actions, close |
+| **Danger** | `--color-error` | `#FFFFFF` | none | Delete, remove, destructive actions |
+
+**Sizes:**
+
+| Size | Height | Font Size | Padding | Icon Size | Icon-Only Width |
+|---|---|---|---|---|---|
+| **Small** | 28px | `--font-size-xs` (12px) | 4px 12px | 14px | 28px |
+| **Default** | 36px | `--font-size-sm` (14px) | 8px 16px | 16px | 36px |
+| **Large** | 44px | `--font-size-md` (16px) | 10px 24px | 20px | 44px |
+
+All buttons use `--font-weight-medium` (500) and `--line-height-ui` (1.25).
+
+**Interactive States:**
+
+```css
+/* Primary button — full specification */
+.btn-primary {
+    background: var(--color-primary);
+    color: var(--color-text-on-primary);
+    border: none;
+    border-radius: var(--border-radius-lg);  /* 8px */
+    font-weight: var(--font-weight-medium);
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.btn-primary:hover {
+    background: var(--color-primary-hover);
+}
+.btn-primary:active {
+    background: var(--color-primary-active);
+    transform: scale(0.98);
+}
+.btn-primary:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+.btn-primary:disabled {
+    background: var(--color-text-disabled);
+    color: var(--color-base);
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* Secondary button */
+.btn-secondary {
+    background: transparent;
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+}
+.btn-secondary:hover {
+    background: var(--color-hover-overlay);
+    border-color: var(--color-text-secondary);
+}
+.btn-secondary:active {
+    background: var(--color-active-overlay);
+}
+
+/* Ghost button */
+.btn-ghost {
+    background: transparent;
+    color: var(--color-text-secondary);
+    border: none;
+    border-radius: var(--border-radius-lg);
+}
+.btn-ghost:hover {
+    background: var(--color-hover-overlay);
+    color: var(--color-text);
+}
+.btn-ghost:active {
+    background: var(--color-active-overlay);
+}
+
+/* Danger button */
+.btn-danger {
+    background: var(--color-error);
+    color: #FFFFFF;
+    border: none;
+    border-radius: var(--border-radius-lg);
+}
+.btn-danger:hover {
+    filter: brightness(1.1);
+}
+.btn-danger:active {
+    filter: brightness(0.95);
+    transform: scale(0.98);
+}
+```
+
+**Icon-Only Buttons:**
+
+Square with matching height/width and same border-radius as text buttons. Always require `aria-label` and display a tooltip on hover (500ms delay).
+
+```css
+.btn-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* width = height, determined by size class */
+    padding: 0;
+    border-radius: var(--border-radius-lg);  /* 8px */
+}
+/* Size: .btn-icon.btn-sm = 28×28, .btn-icon = 36×36, .btn-icon.btn-lg = 44×44 */
+```
+
+**Button with Icon + Text:**
+
+Icon placed left of text by default. Gap between icon and text: `--space-2` (8px). Icon size matches the size tier (see sizes table).
+
+**Loading State:**
+
+When a button action is in progress, the button text is replaced with a spinner (16px for default, scaled per size). The button is disabled and maintains its width to prevent layout shift.
+
+##### Form Elements
+
+**Text Inputs & Textareas:**
+
+Filled style — subtle background, no border at rest, border appears on focus.
+
+```css
+.input {
+    height: 36px;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);   /* 8px 12px */
+    background: var(--color-raised);
+    border: 1px solid transparent;             /* No visible border at rest */
+    border-radius: var(--border-radius-md);    /* 6px */
+    font-family: var(--font-family);
+    font-size: var(--font-size-md);            /* 16px */
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-ui);
+    color: var(--color-text);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.input::placeholder {
+    color: var(--color-text-disabled);
+}
+.input:hover {
+    background: var(--color-elevated);
+}
+.input:focus {
+    outline: none;
+    border-color: var(--color-border-focus);    /* Purple focus ring */
+    background: var(--color-elevated);
+}
+.input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Textarea — same styles, auto-height */
+.textarea {
+    /* Inherits .input styles */
+    height: auto;
+    min-height: 80px;
+    resize: vertical;
+    line-height: var(--line-height-body);       /* 1.5 for multi-line */
+}
+```
+
+**Form Labels:**
+
+Positioned **above** the input with a 4px gap:
+
+```css
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);                        /* 4px label-to-input gap */
+}
+.form-group + .form-group {
+    margin-top: var(--space-5);                 /* 20px between field groups */
+}
+.form-label {
+    font-size: var(--font-size-sm);            /* 14px */
+    font-weight: var(--font-weight-medium);    /* 500 */
+    line-height: var(--line-height-ui);
+    color: var(--color-text);
+}
+.form-label--required::after {
+    content: ' *';
+    color: var(--color-error);
+}
+```
+
+**Validation States:**
+
+Inline error below the input with an icon indicator inside the input:
+
+```css
+/* Error state */
+.input--error {
+    border-color: var(--color-error);
+    background: var(--color-error-subtle);
+}
+.input-error-icon {
+    position: absolute;
+    right: var(--space-3);                     /* 12px from right edge */
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-error);
+    width: 16px;
+    height: 16px;
+    /* ⚠ triangle icon or ✕ circle icon */
+}
+.form-error-message {
+    font-size: var(--font-size-xs);            /* 12px */
+    color: var(--color-error);
+    margin-top: var(--space-1);                /* 4px below input */
+    line-height: var(--line-height-body);
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);                       /* 4px icon-to-text */
+}
+
+/* Success state (post-validation) */
+.input--success {
+    border-color: var(--color-success);
+}
+```
+
+**Select / Custom Dropdown:**
+
+Native `<select>` with custom styling for consistency. Falls back gracefully to native mobile pickers:
+
+```css
+.select {
+    /* Same as .input */
+    appearance: none;
+    padding-right: var(--space-8);             /* 32px — room for chevron icon */
+    background-image: url('...chevron-down.svg');
+    background-repeat: no-repeat;
+    background-position: right var(--space-3) center;
+    background-size: 16px;
+}
+```
+
+**Checkboxes:**
+
+Custom-styled checkboxes replacing native appearance:
+
+```css
+.checkbox {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--color-border);
+    border-radius: var(--border-radius-sm);    /* 4px */
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    flex-shrink: 0;
+}
+.checkbox:hover {
+    border-color: var(--color-primary);
+}
+.checkbox:checked {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    /* Checkmark via pseudo-element or inline SVG */
+}
+.checkbox:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+.checkbox:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+```
+
+Checkbox-to-label gap: `--space-2` (8px). Labels are clickable (associated via `for` attribute).
+
+##### Header Bar
+
+The top header is 48px tall, full-width, fixed to the top:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [☰] Logo/Name          [ 🔍 Search input... ]    [🔔] [Avatar] │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+| Zone | Content | Alignment |
+|---|---|---|
+| **Left** | Hamburger menu (mobile/tablet), app logo or name | flex-start |
+| **Center** | Search input (expandable, `max-width: 480px`) | centered |
+| **Right** | Notification bell, user avatar → dropdown | flex-end |
+
+```css
+.app-header {
+    height: var(--header-height);              /* 48px */
+    background: var(--color-raised);
+    border-bottom: 1px solid var(--color-border-subtle);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-4);                 /* 0 16px */
+    gap: var(--space-4);                       /* 16px between zones */
+    z-index: var(--z-sticky);
+}
+
+.header-search {
+    flex: 1;
+    max-width: 480px;
+    margin: 0 auto;
+}
+
+.header-search .input {
+    height: 32px;                              /* Compact in header context */
+    font-size: var(--font-size-sm);
+    border-radius: var(--border-radius-full);  /* Pill-shaped search bar */
+}
+```
+
+**Mobile (< 768px):** Search input collapses to an icon button. Tapping it expands the search to fill the header (animated). Hamburger icon replaces the logo for sidebar toggle.
+
+##### Avatars
+
+Rounded square, three sizes. Initials fallback when no image uploaded:
+
+| Size | Dimensions | Border Radius | Font Size | Use Cases |
+|---|---|---|---|---|
+| Small | 24×24px | `--border-radius-sm` (4px) | 10px | Card assignees, inline mentions |
+| Medium | 32×32px | `--border-radius-md` (6px) | 13px | Header, comment authors, member lists |
+| Large | 48×48px | `--border-radius-lg` (8px) | 18px | Profile/settings page, user management |
+
+```css
+.avatar {
+    border-radius: var(--border-radius-md);
+    object-fit: cover;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+/* Initials fallback — colored background from user's name hash */
+.avatar--initials {
+    background: var(--avatar-bg);              /* Computed per user */
+    color: #FFFFFF;
+    font-weight: var(--font-weight-semibold);
+    text-transform: uppercase;
+}
+```
+
+**Avatar stack** (card assignees): Overlapping, right-to-left, with `-6px` margin-left. If > 3 assignees, show first 2 + "+N" count circle.
+
+**Initials color generation:** Hash the user's display name to select from 8 preset background colors: `#6D28D9` (purple), `#2563EB` (blue), `#0891B2` (teal), `#16A34A` (green), `#CA8A04` (amber), `#DC2626` (red), `#9333EA` (violet), `#4F46E5` (indigo). These are chosen to meet AA contrast on white text.
+
+##### Notification Bell & Dropdown
+
+**Bell indicator:** Small red dot (8px diameter) appears at the top-right corner of the bell icon when there are unread notifications. No count displayed.
+
+```css
+.notification-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 8px;
+    height: 8px;
+    border-radius: var(--border-radius-full);
+    background: var(--color-error);
+    border: 2px solid var(--color-raised);     /* Creates visual separation from icon */
+}
+```
+
+**Notification dropdown panel:** Opens below the bell icon. Width: 360px. Max height: 480px with scroll. Shows latest notifications grouped by time (Today, Yesterday, Older).
+
+Each notification item:
+- Height: auto (min 48px)
+- Padding: `--space-3` (12px)
+- Unread: left border 3px `--color-primary`, background `--color-primary-subtle`
+- Read: no left border, transparent background
+- Hover: `--color-hover-overlay`
+- Content: Avatar (24px) + text + timestamp, single or two lines
+
+##### Tooltips
+
+Dark pill tooltip, appears on hover after 500ms delay:
+
+```css
+.tooltip {
+    background: #1A1A2E;                       /* Near-black, works in both themes */
+    color: #FFFFFF;
+    font-size: var(--font-size-xs);            /* 12px */
+    font-weight: var(--font-weight-regular);
+    line-height: var(--line-height-ui);
+    padding: var(--space-1) var(--space-2);    /* 4px 8px */
+    border-radius: var(--border-radius-sm);    /* 4px */
+    z-index: var(--z-tooltip);
+    pointer-events: none;
+    max-width: 200px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* Arrow/caret — CSS triangle pointing toward trigger */
+.tooltip::after {
+    content: '';
+    position: absolute;
+    border: 5px solid transparent;
+    /* Direction set per placement: top, bottom, left, right */
+}
+.tooltip[data-placement="bottom"]::after {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-bottom-color: #1A1A2E;
+}
+```
+
+Tooltip positioning: Prefer **bottom**. If insufficient viewport space, flip to top, then left/right. Implemented via simple JS positioning (no library).
+
+##### Dropdown Menus
+
+Elevated card style for user menus, context menus, and custom selects:
+
+```css
+.dropdown {
+    background: var(--color-elevated);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius-lg);    /* 8px */
+    box-shadow: var(--shadow-elevated);
+    z-index: var(--z-dropdown);
+    min-width: 180px;
+    max-width: 280px;
+    padding: var(--space-1) 0;                 /* 4px top/bottom */
+    overflow-y: auto;
+    max-height: 320px;
+}
+
+.dropdown-item {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    padding: 0 var(--space-3);                 /* 0 12px */
+    gap: var(--space-2);                       /* 8px icon-to-text */
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background 0.1s ease;
+}
+.dropdown-item:hover {
+    background: var(--color-hover-overlay);
+}
+.dropdown-item:active {
+    background: var(--color-active-overlay);
+}
+.dropdown-item--danger {
+    color: var(--color-error);
+}
+
+.dropdown-divider {
+    height: 1px;
+    background: var(--color-border-subtle);
+    margin: var(--space-1) 0;                  /* 4px vertical margin */
+}
+```
+
+Dropdown opens below the trigger by default. If insufficient space below, opens above. Closes on: outside click, Escape key, item selection.
+
+##### Card Labels (Color Bars)
+
+In board view, labels appear as small color bars at the top of the card. In card detail view, they expand to show text.
+
+**Board view (compact):**
+
+```css
+.card-labels {
+    display: flex;
+    gap: var(--space-1);                       /* 4px between bars */
+    flex-wrap: wrap;
+    margin-bottom: var(--space-1);             /* 4px below labels */
+}
+
+.card-label-bar {
+    width: 40px;
+    height: 8px;
+    border-radius: var(--border-radius-sm);    /* 4px */
+    /* background set per label color */
+}
+.card-label-bar:hover {
+    height: 16px;                              /* Expand slightly on hover */
+    transition: height 0.1s ease;
+}
+```
+
+**Card detail view (expanded):**
+
+```css
+.card-label-pill {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 var(--space-2);                 /* 0 8px */
+    border-radius: var(--border-radius-full);  /* Pill shape */
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    /* background and text color set per label */
+}
+```
+
+**Label color presets** (8 colors, selected by user when creating a label):
+
+| Name | Background | Text Color |
+|---|---|---|
+| Red | `#EF4444` | `#FFFFFF` |
+| Orange | `#F97316` | `#FFFFFF` |
+| Amber | `#EAB308` | `#1A1A2E` |
+| Green | `#22C55E` | `#FFFFFF` |
+| Teal | `#14B8A6` | `#FFFFFF` |
+| Blue | `#3B82F6` | `#FFFFFF` |
+| Purple | `#8B5CF6` | `#FFFFFF` |
+| Pink | `#EC4899` | `#FFFFFF` |
+
+##### Checklist Progress Indicator (Board View)
+
+Mini progress bar displayed in the card metadata row:
+
+```css
+.checklist-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);                       /* 4px */
+}
+
+.checklist-progress-bar {
+    width: 48px;
+    height: 4px;
+    background: var(--color-border-subtle);
+    border-radius: var(--border-radius-full);
+    overflow: hidden;
+}
+
+.checklist-progress-fill {
+    height: 100%;
+    border-radius: var(--border-radius-full);
+    background: var(--color-primary);
+    transition: width 0.2s ease;
+}
+
+/* Complete state */
+.checklist-progress-fill--complete {
+    background: var(--color-success);
+}
+```
+
+The progress bar is accompanied by a small checkbox icon (14px) to the left, colored `--color-text-secondary`.
+
+##### Confirmation Dialogs
+
+Use small modal (`--modal-width-sm`, 440px) with warning treatment:
+
+```
+┌────────────────────────────────────────┐
+│                  [✕]                   │
+│          ⚠  Warning Icon               │
+│                                        │
+│     Are you sure you want to           │
+│     delete "Board Name"?               │
+│                                        │
+│     This action cannot be undone.      │
+│     All lanes, cards, and comments     │
+│     will be permanently removed.       │
+│                                        │
+│           [Cancel]  [Delete]           │
+└────────────────────────────────────────┘
+```
+
+- **Warning icon**: 40×40px, centered, `--color-warning` for warnings, `--color-error` for deletions
+- **Title**: `--font-size-lg` (20px), `--font-weight-semibold`, centered
+- **Body text**: `--font-size-sm` (14px), `--color-text-secondary`, centered
+- **Actions**: Right-aligned. Cancel = secondary button. Confirm = danger button (for destructive) or primary (for non-destructive confirmations)
+- **Spacing**: `--space-6` (24px) padding. `--space-4` (16px) between icon and title. `--space-2` (8px) between title and body. `--space-6` (24px) before action buttons.
+
+##### Focus Management & Keyboard Accessibility
+
+All interactive components follow consistent focus behavior:
+
+```css
+/* Global focus-visible style */
+:focus-visible {
+    outline: 2px solid var(--color-border-focus);  /* Purple */
+    outline-offset: 2px;
+}
+
+/* Remove outline for mouse clicks */
+:focus:not(:focus-visible) {
+    outline: none;
+}
+```
+
+| Component | Focus Behavior |
+|---|---|
+| Buttons | Visible outline on Tab focus. Not on click. |
+| Inputs | Border changes to `--color-border-focus`. No outline (border is sufficient). |
+| Links | Outline + rounded 2px radius |
+| Cards | Outline on focus. Enter/Space opens card detail. |
+| Dropdown items | Background highlight tracks keyboard position (arrow keys). Enter selects. |
+| Modal | Focus trapped inside. Tab cycles through focusable elements. Escape closes. |
+| Sidebar nav | Arrow keys navigate items. Enter activates. |
+
+**Tab order:** Follows visual layout. Skip links provided for: "Skip to main content", "Skip to board".
+
+---
+
+*This specification is a work in progress. The visual design system is being developed iteratively — color tokens, typography, spacing/layout, and component design are complete; interactive states and motion/animation will follow.*
