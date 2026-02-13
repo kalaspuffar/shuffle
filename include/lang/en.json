@@ -1,0 +1,91 @@
+{
+    "app.name": "Shuffle",
+    "app.tagline": "Kanban Task Management",
+
+    "auth.login": "Log In",
+    "auth.logout": "Log Out",
+    "auth.username": "Username",
+    "auth.password": "Password",
+    "auth.login_button": "Sign In",
+    "auth.invalid_credentials": "Invalid username or password.",
+    "auth.session_expired": "Your session has expired. Please log in again.",
+
+    "user.name": "Full Name",
+    "user.email": "Email Address",
+    "user.role": "Role",
+    "user.role_admin": "Admin",
+    "user.role_member": "Member",
+    "user.role_viewer": "Viewer",
+    "user.status_active": "Active",
+    "user.status_inactive": "Inactive",
+
+    "board.create": "Create Board",
+    "board.title": "Board Title",
+    "board.description": "Description",
+    "board.boards": "Boards",
+    "board.no_boards": "No boards found.",
+    "board.archived": "Archived",
+
+    "lane.create": "Add Lane",
+    "lane.title": "Lane Title",
+
+    "card.create": "Add Card",
+    "card.title": "Card Title",
+    "card.description": "Description",
+    "card.due_date": "Due Date",
+    "card.assign": "Assign",
+    "card.archived": "Archived",
+
+    "comment.add": "Add Comment",
+    "comment.placeholder": "Write a comment...",
+
+    "checklist.add": "Add Checklist",
+    "checklist.title": "Checklist Title",
+    "checklist.progress": "{0} of {1} complete",
+
+    "attachment.add": "Add Attachment",
+    "attachment.download": "Download",
+
+    "label.create": "Create Label",
+    "label.name": "Label Name",
+    "label.color": "Color",
+
+    "notification.no_notifications": "No notifications.",
+
+    "admin.users": "User Management",
+    "admin.invite": "Invite User",
+    "admin.organizations": "Organizations",
+
+    "org.name": "Organization Name",
+    "org.create": "Create Organization",
+
+    "action.save": "Save",
+    "action.cancel": "Cancel",
+    "action.delete": "Delete",
+    "action.edit": "Edit",
+    "action.archive": "Archive",
+    "action.confirm": "Are you sure?",
+
+    "error.not_found": "Not found.",
+    "error.forbidden": "Access denied.",
+    "error.unauthorized": "Please log in to continue.",
+    "error.bad_request": "Invalid request.",
+    "error.internal": "An internal error occurred. Please try again.",
+    "error.csrf_invalid": "Security token invalid. Please refresh and try again.",
+    "error.field_required": "{0} is required.",
+    "error.field_too_long": "{0} must be no more than {1} characters.",
+
+    "setup.welcome": "Welcome to Shuffle Setup",
+    "setup.create_admin": "Create the initial administrator account.",
+    "setup.success": "Setup complete. You can now log in.",
+    "setup.admin_created": "Admin user \"{0}\" created successfully.",
+    "setup.org_created": "Default organization \"{0}\" created.",
+
+    "validation.username_taken": "This username is already taken.",
+    "validation.username_length": "Username must be between {0} and {1} characters.",
+    "validation.username_format": "Username may only contain letters, numbers, dots, hyphens, and underscores.",
+    "validation.name_length": "Name must be between {0} and {1} characters.",
+    "validation.email_invalid": "A valid email address is required.",
+    "validation.email_taken": "This email address is already in use.",
+    "validation.password_min_length": "Password must be at least {0} characters."
+}
