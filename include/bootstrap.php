@@ -39,6 +39,8 @@ $lang = new Shuffle\Core\Lang(
     ROOT_DIR . '/include/lang'
 );
 
-// 7. Initialize Auth instance (stub — Phase 2 delivers full Auth)
-// $auth = new Shuffle\Core\Auth($db, $session);
-$auth = null;
+// 7. Initialize CSRF token manager
+$csrf = new Shuffle\Core\Csrf();
+
+// 8. Initialize Auth instance
+$auth = new Shuffle\Core\Auth($db, $session);
