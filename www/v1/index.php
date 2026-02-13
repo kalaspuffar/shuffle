@@ -49,6 +49,14 @@ $mailer      = new Shuffle\Core\Mailer($config['smtp'] ?? []);
 $appUrl      = $config['app']['url'] ?? 'http://localhost';
 $userController = new Shuffle\Controller\UserController($auth, $userService, $mailer, $appUrl);
 
+$orgModel      = new Shuffle\Model\Organization($db);
+$orgService    = new Shuffle\Service\OrganizationService($orgModel);
+$orgController = new Shuffle\Controller\OrganizationController($auth, $orgService);
+
+$boardModel      = new Shuffle\Model\Board($db);
+$boardService    = new Shuffle\Service\BoardService($boardModel);
+$boardController = new Shuffle\Controller\BoardController($auth, $boardService);
+
 // Register routes
 $router = new Shuffle\Core\Router();
 
@@ -64,6 +72,24 @@ $router->post('/users/invite', [$userController, 'invite']);
 $router->post('/users/activate', [$userController, 'activate']);
 $router->put('/users/{id}', [$userController, 'update']);
 $router->delete('/users/{id}', [$userController, 'delete']);
+
+// Organization routes
+$router->get('/organizations', [$orgController, 'index']);
+$router->get('/organizations/{id}', [$orgController, 'show']);
+$router->post('/organizations', [$orgController, 'create']);
+$router->put('/organizations/{id}', [$orgController, 'update']);
+$router->delete('/organizations/{id}', [$orgController, 'delete']);
+$router->get('/organizations/{id}/members', [$orgController, 'members']);
+
+// Board routes
+$router->get('/boards', [$boardController, 'index']);
+$router->get('/boards/{id}', [$boardController, 'show']);
+$router->post('/boards', [$boardController, 'create']);
+$router->put('/boards/{id}', [$boardController, 'update']);
+$router->delete('/boards/{id}', [$boardController, 'delete']);
+$router->post('/boards/{id}/archive', [$boardController, 'archive']);
+$router->post('/boards/{id}/restore', [$boardController, 'restore']);
+$router->get('/boards/{id}/version', [$boardController, 'version']);
 
 // Dispatch
 $router->dispatch($request, $response);

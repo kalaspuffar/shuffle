@@ -40,6 +40,12 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
         <a href="/" class="header-brand" aria-label="<?= $appName ?> — <?= htmlspecialchars($lang->get('app.tagline'), ENT_QUOTES, 'UTF-8') ?>">
             <?= $appName ?>
         </a>
+        <nav class="header-nav" aria-label="<?= htmlspecialchars($lang->get('nav.main'), ENT_QUOTES, 'UTF-8') ?>">
+            <a href="/boards.php" class="header-nav-link"<?= (isset($currentPage) && $currentPage === 'boards') ? ' aria-current="page"' : '' ?>><?= htmlspecialchars($lang->get('board.boards'), ENT_QUOTES, 'UTF-8') ?></a>
+            <?php if ($currentUser['role'] === 'admin'): ?>
+            <a href="/admin/organizations.php" class="header-nav-link"<?= (isset($currentPage) && $currentPage === 'admin.organizations') ? ' aria-current="page"' : '' ?>><?= htmlspecialchars($lang->get('admin.organizations'), ENT_QUOTES, 'UTF-8') ?></a>
+            <?php endif; ?>
+        </nav>
     </div>
     <div class="header-right">
         <button type="button" class="header-icon-btn" aria-label="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>" title="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>">

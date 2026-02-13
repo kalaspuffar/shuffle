@@ -25,6 +25,15 @@
     "board.boards": "Boards",
     "board.no_boards": "No boards found.",
     "board.archived": "Archived",
+    "board.show_archived": "Show archived",
+    "board.visibility": "Visibility",
+    "board.visibility_private": "Private",
+    "board.visibility_organization": "Organization",
+    "board.create_success": "Board created successfully.",
+    "board.update_success": "Board updated successfully.",
+    "board.archive_success": "Board archived successfully.",
+    "board.restore_success": "Board restored successfully.",
+    "board.delete_confirm": "Are you sure you want to delete this board?",
 
     "lane.create": "Add Lane",
     "lane.title": "Lane Title",
@@ -50,6 +59,8 @@
     "label.name": "Label Name",
     "label.color": "Color",
 
+    "nav.main": "Main navigation",
+
     "notification.no_notifications": "No notifications.",
 
     "admin.users": "User Management",
@@ -58,6 +69,18 @@
 
     "org.name": "Organization Name",
     "org.create": "Create Organization",
+    "org.edit": "Edit Organization",
+    "org.no_organizations": "No organizations found.",
+    "org.member_count": "Members",
+    "org.created_at": "Created",
+    "org.actions": "Actions",
+    "org.select_organizations": "Organizations",
+    "org.name_required": "Organization name is required.",
+    "org.delete_has_members": "Cannot delete an organization that has active members.",
+    "org.delete_confirm": "Are you sure you want to delete this organization?",
+    "org.create_success": "Organization created successfully.",
+    "org.update_success": "Organization updated successfully.",
+    "org.delete_success": "Organization deleted successfully.",
 
     "action.save": "Save",
     "action.cancel": "Cancel",
