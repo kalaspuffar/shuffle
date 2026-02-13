@@ -23,6 +23,11 @@ class Lang
      */
     public function __construct(string $locale, string $langDir)
     {
+        // Validate locale format to prevent path traversal
+        if (!preg_match('/^[a-z]{2}(_[A-Z]{2})?$/', $locale)) {
+            throw new \InvalidArgumentException("Invalid locale format: {$locale}");
+        }
+
         $file = rtrim($langDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $locale . '.json';
 
         if (!file_exists($file)) {

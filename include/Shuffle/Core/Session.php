@@ -13,6 +13,7 @@ class Session implements SessionHandlerInterface
 {
     private Database $db;
     private int $lifetime;
+    private array $config;
 
     /**
      * @param Database $db       Database instance
@@ -22,13 +23,23 @@ class Session implements SessionHandlerInterface
     {
         $this->db = $db;
         $this->lifetime = $config['lifetime'] ?? 86400;
+        $this->config = $config;
 
-        // Register this handler before starting the session
+        // Register this handler (does not start the session)
         session_set_save_handler($this, true);
+    }
 
-        // Configure session cookie parameters
+    /**
+     * Configures cookie parameters and starts the session.
+     *
+     * Call this from web entry points (bootstrap.php). Do not call from CLI
+     * scripts or tests — they can use the Session instance without starting
+     * a PHP session.
+     */
+    public function start(): void
+    {
         $isSecure = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off');
-        $cookieName = $config['cookie_name'] ?? 'shuffle_session';
+        $cookieName = $this->config['cookie_name'] ?? 'shuffle_session';
 
         session_name($cookieName);
         session_set_cookie_params([
@@ -92,11 +103,11 @@ class Session implements SessionHandlerInterface
 
         $this->db->execute(
             'INSERT INTO sessions (id, user_id, data, last_activity, created_at)
-             VALUES (?, ?, ?, ?, ?)
+             VALUES (?, ?, ?, ?, ?) AS new_row
              ON DUPLICATE KEY UPDATE
-                user_id = VALUES(user_id),
-                data = VALUES(data),
-                last_activity = VALUES(last_activity)',
+                user_id = new_row.user_id,
+                data = new_row.data,
+                last_activity = new_row.last_activity',
             [$id, $userId, $data, $now, $now]
         );
         return true;

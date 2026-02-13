@@ -65,16 +65,16 @@ $password = promptPassword('Password: ');
 // Validate inputs
 $errors = [];
 if (strlen($username) < 3 || strlen($username) > 64) {
-    $errors[] = 'Username must be between 3 and 64 characters.';
+    $errors[] = $lang->get('validation.username_length', [3, 64]);
 }
 if (!preg_match('/^[a-zA-Z0-9_.-]+$/', $username)) {
-    $errors[] = 'Username may only contain letters, numbers, dots, hyphens, and underscores.';
+    $errors[] = $lang->get('validation.username_format');
 }
 if (strlen($name) < 1 || strlen($name) > 128) {
-    $errors[] = 'Name must be between 1 and 128 characters.';
+    $errors[] = $lang->get('validation.name_length', [1, 128]);
 }
 if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($email) > 255) {
-    $errors[] = 'A valid email address is required.';
+    $errors[] = $lang->get('validation.email_invalid');
 }
 if (strlen($password) < 8) {
     $errors[] = $lang->get('validation.password_min_length', [8]);
@@ -153,13 +153,13 @@ function promptPassword(string $prompt): string
         $password = fgets(STDIN);
         shell_exec('stty echo 2>/dev/null');
         echo "\n";
-    } else {
-        $password = promptInput($prompt);
+
+        if ($password === false || $password === '') {
+            fwrite(STDERR, "\nInput cancelled.\n");
+            exit(1);
+        }
+        return trim($password);
     }
 
-    if ($password === false) {
-        fwrite(STDERR, "\nInput cancelled.\n");
-        exit(1);
-    }
-    return trim($password);
+    return promptInput($prompt);
 }

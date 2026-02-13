@@ -18,6 +18,7 @@ $autoloader->register();
 // 3. Load configuration
 $configFile = ROOT_DIR . '/etc/config.php';
 if (!file_exists($configFile)) {
+    // Hardcoded string is intentional: Lang is not available until config is loaded
     die('Configuration file not found. Copy etc/config.example.php to etc/config.php and update your settings.');
 }
 $config = require $configFile;
@@ -28,8 +29,9 @@ date_default_timezone_set($config['app']['timezone'] ?? 'UTC');
 // 4. Initialize Database singleton
 $db = new Shuffle\Core\Database($config['db']);
 
-// 5. Start custom session handler
+// 5. Initialize and start custom session handler
 $session = new Shuffle\Core\Session($db, $config['session']);
+$session->start();
 
 // 6. Initialize i18n
 $lang = new Shuffle\Core\Lang(
