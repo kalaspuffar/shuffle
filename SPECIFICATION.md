@@ -23,6 +23,7 @@
 10. [Implementation Plan](#10-implementation-plan)
 11. [Risks and Mitigations](#11-risks-and-mitigations)
 12. [Appendices](#12-appendices)
+13. [Appendix F: Accessibility Requirements](#appendix-f-accessibility-requirements)
 
 ---
 
@@ -2732,7 +2733,8 @@ The `app.css` stylesheet defines CSS custom properties for consistent theming. S
        ======================================== */
     --color-text: #E2E2EC;              /* Primary body text, headings (AA: ~14:1 on base) */
     --color-text-secondary: #9898AC;    /* Secondary text, timestamps, metadata (AA: ~6.5:1 on base) */
-    --color-text-disabled: #5A5A6E;     /* Disabled controls, placeholder text (AA: 3.2:1 — large text only) */
+    --color-text-disabled: #5A5A6E;     /* Disabled controls only — NOT for placeholder text (AA: 3.2:1 — large text only) */
+    --color-placeholder: #7A7A90;       /* Placeholder text in inputs (AA: ~4.5:1 on base) — see Appendix F.7.1 */
     --color-text-inverse: #0D0D12;      /* Text on light/primary-filled backgrounds (e.g. white button text on purple) */
     --color-text-on-primary: #FFFFFF;   /* Text on primary-colored fills (buttons, badges) */
 
@@ -2913,6 +2915,7 @@ Applied via `[data-theme="light"]` on the `<html>` element. Only color-related t
     --color-text: #1A1A2E;             /* Near-black with purple undertone */
     --color-text-secondary: #5A5A72;
     --color-text-disabled: #9898AC;
+    --color-placeholder: #7A7A8E;      /* Placeholder text (AA: ~4.5:1 on #F5F3FF base) */
     --color-text-inverse: #FFFFFF;
     --color-text-on-primary: #FFFFFF;
 
@@ -3065,7 +3068,7 @@ These are used for interactive and structural UI elements, all using `--line-hei
 | Button text (large) | `--font-size-md` | 16px | 500 | `normal` | Large/primary CTA buttons |
 | Form label | `--font-size-sm` | 14px | 500 | `normal` | Input labels, select labels |
 | Form input | `--font-size-md` | 16px | 400 | `normal` | Text inputs, textareas, selects |
-| Placeholder | `--font-size-md` | 16px | 400 | `normal` | Input placeholders; color: `--color-text-disabled` |
+| Placeholder | `--font-size-md` | 16px | 400 | `normal` | Input placeholders; color: `--color-placeholder` (AA-compliant) |
 | Nav item | `--font-size-sm` | 14px | 500 | `normal` | Sidebar nav, top nav links |
 | Nav item (active) | `--font-size-sm` | 14px | 600 | `normal` | Currently selected nav item |
 | Badge | `--font-size-xs` | 12px | 500 | `--letter-spacing-wide` (0.01em) | Status badges, count indicators |
@@ -3782,7 +3785,7 @@ Filled style — subtle background, no border at rest, border appears on focus.
     transition: border-color 0.15s ease, background 0.15s ease;
 }
 .input::placeholder {
-    color: var(--color-text-disabled);
+    color: var(--color-placeholder);    /* Meets AA 4.5:1 — NOT --color-text-disabled */
 }
 .input:hover {
     background: var(--color-elevated);
@@ -5078,4 +5081,752 @@ Summary of every visual state per component type for implementation verification
 
 ---
 
-*This specification is a work in progress. The visual design system is being developed iteratively — color tokens, typography, spacing/layout, component design, interactive states, and motion/animation are complete. Accessibility review will follow.*
+*This specification is a work in progress. The visual design system is being developed iteratively — color tokens, typography, spacing/layout, component design, interactive states, and motion/animation are complete. Accessibility review has been completed; requirements are documented in Appendix F.*
+
+---
+
+## Appendix F: Accessibility Requirements
+
+**Standard:** WCAG 2.1 Level AA (mandatory), Level AAA (stretch goal)
+**Review Date:** 2026-02-13
+
+This appendix specifies accessibility requirements for the Shuffle application. These requirements are mandatory for MVP unless noted otherwise. Each requirement references the WCAG success criteria it satisfies and the review issue that prompted it.
+
+---
+
+### F.1 Semantic HTML and Landmarks
+
+**WCAG:** 1.3.1 Info and Relationships (A), 2.4.1 Bypass Blocks (A)
+**Ref:** ISSUE-17
+
+All pages MUST use HTML5 semantic landmark elements for the page structure:
+
+```html
+<body>
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+  <a href="#board-canvas" class="skip-link">Skip to board</a> <!-- Board view only -->
+
+  <header class="app-header" role="banner">
+    <!-- Logo, search, notifications, user menu -->
+  </header>
+
+  <nav class="app-sidebar" aria-label="Main navigation">
+    <!-- Sidebar navigation -->
+  </nav>
+
+  <main id="main-content" class="app-main">
+    <!-- Page content -->
+  </main>
+</body>
+```
+
+**Requirements:**
+- Every page MUST have exactly one `<main>` element
+- Header MUST use `<header>` with `role="banner"`
+- Sidebar MUST use `<nav>` with `aria-label="Main navigation"`
+- If multiple `<nav>` elements exist, each MUST have a unique `aria-label`
+- Page title (`<title>`) MUST reflect the current page context (e.g., "Sprint Board - Shuffle", "Settings - Shuffle")
+
+---
+
+### F.2 Skip Links
+
+**WCAG:** 2.4.1 Bypass Blocks (A)
+**Ref:** ISSUE-16
+
+Skip links MUST be the first focusable elements in the DOM:
+
+```css
+.skip-link {
+    position: absolute;
+    top: -100%;
+    left: var(--space-4);
+    background: var(--color-primary);
+    color: var(--color-text-on-primary);
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--border-radius-md);
+    z-index: 9999;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    text-decoration: none;
+}
+
+.skip-link:focus {
+    top: var(--space-2);
+}
+```
+
+**Required skip links:**
+- "Skip to main content" — on every page
+- "Skip to board" — on board view pages (targets the `.board-canvas` element)
+
+---
+
+### F.3 Keyboard Navigation
+
+**WCAG:** 2.1.1 Keyboard (A), 2.4.3 Focus Order (A), 2.4.7 Focus Visible (AA)
+**Ref:** ISSUE-01, ISSUE-06
+
+#### F.3.1 General Keyboard Requirements
+
+- ALL interactive elements MUST be keyboard accessible
+- Tab order MUST follow visual reading order (left-to-right, top-to-bottom)
+- Focus indicators MUST be visible: 2px solid `--color-border-focus` with 2px offset (already specified in E.8)
+- No keyboard traps — every focused element must allow Tab/Shift+Tab to move away (except modals, which trap focus intentionally with Escape exit)
+
+#### F.3.2 Card Drag-and-Drop Keyboard Alternative
+
+Since the HTML5 Drag and Drop API has poor keyboard accessibility, ALL drag-and-drop operations MUST have a keyboard-accessible alternative:
+
+**Card operations (via context menu on each card):**
+
+Each card MUST be focusable (`tabindex="0"`) and support:
+- **Enter/Space**: Opens card detail modal
+- **Context menu (Shift+F10 or dedicated button)**: Opens a card action menu with:
+  - "Move to lane..." → submenu listing all lanes on the board
+  - "Move up" (within current lane, disabled if first)
+  - "Move down" (within current lane, disabled if last)
+  - "Move to top" (within current lane)
+  - "Move to bottom" (within current lane)
+  - "Archive"
+  - "Delete"
+
+**Card action menu ARIA pattern:**
+
+```html
+<div class="card" tabindex="0" role="article" aria-label="Implement login, due March 1, In Progress lane">
+  <button class="card-menu-btn btn-icon btn-ghost btn-sm"
+          aria-label="Card actions"
+          aria-haspopup="true"
+          aria-expanded="false">
+    <!-- ⋯ icon -->
+  </button>
+</div>
+```
+
+The menu follows the WAI-ARIA Menu Button pattern (see F.8).
+
+**Move confirmation announcement (ARIA live region):**
+
+```html
+<div aria-live="polite" class="sr-only" id="board-announcer">
+  <!-- JS populates: "Card 'Implement login' moved to 'Done' lane, position 2 of 5" -->
+</div>
+```
+
+**Lane reordering keyboard alternative:**
+
+Lane reordering is already specified as "deliberate action (not drag-and-drop)" per LANE-05 and uses the `PUT /v1/lanes/{id}/position` API. The lane header menu MUST include "Move lane left" and "Move lane right" options. These operations update the lane position via the API and announce the change.
+
+#### F.3.3 Checklist Item Reordering
+
+Checklist items MUST support keyboard reordering:
+- Focus on a checklist item, then Ctrl+Arrow Up / Ctrl+Arrow Down to reorder
+- Announce: "Item moved to position 3 of 5"
+
+---
+
+### F.4 Screen Reader Support
+
+**WCAG:** 4.1.2 Name, Role, Value (A), 1.1.1 Non-text Content (A)
+**Ref:** ISSUE-04, ISSUE-05, ISSUE-07, ISSUE-08, ISSUE-10, ISSUE-18
+
+#### F.4.1 Card Accessible Labels
+
+Each card in board view MUST have an accessible description that conveys its full context:
+
+```html
+<div class="card"
+     tabindex="0"
+     role="article"
+     aria-label="Implement login"
+     aria-describedby="card-42-meta">
+  <div class="card-labels">
+    <span class="card-label-bar" style="background:#EF4444" aria-label="Bug" title="Bug" role="img"></span>
+    <span class="card-label-bar" style="background:#3B82F6" aria-label="Feature" title="Feature" role="img"></span>
+  </div>
+  <span class="card-title">Implement login</span>
+  <div class="card-meta" id="card-42-meta">
+    <span>Due: March 1, 2026</span>
+    <span>3 comments</span>
+    <span>Checklist: 3 of 5 complete</span>
+    <span>2 attachments</span>
+  </div>
+</div>
+```
+
+**Requirements:**
+- Card labels (color bars) MUST have `aria-label` and `role="img"` (ISSUE-04)
+- Card titles MUST expose the full title even when visually truncated (ISSUE-10). Use `aria-label` on the card element with the full title
+- Checklist progress MUST include a text description: "Checklist: 3 of 5 complete" (ISSUE-18)
+- Due date MUST use `<time datetime="2026-03-01">` for machine-readability
+
+#### F.4.2 Notification Bell
+
+**Ref:** ISSUE-05
+
+```html
+<button class="header-icon-btn"
+        aria-label="Notifications, 3 unread"
+        aria-haspopup="true"
+        aria-expanded="false">
+  <svg aria-hidden="true"><!-- bell icon --></svg>
+  <span class="notification-dot" aria-hidden="true"></span>
+</button>
+```
+
+- The `aria-label` MUST be dynamically updated by `notifications.js` when the unread count changes
+- When count is 0: `aria-label="Notifications, no unread"`
+- The red dot is `aria-hidden="true"` (decorative — the label carries the information)
+
+#### F.4.3 Inline Editable Fields
+
+**Ref:** ISSUE-07
+
+```html
+<!-- Display mode -->
+<span class="editable-field"
+      role="button"
+      tabindex="0"
+      aria-label="Lane title: To Do. Press Enter to edit.">
+  To Do
+</span>
+
+<!-- Edit mode (JS swaps the element) -->
+<input class="editable-field editable-field--editing"
+       type="text"
+       value="To Do"
+       aria-label="Lane title"
+       autofocus />
+```
+
+- Mode changes MUST be announced via an ARIA live region: "Editing lane title" / "Lane title saved"
+- Escape cancels editing and announces "Edit cancelled"
+
+#### F.4.4 Toggle Switch
+
+**Ref:** ISSUE-08
+
+```html
+<button class="toggle"
+        role="switch"
+        aria-checked="true"
+        aria-labelledby="theme-label">
+</button>
+<label id="theme-label">Dark theme</label>
+```
+
+- MUST use `role="switch"` (not just `aria-checked`)
+- MUST be a `<button>` element (keyboard-operable by default)
+- MUST have an associated label via `aria-labelledby` or `aria-label`
+
+#### F.4.5 Avatars and User References
+
+```html
+<!-- Avatar with image -->
+<img class="avatar" src="..." alt="John Doe" />
+
+<!-- Avatar with initials -->
+<span class="avatar avatar--initials" aria-label="John Doe" role="img">JD</span>
+
+<!-- Avatar stack on cards -->
+<div class="avatar-stack" aria-label="Assigned to John Doe, Jane Smith, and 2 others">
+  <!-- avatars -->
+</div>
+```
+
+#### F.4.6 Due Date States
+
+**Ref:** ISSUE-13
+
+Due dates MUST communicate their state via text, not color alone:
+
+```html
+<!-- Normal -->
+<time datetime="2026-03-15" class="due-date">Due Mar 15</time>
+
+<!-- Due soon (within 48 hours) -->
+<time datetime="2026-02-14" class="due-date due-date--warning">
+  <span aria-hidden="true">⚠</span> Due tomorrow
+</time>
+
+<!-- Overdue -->
+<time datetime="2026-02-10" class="due-date due-date--overdue">
+  <span aria-hidden="true">⚠</span> Overdue by 3 days
+</time>
+```
+
+- Color changes (`--color-warning`, `--color-error`) MUST be accompanied by text indicators ("Due tomorrow", "Overdue")
+- Screen readers receive the text naturally; the icon is decorative (`aria-hidden`)
+
+---
+
+### F.5 ARIA Live Regions and Dynamic Content
+
+**WCAG:** 4.1.3 Status Messages (AA)
+**Ref:** ISSUE-02
+
+#### F.5.1 Toast Notifications
+
+```html
+<!-- Toast container — polite by default -->
+<div class="toast-container" role="status" aria-live="polite" aria-atomic="false">
+  <!-- Individual toasts inserted by JS -->
+</div>
+
+<!-- Error toasts use role="alert" for immediate announcement -->
+<div class="toast toast--error" role="alert">
+  <span class="toast-icon" aria-hidden="true"><!-- error icon --></span>
+  <div class="toast-content">
+    <span class="toast-title">Save failed</span>
+    <span class="toast-message">Could not save the card. Please try again.</span>
+  </div>
+  <button class="toast-close btn-icon btn-ghost" aria-label="Dismiss notification">
+    <!-- close icon -->
+  </button>
+</div>
+```
+
+- Success/info toasts: `role="status"`, `aria-live="polite"`
+- Error/warning toasts: `role="alert"` (assertive announcement)
+- Toast close button MUST have `aria-label="Dismiss notification"`
+
+#### F.5.2 Board Update Announcements
+
+```html
+<div id="board-announcer" class="sr-only" aria-live="polite">
+  <!-- JS updates text when board polling detects changes -->
+  <!-- Example: "Board has been updated by another user" -->
+</div>
+```
+
+- When polling detects a version change and refreshes the board, announce it once
+- Do NOT announce every poll check — only when actual changes are detected
+
+#### F.5.3 File Upload Progress
+
+**Ref:** ISSUE-09
+
+```html
+<div class="upload-progress" role="progressbar"
+     aria-valuenow="45" aria-valuemin="0" aria-valuemax="100"
+     aria-label="Uploading screenshot.png: 45%">
+  <div class="upload-progress-bar" style="width: 45%"></div>
+</div>
+```
+
+- Progress MUST be announced to screen readers via `aria-valuenow` updates
+- Completion MUST be announced: "Upload complete: screenshot.png"
+- Failure MUST be announced via `role="alert"`: "Upload failed: screenshot.png"
+
+#### F.5.4 Search Status
+
+**Ref:** ISSUE-11
+
+```html
+<div class="search-wrapper">
+  <input type="search"
+         class="input"
+         placeholder="Search cards..."
+         aria-label="Search cards"
+         aria-describedby="search-help search-results-status"
+         autocomplete="off" />
+  <span id="search-help" class="sr-only">Enter at least 3 characters to search</span>
+  <div id="search-results-status" class="sr-only" aria-live="polite">
+    <!-- JS updates: "15 results found" or "No results found" -->
+  </div>
+</div>
+```
+
+#### F.5.5 Form Validation
+
+```html
+<div class="form-group">
+  <label class="form-label form-label--required" for="board-title">Board Title</label>
+  <input id="board-title"
+         class="input input--error"
+         type="text"
+         aria-required="true"
+         aria-invalid="true"
+         aria-describedby="board-title-error" />
+  <span id="board-title-error" class="form-error-message" role="alert">
+    Board title is required
+  </span>
+</div>
+```
+
+- Required fields MUST have `aria-required="true"`
+- Invalid fields MUST have `aria-invalid="true"` and `aria-describedby` pointing to the error message
+- Error messages MUST use `role="alert"` for immediate announcement
+
+---
+
+### F.6 Modal Dialogs
+
+**WCAG:** 2.4.3 Focus Order (A), 2.1.2 No Keyboard Trap (A)
+**Ref:** ISSUE-06, ISSUE-14
+
+#### F.6.1 Standard Modal Pattern
+
+```html
+<div class="modal-backdrop" aria-hidden="true"></div>
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-header">
+    <h2 id="modal-title">Create Board</h2>
+    <button class="btn-icon btn-ghost" aria-label="Close dialog">
+      <!-- close icon -->
+    </button>
+  </div>
+  <div class="modal-body">
+    <!-- Content -->
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary">Cancel</button>
+    <button class="btn-primary">Create</button>
+  </div>
+</div>
+```
+
+**Focus management requirements:**
+1. **On open:** Focus moves to the first focusable element in the modal (typically the first form input, or the close button if no inputs)
+2. **Tab wrapping:** Tab from last focusable element moves to first; Shift+Tab from first moves to last
+3. **On close (Escape or close button):** Focus returns to the element that triggered the modal
+4. **Background:** All content behind the modal MUST receive `inert` attribute AND `aria-hidden="true"`
+5. **Scrollable content:** If modal content scrolls, the modal container (not the backdrop) is scrollable
+
+#### F.6.2 Destructive Confirmation Dialog
+
+```html
+<div class="modal modal--sm" role="alertdialog" aria-modal="true"
+     aria-labelledby="confirm-title" aria-describedby="confirm-desc">
+  <div class="modal-body" style="text-align: center;">
+    <span class="confirm-icon" aria-hidden="true"><!-- warning icon --></span>
+    <h2 id="confirm-title">Delete "Sprint Board"?</h2>
+    <p id="confirm-desc">This action cannot be undone. All lanes, cards, and comments will be permanently removed.</p>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-secondary" autofocus>Cancel</button>
+    <button class="btn-danger">Delete</button>
+  </div>
+</div>
+```
+
+- Use `role="alertdialog"` for destructive confirmations
+- **Focus MUST start on the Cancel button** (not the destructive action) to prevent accidental confirmation
+- `aria-describedby` MUST point to the warning explanation text
+
+---
+
+### F.7 Color and Contrast
+
+**WCAG:** 1.4.1 Use of Color (A), 1.4.3 Contrast Minimum (AA), 1.4.11 Non-text Contrast (AA)
+**Ref:** ISSUE-03, ISSUE-04, ISSUE-13
+
+#### F.7.1 Placeholder Text Contrast Fix
+
+The `--color-text-disabled` token (#5A5A6E, 3.2:1 ratio) MUST NOT be used for placeholder text on normal-sized inputs. Instead:
+
+```css
+:root {
+    /* NEW TOKEN — placeholder text that meets AA for normal text */
+    --color-placeholder: #7A7A90;      /* ~4.5:1 on #0D0D12 base, ~4.6:1 on #161625 raised */
+}
+
+.input::placeholder {
+    color: var(--color-placeholder);    /* NOT --color-text-disabled */
+}
+```
+
+`--color-text-disabled` remains valid for:
+- Disabled button text (disabled state is conveyed non-visually via `disabled` attribute)
+- Large text (18px+ bold or 24px+ regular) where 3:1 is sufficient
+
+#### F.7.2 Non-Text Contrast Requirements
+
+Interactive UI components and their states MUST meet 3:1 contrast ratio against adjacent colors (WCAG 1.4.11):
+
+| Element | Requirement |
+|---|---|
+| Focus indicators | `--color-border-focus` (#A78BFA) against background — ✅ passes |
+| Form input borders (focus state) | Must be visible against background — ✅ passes |
+| Checkbox border | `--color-border` (#2A2A3C) against `--color-raised` (#161625) — verify ≥ 3:1 |
+| Toggle switch track | `--color-border` against background — verify ≥ 3:1 |
+| Progress bar | `--color-primary` against `--color-border-subtle` — ✅ passes |
+
+#### F.7.3 Color-Independent Information
+
+All information conveyed by color MUST also be conveyed by text, shape, or pattern:
+
+| Element | Color Indicator | Required Non-Color Indicator |
+|---|---|---|
+| Card labels (board view) | Color bar | `aria-label` with label name; show name on hover/focus |
+| Due date states | Warning/error color | Text: "Due tomorrow", "Overdue" |
+| Notification dot | Red dot | `aria-label` on bell button with count |
+| Form validation | Red border | Error message text + `aria-invalid` |
+| Checklist progress | Green when complete | Text: "3 of 5 complete" |
+| Toast variants | Colored left border | Icon + text title |
+
+---
+
+### F.8 WAI-ARIA Design Patterns
+
+**WCAG:** 4.1.2 Name, Role, Value (A)
+**Ref:** ISSUE-12, ISSUE-15
+
+#### F.8.1 Menu Button Pattern (Card Actions, Lane Actions, User Menu)
+
+Reference: [WAI-ARIA Menu Button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/)
+
+```html
+<button aria-haspopup="true" aria-expanded="false" aria-label="Card actions">
+  <!-- icon -->
+</button>
+
+<div role="menu" aria-label="Card actions">
+  <button role="menuitem">Move to lane...</button>
+  <button role="menuitem">Move up</button>
+  <button role="menuitem">Move down</button>
+  <div role="separator"></div>
+  <button role="menuitem">Archive</button>
+  <button role="menuitem" class="dropdown-item--danger">Delete</button>
+</div>
+```
+
+**Keyboard interactions:**
+- Enter/Space on trigger → opens menu, focuses first item
+- Arrow Down/Up → navigates items
+- Home/End → first/last item
+- Escape → closes menu, returns focus to trigger
+- Type-ahead → jumps to matching item
+
+#### F.8.2 Combobox Pattern (User Assignment)
+
+**Ref:** ISSUE-12
+Reference: [WAI-ARIA Combobox](https://www.w3.org/WAI/ARIA/apg/patterns/combobox/)
+
+```html
+<div class="combobox-wrapper">
+  <label for="assign-user">Assign to</label>
+  <input id="assign-user"
+         role="combobox"
+         aria-expanded="false"
+         aria-controls="assign-listbox"
+         aria-autocomplete="list"
+         aria-activedescendant=""
+         autocomplete="off" />
+  <ul id="assign-listbox" role="listbox" aria-label="Users">
+    <li id="user-1" role="option" aria-selected="false">John Doe</li>
+    <li id="user-2" role="option" aria-selected="true">Jane Smith</li>
+  </ul>
+</div>
+```
+
+**Keyboard interactions:**
+- Typing filters the list
+- Arrow Down/Up → navigates options
+- Enter → selects highlighted option
+- Escape → closes listbox
+
+#### F.8.3 Tab Panel Pattern (Card Detail Sections, if applicable)
+
+If card detail view uses tab-like navigation between sections (description, checklists, comments, attachments), implement the [WAI-ARIA Tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/). Otherwise, use heading hierarchy with sections.
+
+---
+
+### F.9 Responsive Accessibility
+
+**WCAG:** 1.4.4 Resize Text (AA), 1.4.10 Reflow (AA), 2.5.5 Target Size (AAA)
+**Ref:** ISSUE-19, ISSUE-20
+
+#### F.9.1 Zoom and Reflow
+
+- The application MUST remain usable at 200% browser zoom
+- Content MUST reflow to a single column at 320px CSS viewport width (equivalent to 1280px at 400% zoom)
+- No horizontal scrolling for text content at 200% zoom (board view horizontal scrolling for lanes is acceptable as it is a 2D layout)
+- Text MUST be resizable up to 200% without loss of functionality
+
+#### F.9.2 Touch Targets
+
+All interactive elements on touch devices MUST have a minimum touch target of 44×44px (WCAG 2.1) or 24×24px with adequate spacing (WCAG 2.2):
+
+| Element | Current Size | Requirement |
+|---|---|---|
+| Buttons (default) | 36px height | ✅ OK — padding extends touch area |
+| Buttons (large) | 44px height | ✅ Meets target |
+| Buttons (small) | 28px height | ⚠️ Ensure adequate spacing (8px+ around) |
+| Icon buttons | 36×36px | ✅ OK |
+| Toast close | 24×24px | ⚠️ Increase to 36×36px on mobile |
+| Sidebar nav items | 36px height | ✅ OK with full-width clickable area |
+| Checklist checkboxes | 18×18px | ⚠️ Ensure clickable label area extends to 44px |
+| Card label bars | 40×8px | Non-interactive (display only) — acceptable |
+
+#### F.9.3 Mobile Sidebar Accessibility
+
+When the mobile sidebar opens as an overlay:
+- Focus MUST move to the sidebar (first nav item or close button)
+- Backdrop MUST be clickable to close (and Escape key)
+- Focus MUST be trapped within the sidebar while open
+- On close, focus MUST return to the hamburger button
+- The hamburger button MUST have `aria-label="Open navigation menu"` and `aria-expanded`
+
+---
+
+### F.10 Accessible Drag-and-Drop Implementation Guide
+
+This section provides the complete implementation specification for accessible drag-and-drop, consolidating requirements from F.3.2.
+
+#### F.10.1 Dual-Mode Interaction
+
+Every drag-and-drop operation supports two modes:
+1. **Mouse/touch drag** — HTML5 Drag and Drop API (visual users)
+2. **Keyboard menu** — Context menu with move operations (keyboard/screen reader users)
+
+Both modes call the same API endpoints and produce the same results.
+
+#### F.10.2 ARIA Attributes for Draggable Cards
+
+```html
+<div class="card"
+     tabindex="0"
+     role="article"
+     aria-roledescription="Draggable card"
+     aria-label="Implement login"
+     aria-describedby="card-42-meta"
+     draggable="true">
+  <!-- Card content -->
+  <button class="card-menu-btn btn-icon btn-ghost btn-sm"
+          aria-label="Card actions for Implement login"
+          aria-haspopup="menu">
+    <svg aria-hidden="true"><!-- ⋯ dots icon --></svg>
+  </button>
+</div>
+```
+
+#### F.10.3 Screen Reader Announcements
+
+All move operations MUST produce announcements via the `#board-announcer` live region:
+
+| Action | Announcement |
+|---|---|
+| Card moved between lanes | "Card 'Implement login' moved to 'Done' lane, position 2 of 5" |
+| Card moved within lane | "Card 'Implement login' moved to position 3 of 5 in 'In Progress' lane" |
+| Card moved to top | "Card 'Implement login' moved to top of 'To Do' lane" |
+| Card moved to bottom | "Card 'Implement login' moved to bottom of 'To Do' lane" |
+| Lane reordered | "Lane 'In Progress' moved to position 2 of 4" |
+
+---
+
+### F.11 Testing Requirements
+
+#### F.11.1 Automated Testing
+
+- **axe-core**: Run on every page. Zero critical or serious violations.
+- **Lighthouse Accessibility**: Score >= 95% on all pages
+- **pa11y**: CLI-based WCAG 2.1 AA scan as part of CI
+
+#### F.11.2 Manual Keyboard Testing
+
+Every interactive flow MUST be tested with keyboard only (no mouse):
+
+| Flow | Test Steps |
+|---|---|
+| Login | Tab to username, Tab to password, Enter to submit |
+| Navigate to board | Tab through sidebar, Enter to select board |
+| Create card | Tab to "Add Card" button, Enter, type title, Enter to save |
+| Move card (keyboard) | Focus card, open menu, select "Move to lane...", select lane |
+| Open card detail | Focus card, Enter to open modal |
+| Add comment | In card modal, Tab to comment textarea, type, Tab to submit, Enter |
+| Check/uncheck item | Tab to checkbox, Space to toggle |
+| Dismiss notification | Tab to bell, Enter to open, Tab to notification, Enter to navigate |
+| Close modal | Escape to close, verify focus returns to trigger |
+
+#### F.11.3 Screen Reader Testing
+
+Test with at minimum:
+- **NVDA** (Windows, free) — primary screen reader for testing
+- **VoiceOver** (macOS/iOS) — secondary
+
+Critical flows to test:
+1. Login flow — form labels announced, error messages announced
+2. Board view — cards announced with context (title, labels, metadata)
+3. Card detail — all sections navigable, comments readable
+4. Card move (keyboard) — announcements confirmed
+5. Notifications — bell announces count, notification list navigable
+6. Toast messages — automatically announced
+7. File upload — progress announced
+
+#### F.11.4 Color Contrast Validation
+
+- Verify all text/background combinations with WebAIM Contrast Checker
+- Verify non-text contrast for UI controls (borders, focus indicators, icons)
+- Test with color vision deficiency simulators (protanopia, deuteranopia, tritanopia)
+- Verify color is never the sole means of conveying information
+
+---
+
+### F.12 Accessibility Acceptance Criteria Summary
+
+For MVP sign-off, ALL of the following MUST pass:
+
+- [ ] All pages have correct landmark structure (`<header>`, `<nav>`, `<main>`)
+- [ ] Skip links work ("Skip to main content", "Skip to board")
+- [ ] Every interactive element is keyboard accessible (Tab, Enter/Space, Escape, Arrow keys)
+- [ ] All forms have associated labels, required field indicators, and accessible error messages
+- [ ] Cards can be moved between lanes and reordered using keyboard-only interaction
+- [ ] Modal focus trap works correctly (trap on open, restore on close)
+- [ ] Toast notifications are announced by screen readers
+- [ ] Notification bell announces unread count
+- [ ] File upload progress is announced
+- [ ] All images and icons have appropriate alt text or `aria-hidden="true"`
+- [ ] Color is never the sole means of conveying information
+- [ ] All text meets 4.5:1 contrast (normal text) or 3:1 (large text)
+- [ ] Placeholder text meets 4.5:1 contrast
+- [ ] `prefers-reduced-motion` is respected (already specified in E.10.8)
+- [ ] Application is usable at 200% browser zoom
+- [ ] axe-core reports zero critical/serious violations
+- [ ] Lighthouse Accessibility score >= 95%
+
+---
+
+### F.13 i18n Strings for Accessibility
+
+The following i18n keys MUST be added to `include/lang/en.json` for accessibility-related strings:
+
+```json
+{
+    "a11y.skip_to_content": "Skip to main content",
+    "a11y.skip_to_board": "Skip to board",
+    "a11y.open_nav": "Open navigation menu",
+    "a11y.close_nav": "Close navigation menu",
+    "a11y.close_dialog": "Close dialog",
+    "a11y.card_actions": "Card actions for {0}",
+    "a11y.move_to_lane": "Move to lane",
+    "a11y.move_up": "Move up",
+    "a11y.move_down": "Move down",
+    "a11y.move_to_top": "Move to top",
+    "a11y.move_to_bottom": "Move to bottom",
+    "a11y.card_moved_to_lane": "Card '{0}' moved to '{1}' lane, position {2} of {3}",
+    "a11y.card_moved_in_lane": "Card '{0}' moved to position {1} of {2} in '{3}' lane",
+    "a11y.lane_moved": "Lane '{0}' moved to position {1} of {2}",
+    "a11y.notifications_unread": "Notifications, {0} unread",
+    "a11y.notifications_none": "Notifications, no unread",
+    "a11y.dismiss_notification": "Dismiss notification",
+    "a11y.upload_progress": "Uploading {0}: {1}%",
+    "a11y.upload_complete": "Upload complete: {0}",
+    "a11y.upload_failed": "Upload failed: {0}",
+    "a11y.board_updated": "Board has been updated",
+    "a11y.search_help": "Enter at least 3 characters to search",
+    "a11y.search_results": "{0} results found",
+    "a11y.search_no_results": "No results found",
+    "a11y.edit_field": "Press Enter to edit",
+    "a11y.editing": "Editing {0}",
+    "a11y.saved": "{0} saved",
+    "a11y.edit_cancelled": "Edit cancelled",
+    "a11y.checklist_progress": "Checklist: {0} of {1} items complete",
+    "a11y.due_today": "Due today",
+    "a11y.due_tomorrow": "Due tomorrow",
+    "a11y.overdue": "Overdue by {0} days",
+    "a11y.draggable_card": "Draggable card",
+    "a11y.required_field": "Required"
+}
+```
