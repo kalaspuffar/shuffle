@@ -17,6 +17,7 @@ $orgService = new Shuffle\Service\OrganizationService($orgModel);
 $organizations = $orgService->listOrganizations();
 
 $pageTitle = $lang->get('admin.organizations');
+$currentPage = 'admin.organizations';
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
@@ -86,121 +87,18 @@ require ROOT_DIR . '/include/templates/header.php';
     </div>
 </div>
 
-<script src="/js/app.js"></script>
-<script>
-(function () {
-    'use strict';
-
-    var modal = document.getElementById('org-modal-overlay');
-    var orgForm = document.getElementById('org-form');
-    var modalTitle = document.getElementById('org-modal-title');
-    var editIdField = document.getElementById('org-edit-id');
-    var nameField = document.getElementById('org-name');
-    var openBtn = document.getElementById('btn-create-org');
-
-    var LANG_CREATE = <?= json_encode($lang->get('org.create')) ?>;
-    var LANG_EDIT = <?= json_encode($lang->get('org.edit')) ?>;
-    var LANG_CREATE_SUCCESS = <?= json_encode($lang->get('org.create_success')) ?>;
-    var LANG_UPDATE_SUCCESS = <?= json_encode($lang->get('org.update_success')) ?>;
-    var LANG_DELETE_SUCCESS = <?= json_encode($lang->get('org.delete_success')) ?>;
-    var LANG_DELETE_CONFIRM = <?= json_encode($lang->get('org.delete_confirm')) ?>;
-    var LANG_DELETE_HAS_MEMBERS = <?= json_encode($lang->get('org.delete_has_members')) ?>;
-    var LANG_ERROR = <?= json_encode($lang->get('error.bad_request')) ?>;
-
-    function openModal(editId, editName) {
-        editIdField.value = editId || '';
-        nameField.value = editName || '';
-        modalTitle.textContent = editId ? LANG_EDIT : LANG_CREATE;
-        modal.hidden = false;
-        nameField.focus();
-    }
-
-    function closeModal() {
-        modal.hidden = true;
-        orgForm.reset();
-        editIdField.value = '';
-        openBtn.focus();
-    }
-
-    openBtn.addEventListener('click', function () {
-        openModal('', '');
-    });
-
-    // Close buttons
-    var closeBtns = modal.querySelectorAll('.modal-close');
-    for (var i = 0; i < closeBtns.length; i++) {
-        closeBtns[i].addEventListener('click', closeModal);
-    }
-
-    modal.addEventListener('click', function (e) {
-        if (e.target === modal) closeModal();
-    });
-
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !modal.hidden) closeModal();
-    });
-
-    // Edit buttons
-    document.addEventListener('click', function (e) {
-        var editBtn = e.target.closest('.btn-edit-org');
-        if (editBtn) {
-            openModal(editBtn.dataset.id, editBtn.dataset.name);
-        }
-    });
-
-    // Delete buttons
-    document.addEventListener('click', function (e) {
-        var deleteBtn = e.target.closest('.btn-delete-org');
-        if (!deleteBtn) return;
-
-        var memberCount = parseInt(deleteBtn.dataset.members, 10);
-        if (memberCount > 0) {
-            Shuffle.showFlash(LANG_DELETE_HAS_MEMBERS, 'error');
-            return;
-        }
-
-        if (!confirm(LANG_DELETE_CONFIRM)) return;
-
-        Shuffle.api('/v1/organizations/' + deleteBtn.dataset.id, {
-            method: 'DELETE'
-        }).then(function (result) {
-            if (result.status === 204) {
-                Shuffle.showFlash(LANG_DELETE_SUCCESS, 'success');
-                setTimeout(function () { window.location.reload(); }, 500);
-            } else {
-                var msg = (result.data && result.data.error) ? result.data.error : LANG_ERROR;
-                Shuffle.showFlash(msg, 'error');
-            }
-        });
-    });
-
-    // Form submission (create or update)
-    orgForm.addEventListener('submit', function (e) {
-        e.preventDefault();
-
-        var editId = editIdField.value;
-        var name = nameField.value.trim();
-        var isEdit = (editId !== '');
-
-        var url = isEdit ? ('/v1/organizations/' + editId) : '/v1/organizations';
-        var method = isEdit ? 'PUT' : 'POST';
-
-        Shuffle.api(url, {
-            method: method,
-            body: { name: name }
-        }).then(function (result) {
-            if (result.status === 201 || result.status === 200) {
-                Shuffle.showFlash(isEdit ? LANG_UPDATE_SUCCESS : LANG_CREATE_SUCCESS, 'success');
-                closeModal();
-                setTimeout(function () { window.location.reload(); }, 500);
-            } else {
-                var msg = (result.data && result.data.error) ? result.data.error : LANG_ERROR;
-                Shuffle.showFlash(msg, 'error');
-            }
-        });
-    });
-})();
-</script>
-</main>
-</body>
-</html>
+<?php
+// Pass i18n strings to external JS via data attribute (CSP-compliant)
+$orgsLang = json_encode([
+    'create'             => $lang->get('org.create'),
+    'edit'               => $lang->get('org.edit'),
+    'create_success'     => $lang->get('org.create_success'),
+    'update_success'     => $lang->get('org.update_success'),
+    'delete_success'     => $lang->get('org.delete_success'),
+    'delete_confirm'     => $lang->get('org.delete_confirm'),
+    'delete_has_members' => $lang->get('org.delete_has_members'),
+    'error_bad_request'  => $lang->get('error.bad_request'),
+], JSON_HEX_TAG | JSON_HEX_AMP);
+?>
+<script id="organizations-script" src="/js/organizations.js" data-lang="<?= htmlspecialchars($orgsLang, ENT_QUOTES, 'UTF-8') ?>"></script>
+<?php require ROOT_DIR . '/include/templates/footer.php'; ?>

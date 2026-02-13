@@ -127,6 +127,7 @@ class BoardService
             throw new \RuntimeException('Board not found');
         }
 
+        // TODO: cascade S3 attachment cleanup when AttachmentService is available
         $this->boardModel->delete($id);
     }
 
@@ -134,10 +135,9 @@ class BoardService
      * Archives a board.
      *
      * @param int $id Board ID
-     * @return array The updated board record
      * @throws \RuntimeException If board not found
      */
-    public function archiveBoard(int $id): array
+    public function archiveBoard(int $id): void
     {
         $board = $this->boardModel->findById($id);
         if ($board === null) {
@@ -145,18 +145,15 @@ class BoardService
         }
 
         $this->boardModel->archive($id);
-
-        return $this->boardModel->findById($id);
     }
 
     /**
      * Restores an archived board.
      *
      * @param int $id Board ID
-     * @return array The updated board record
      * @throws \RuntimeException If board not found
      */
-    public function restoreBoard(int $id): array
+    public function restoreBoard(int $id): void
     {
         $board = $this->boardModel->findById($id);
         if ($board === null) {
@@ -164,8 +161,6 @@ class BoardService
         }
 
         $this->boardModel->restore($id);
-
-        return $this->boardModel->findById($id);
     }
 
     /**
@@ -191,7 +186,7 @@ class BoardService
             throw new \InvalidArgumentException('Board title is required');
         }
 
-        if (strlen(trim($data['title'])) > 255) {
+        if (mb_strlen(trim($data['title']), 'UTF-8') > 255) {
             throw new \InvalidArgumentException('Board title must be no more than 255 characters');
         }
 

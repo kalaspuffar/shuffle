@@ -37,7 +37,7 @@ class Board
         );
 
         if ($board !== null) {
-            $board['organization_ids'] = $this->getOrganizationIds($id);
+            $board['organizations'] = $this->getOrganizationIds($id);
         }
 
         return $board;
@@ -83,9 +83,27 @@ class Board
 
         $boards = $this->db->fetchAll($sql, $params);
 
-        // Attach organization IDs to each board
+        if (empty($boards)) {
+            return $boards;
+        }
+
+        // Batch-load organization IDs to avoid N+1 queries
+        $boardIds = array_map(function ($b) {
+            return (int) $b['id'];
+        }, $boards);
+        $placeholders = implode(',', array_fill(0, count($boardIds), '?'));
+        $orgRows = $this->db->fetchAll(
+            'SELECT board_id, organization_id FROM board_organizations WHERE board_id IN (' . $placeholders . ')',
+            $boardIds
+        );
+
+        $orgMap = [];
+        foreach ($orgRows as $row) {
+            $orgMap[(int) $row['board_id']][] = (int) $row['organization_id'];
+        }
+
         foreach ($boards as &$board) {
-            $board['organization_ids'] = $this->getOrganizationIds((int) $board['id']);
+            $board['organizations'] = $orgMap[(int) $board['id']] ?? [];
         }
         unset($board);
 

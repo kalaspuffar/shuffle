@@ -15,7 +15,7 @@ $currentUser = $auth->requireAuth();
 $boardModel   = new Shuffle\Model\Board($db);
 $boardService = new Shuffle\Service\BoardService($boardModel);
 
-$includeArchived = isset($_GET['include_archived']) && $_GET['include_archived'] === '1';
+$includeArchived = isset($_GET['include_archived']) && in_array($_GET['include_archived'], ['1', 'true'], true);
 $boards = $boardService->listBoards($currentUser, $includeArchived);
 
 // Load organizations for the create/edit modal (admin/member only)
@@ -29,6 +29,7 @@ $canCreate = in_array($currentUser['role'], ['admin', 'member'], true);
 $isAdmin = ($currentUser['role'] === 'admin');
 
 $pageTitle = $lang->get('board.boards');
+$currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
@@ -126,112 +127,12 @@ require ROOT_DIR . '/include/templates/header.php';
 </div>
 <?php endif; ?>
 
-<script src="/js/app.js"></script>
-<script>
-(function () {
-    'use strict';
-
-    // Toggle archived boards filter
-    var toggleArchived = document.getElementById('toggle-archived');
-    if (toggleArchived) {
-        toggleArchived.addEventListener('change', function () {
-            var url = new URL(window.location);
-            if (this.checked) {
-                url.searchParams.set('include_archived', '1');
-            } else {
-                url.searchParams.delete('include_archived');
-            }
-            window.location.href = url.toString();
-        });
-    }
-
-    // Modal logic
-    var modal = document.getElementById('board-modal-overlay');
-    var boardForm = document.getElementById('board-form');
-    var openBtn = document.getElementById('btn-create-board');
-    var visibilitySelect = document.getElementById('board-visibility');
-    var orgGroup = document.getElementById('org-select-group');
-
-    if (!modal || !boardForm) return;
-
-    function openModal() {
-        modal.hidden = false;
-        document.getElementById('board-title').focus();
-    }
-
-    function closeModal() {
-        modal.hidden = true;
-        boardForm.reset();
-        if (orgGroup) orgGroup.hidden = true;
-        if (openBtn) openBtn.focus();
-    }
-
-    if (openBtn) {
-        openBtn.addEventListener('click', openModal);
-    }
-
-    // Close buttons
-    var closeBtns = modal.querySelectorAll('.modal-close');
-    for (var i = 0; i < closeBtns.length; i++) {
-        closeBtns[i].addEventListener('click', closeModal);
-    }
-
-    // Close on overlay click
-    modal.addEventListener('click', function (e) {
-        if (e.target === modal) closeModal();
-    });
-
-    // Close on Escape
-    document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !modal.hidden) closeModal();
-    });
-
-    // Toggle organization selection based on visibility
-    if (visibilitySelect && orgGroup) {
-        visibilitySelect.addEventListener('change', function () {
-            orgGroup.hidden = (this.value !== 'organization');
-        });
-    }
-
-    // Form submission
-    boardForm.addEventListener('submit', function (e) {
-        e.preventDefault();
-
-        var title = document.getElementById('board-title').value.trim();
-        var description = document.getElementById('board-description').value.trim();
-        var visibility = visibilitySelect ? visibilitySelect.value : 'private';
-
-        var organizationIds = [];
-        if (visibility === 'organization') {
-            var checkboxes = boardForm.querySelectorAll('input[name="organization_ids[]"]:checked');
-            for (var j = 0; j < checkboxes.length; j++) {
-                organizationIds.push(parseInt(checkboxes[j].value, 10));
-            }
-        }
-
-        var body = {
-            title: title,
-            visibility: visibility,
-            organization_ids: organizationIds
-        };
-        if (description) body.description = description;
-
-        Shuffle.api('/v1/boards', {
-            method: 'POST',
-            body: body
-        }).then(function (result) {
-            if (result.status === 201) {
-                Shuffle.showFlash(<?= json_encode($lang->get('board.create_success')) ?>, 'success');
-                closeModal();
-                setTimeout(function () { window.location.reload(); }, 500);
-            } else {
-                var msg = (result.data && result.data.error) ? result.data.error : <?= json_encode($lang->get('error.bad_request')) ?>;
-                Shuffle.showFlash(msg, 'error');
-            }
-        });
-    });
-})();
-</script>
-</main>
-</body>
-</html>
+<?php
+// Pass i18n strings to external JS via data attribute (CSP-compliant)
+$boardsLang = json_encode([
+    'create_success'    => $lang->get('board.create_success'),
+    'error_bad_request' => $lang->get('error.bad_request'),
+], JSON_HEX_TAG | JSON_HEX_AMP);
+?>
+<script id="boards-script" src="/js/boards.js" data-lang="<?= htmlspecialchars($boardsLang, ENT_QUOTES, 'UTF-8') ?>"></script>
+<?php require ROOT_DIR . '/include/templates/footer.php'; ?>

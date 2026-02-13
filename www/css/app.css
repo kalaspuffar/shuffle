@@ -36,6 +36,7 @@
     --color-warning: #FDBA74;
     --color-warning-subtle: rgba(253, 186, 116, 0.12);
     --color-error: #F87171;
+    --color-error-hover: #EF4444;
     --color-error-subtle: rgba(248, 113, 113, 0.12);
     --color-info: #A78BFA;
     --color-info-subtle: rgba(167, 139, 250, 0.12);
@@ -172,6 +173,7 @@
     --color-warning: #CA8A04;
     --color-warning-subtle: rgba(202, 138, 4, 0.08);
     --color-error: #DC2626;
+    --color-error-hover: #B91C1C;
     --color-error-subtle: rgba(220, 38, 38, 0.08);
     --color-info: #6D28D9;
     --color-info-subtle: rgba(109, 40, 217, 0.08);
@@ -426,13 +428,13 @@ small,
 }
 
 .btn-danger:hover:not(:disabled) {
-    background-color: #EF4444;
-    border-color: #EF4444;
+    background-color: var(--color-error-hover);
+    border-color: var(--color-error-hover);
 }
 
 .btn-danger:active:not(:disabled) {
-    background-color: #DC2626;
-    border-color: #DC2626;
+    background-color: var(--color-error);
+    border-color: var(--color-error);
 }
 
 /* Full-width button */
@@ -1030,7 +1032,7 @@ small,
 }
 
 .btn-danger-text:hover:not(:disabled) {
-    color: #EF4444;
+    color: var(--color-error-hover);
 }
 
 /* =============================================

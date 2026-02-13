@@ -40,7 +40,7 @@ class BoardController
     {
         $currentUser = $this->auth->requireAuth();
 
-        $includeArchived = ($request->getQuery('include_archived') === '1');
+        $includeArchived = in_array($request->getQuery('include_archived'), ['1', 'true'], true);
 
         $boards = $this->boardService->listBoards($currentUser, $includeArchived);
 
@@ -166,8 +166,8 @@ class BoardController
         $id = (int) ($params['id'] ?? 0);
 
         try {
-            $board = $this->boardService->archiveBoard($id);
-            $response->json(['board' => $board]);
+            $this->boardService->archiveBoard($id);
+            $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);
         }
@@ -188,8 +188,8 @@ class BoardController
         $id = (int) ($params['id'] ?? 0);
 
         try {
-            $board = $this->boardService->restoreBoard($id);
-            $response->json(['board' => $board]);
+            $this->boardService->restoreBoard($id);
+            $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);
         }
@@ -221,7 +221,7 @@ class BoardController
             return;
         }
 
-        $etag = '"board-' . $id . '-v' . $version . '"';
+        $etag = '"' . $version . '"';
 
         // Check If-None-Match for conditional response
         $ifNoneMatch = $request->getHeader('If-None-Match');

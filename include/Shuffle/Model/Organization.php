@@ -38,6 +38,20 @@ class Organization
     }
 
     /**
+     * Finds an organization by name.
+     *
+     * @param string $name Organization name
+     * @return array|null Organization row or null
+     */
+    public function findByName(string $name): ?array
+    {
+        return $this->db->fetch(
+            'SELECT ' . self::SELECT_COLUMNS . ' FROM organizations WHERE name = ?',
+            [$name]
+        );
+    }
+
+    /**
      * Retrieves all organizations ordered by name.
      *
      * @return array Array of organization rows
@@ -46,6 +60,26 @@ class Organization
     {
         return $this->db->fetchAll(
             'SELECT ' . self::SELECT_COLUMNS . ' FROM organizations ORDER BY name ASC'
+        );
+    }
+
+    /**
+     * Retrieves all organizations with member counts in a single query.
+     *
+     * Avoids N+1 by using a LEFT JOIN with COUNT instead of
+     * querying member count per organization.
+     *
+     * @return array Array of organization rows with 'member_count' field
+     */
+    public function findAllWithMemberCount(): array
+    {
+        return $this->db->fetchAll(
+            'SELECT o.id, o.name, o.created_at, o.updated_at, COUNT(u.id) AS member_count
+             FROM organizations o
+             LEFT JOIN users u ON u.organization_id = o.id AND u.status = ?
+             GROUP BY o.id
+             ORDER BY o.name ASC',
+            ['active']
         );
     }
 

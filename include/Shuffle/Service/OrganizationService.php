@@ -22,21 +22,15 @@ class OrganizationService
     }
 
     /**
-     * Lists all organizations.
+     * Lists all organizations with member counts.
      *
-     * @return array Array of organization records
+     * Uses a single JOIN query to avoid N+1 performance issues.
+     *
+     * @return array Array of organization records with 'member_count'
      */
     public function listOrganizations(): array
     {
-        $orgs = $this->orgModel->findAll();
-
-        // Attach member count to each organization
-        foreach ($orgs as &$org) {
-            $org['member_count'] = $this->orgModel->getMemberCount((int) $org['id']);
-        }
-        unset($org);
-
-        return $orgs;
+        return $this->orgModel->findAllWithMemberCount();
     }
 
     /**
@@ -65,8 +59,14 @@ class OrganizationService
     {
         $this->validateName($data);
 
+        $trimmedName = trim($data['name']);
+        $existing = $this->orgModel->findByName($trimmedName);
+        if ($existing !== null) {
+            throw new \InvalidArgumentException('An organization with this name already exists');
+        }
+
         $id = $this->orgModel->create([
-            'name' => trim($data['name']),
+            'name' => $trimmedName,
         ]);
 
         return $this->orgModel->findById($id);
@@ -90,8 +90,14 @@ class OrganizationService
 
         $this->validateName($data);
 
+        $trimmedName = trim($data['name']);
+        $existing = $this->orgModel->findByName($trimmedName);
+        if ($existing !== null && (int) $existing['id'] !== $id) {
+            throw new \InvalidArgumentException('An organization with this name already exists');
+        }
+
         $this->orgModel->update($id, [
-            'name' => trim($data['name']),
+            'name' => $trimmedName,
         ]);
 
         return $this->orgModel->findById($id);
@@ -149,7 +155,7 @@ class OrganizationService
             throw new \InvalidArgumentException('Organization name is required');
         }
 
-        if (strlen(trim($data['name'])) > 128) {
+        if (mb_strlen(trim($data['name']), 'UTF-8') > 128) {
             throw new \InvalidArgumentException('Organization name must be no more than 128 characters');
         }
     }
