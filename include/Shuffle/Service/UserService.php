@@ -252,6 +252,17 @@ TEXT;
     }
 
     /**
+     * Retrieves a single user by ID.
+     *
+     * @param int $id User ID
+     * @return array|null User row or null if not found
+     */
+    public function getUser(int $id): ?array
+    {
+        return $this->userModel->findById($id);
+    }
+
+    /**
      * Lists users with optional filters.
      *
      * @param array $filters Optional filters: status, organization_id

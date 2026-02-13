@@ -31,6 +31,10 @@ class AuthController
      *
      * Authenticates a user and creates a session.
      *
+     * TODO: Implement rate limiting per spec Section 6.8 — 10 failed attempts
+     *       per IP per 15-minute window, returning 429 Too Many Requests.
+     *       Use the `login_attempts` table approach described in the specification.
+     *
      * @param Request  $request  HTTP request
      * @param Response $response HTTP response
      */
@@ -52,8 +56,8 @@ class AuthController
             return;
         }
 
-        // Generate a fresh CSRF token for the new session
-        $csrfToken = $this->csrf->generate();
+        // Regenerate CSRF token after login to prevent token fixation
+        $csrfToken = $this->csrf->regenerate();
 
         $response->json([
             'user'       => $user,

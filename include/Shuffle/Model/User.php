@@ -162,6 +162,9 @@ class User
             return;
         }
 
+        // Always update the modification timestamp when other fields change
+        $setClauses[] = "`updated_at` = NOW()";
+
         $params[] = $id;
         $sql = 'UPDATE users SET ' . implode(', ', $setClauses) . ' WHERE id = ?';
         $this->db->execute($sql, $params);
@@ -193,6 +196,21 @@ class User
              SET username = ?, password_hash = ?, status = ?, invite_token = NULL, invite_token_expires_at = NULL
              WHERE id = ?',
             [$username, $passwordHash, 'active', $id]
+        );
+    }
+
+    /**
+     * Finds all placeholder users (created during Trello import).
+     *
+     * Placeholder users have `is_placeholder = 1` and are used to map
+     * Trello members who don't yet have a Shuffle account.
+     *
+     * @return array Array of placeholder user rows
+     */
+    public function findPlaceholders(): array
+    {
+        return $this->db->fetchAll(
+            'SELECT ' . self::SELECT_COLUMNS . ' FROM users WHERE is_placeholder = 1'
         );
     }
 

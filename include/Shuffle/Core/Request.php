@@ -65,7 +65,9 @@ class Request
     public function getBody(): array
     {
         if ($this->body === null) {
-            $input = $this->getInputStream();
+            $stream = $this->getInputStream();
+            $input = stream_get_contents($stream);
+            fclose($stream);
             $decoded = json_decode($input, true);
             $this->body = is_array($decoded) ? $decoded : [];
         }
@@ -99,13 +101,17 @@ class Request
     }
 
     /**
-     * Returns the raw input stream content.
+     * Returns the raw input stream as a resource.
      *
-     * @return string
+     * Callers are responsible for closing the returned stream when done.
+     * This avoids loading the entire request body into memory, which is
+     * important for large file uploads.
+     *
+     * @return resource A readable stream resource for php://input
      */
-    public function getInputStream(): string
+    public function getInputStream()
     {
-        return file_get_contents('php://input') ?: '';
+        return fopen('php://input', 'rb');
     }
 
     /**

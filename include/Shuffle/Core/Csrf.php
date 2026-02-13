@@ -26,6 +26,20 @@ class Csrf
     }
 
     /**
+     * Regenerates the CSRF token, replacing any existing token.
+     *
+     * Should be called after privilege-level changes (e.g., login) to prevent
+     * session fixation attacks from carrying over pre-authentication CSRF tokens.
+     *
+     * @return string The new CSRF token
+     */
+    public function regenerate(): string
+    {
+        $_SESSION[self::SESSION_KEY] = bin2hex(random_bytes(32));
+        return $_SESSION[self::SESSION_KEY];
+    }
+
+    /**
      * Validates a submitted token against the session token.
      *
      * Uses hash_equals() for timing-safe comparison to prevent timing attacks.

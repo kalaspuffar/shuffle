@@ -57,6 +57,17 @@ class Router
     }
 
     /**
+     * Registers a PATCH route.
+     *
+     * @param string   $pattern  URL pattern
+     * @param callable $handler  Callback
+     */
+    public function patch(string $pattern, callable $handler): void
+    {
+        $this->addRoute('PATCH', $pattern, $handler);
+    }
+
+    /**
      * Dispatches the request to the matching route handler.
      *
      * Sends 404 if no pattern matches, 405 if the method is not allowed.

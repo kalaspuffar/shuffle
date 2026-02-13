@@ -31,6 +31,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $user = $auth->login($username, $password);
             if ($user !== null) {
+                // Regenerate CSRF token after privilege-level change
+                $csrf->regenerate();
                 header('Location: /');
                 exit;
             }
@@ -43,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'");
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 
 $appName = htmlspecialchars($lang->get('app.name'), ENT_QUOTES, 'UTF-8');

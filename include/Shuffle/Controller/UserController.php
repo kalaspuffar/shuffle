@@ -81,8 +81,7 @@ class UserController
             return;
         }
 
-        $userModel = new User($GLOBALS['db']);
-        $user = $userModel->findById($id);
+        $user = $this->userService->getUser($id);
 
         if ($user === null) {
             $response->error('User not found', 404);

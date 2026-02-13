@@ -13,6 +13,7 @@ require_once dirname(__DIR__, 2) . '/include/bootstrap.php';
 // Security headers for API responses
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Cache-Control: no-store');
 
@@ -25,16 +26,10 @@ $method = $request->getMethod();
 $path = $request->getPath();
 
 $csrfExemptPaths = ['/auth/login', '/users/activate'];
-$requiresCsrf = in_array($method, ['POST', 'PUT', 'DELETE'], true);
+$requiresCsrf = in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH'], true);
 
 if ($requiresCsrf) {
-    $isExempt = false;
-    foreach ($csrfExemptPaths as $exempt) {
-        if (str_ends_with($path, $exempt)) {
-            $isExempt = true;
-            break;
-        }
-    }
+    $isExempt = in_array($path, $csrfExemptPaths, true);
 
     if (!$isExempt) {
         $csrfToken = $request->getHeader('X-CSRF-Token', '');

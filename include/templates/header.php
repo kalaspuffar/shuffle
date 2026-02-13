@@ -16,6 +16,7 @@
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'");
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
+header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 
 $appName = htmlspecialchars($lang->get('app.name'), ENT_QUOTES, 'UTF-8');
@@ -52,7 +53,10 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
                 <span class="user-name"><?= htmlspecialchars($currentUser['name'], ENT_QUOTES, 'UTF-8') ?></span>
             </button>
             <div class="user-dropdown" role="menu" hidden>
-                <a href="/logout.php" role="menuitem"><?= htmlspecialchars($lang->get('auth.logout'), ENT_QUOTES, 'UTF-8') ?></a>
+                <form method="post" action="/logout.php" class="logout-form">
+                    <?= $csrf->getTokenField() ?>
+                    <button type="submit" role="menuitem" class="dropdown-btn"><?= htmlspecialchars($lang->get('auth.logout'), ENT_QUOTES, 'UTF-8') ?></button>
+                </form>
             </div>
         </div>
     </div>
