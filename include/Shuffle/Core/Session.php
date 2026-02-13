@@ -101,15 +101,20 @@ class Session implements SessionHandlerInterface
         // Extract user_id from session data if available
         $userId = $_SESSION['user_id'] ?? null;
 
-        $this->db->execute(
-            'INSERT INTO sessions (id, user_id, data, last_activity, created_at)
-             VALUES (?, ?, ?, ?, ?) AS new_row
-             ON DUPLICATE KEY UPDATE
-                user_id = new_row.user_id,
-                data = new_row.data,
-                last_activity = new_row.last_activity',
-            [$id, $userId, $data, $now, $now]
-        );
+        try {
+            $this->db->execute(
+                'INSERT INTO sessions (id, user_id, data, last_activity, created_at)
+                 VALUES (?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                    user_id = VALUES(user_id),
+                    data = VALUES(data),
+                    last_activity = VALUES(last_activity)',
+                [$id, $userId, $data, $now, $now]
+            );
+        } catch (\PDOException $e) {
+            error_log('Session write failed: ' . $e->getMessage());
+            return false;
+        }
         return true;
     }
 
