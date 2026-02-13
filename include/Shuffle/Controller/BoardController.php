@@ -66,7 +66,14 @@ class BoardController
             return;
         }
 
-        $board = $this->boardService->getBoard($id);
+        // Include nested lanes and cards for the full board view
+        $includeLanes = in_array($request->getQuery('include_lanes'), ['1', 'true'], true);
+
+        if ($includeLanes) {
+            $board = $this->boardService->getBoardWithLanesAndCards($id);
+        } else {
+            $board = $this->boardService->getBoard($id);
+        }
 
         if ($board === null) {
             $response->error('Board not found', 404);

@@ -54,8 +54,17 @@ $orgService    = new Shuffle\Service\OrganizationService($orgModel);
 $orgController = new Shuffle\Controller\OrganizationController($auth, $orgService);
 
 $boardModel      = new Shuffle\Model\Board($db);
-$boardService    = new Shuffle\Service\BoardService($boardModel);
+$laneModel       = new Shuffle\Model\Lane($db);
+$cardModel       = new Shuffle\Model\Card($db);
+
+$boardService    = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel);
 $boardController = new Shuffle\Controller\BoardController($auth, $boardService);
+
+$laneService    = new Shuffle\Service\LaneService($laneModel, $boardModel);
+$laneController = new Shuffle\Controller\LaneController($auth, $laneService);
+
+$cardService    = new Shuffle\Service\CardService($cardModel, $boardModel);
+$cardController = new Shuffle\Controller\CardController($auth, $cardService);
 
 // Register routes
 $router = new Shuffle\Core\Router();
@@ -90,6 +99,22 @@ $router->delete('/boards/{id}', [$boardController, 'delete']);
 $router->post('/boards/{id}/archive', [$boardController, 'archive']);
 $router->post('/boards/{id}/restore', [$boardController, 'restore']);
 $router->get('/boards/{id}/version', [$boardController, 'version']);
+
+// Lane routes
+$router->get('/boards/{boardId}/lanes', [$laneController, 'index']);
+$router->post('/boards/{boardId}/lanes', [$laneController, 'create']);
+$router->put('/lanes/{id}', [$laneController, 'update']);
+$router->put('/lanes/{id}/position', [$laneController, 'reposition']);
+$router->delete('/lanes/{id}', [$laneController, 'delete']);
+
+// Card routes
+$router->get('/cards/{id}', [$cardController, 'show']);
+$router->post('/boards/{boardId}/lanes/{laneId}/cards', [$cardController, 'create']);
+$router->put('/cards/{id}', [$cardController, 'update']);
+$router->put('/cards/{id}/move', [$cardController, 'move']);
+$router->post('/cards/{id}/archive', [$cardController, 'archive']);
+$router->post('/cards/{id}/restore', [$cardController, 'restore']);
+$router->delete('/cards/{id}', [$cardController, 'delete']);
 
 // Dispatch
 $router->dispatch($request, $response);
