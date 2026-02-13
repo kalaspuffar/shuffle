@@ -849,6 +849,315 @@ small,
    12. Responsive Breakpoints
    ============================================= */
 
+/* =============================================
+   13. Boards Page
+   ============================================= */
+
+.boards-page {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.boards-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-6);
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.boards-header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.boards-filter-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    color: var(--color-text-secondary);
+}
+
+.boards-filter-checkbox {
+    accent-color: var(--color-primary);
+}
+
+.boards-empty {
+    text-align: center;
+    padding: var(--space-8) 0;
+}
+
+.boards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--space-4);
+}
+
+.board-card {
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.board-card:hover {
+    border-color: var(--color-border-focus);
+    box-shadow: var(--shadow-card);
+}
+
+.board-card:focus-within {
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25);
+}
+
+.board-card--archived {
+    opacity: 0.65;
+}
+
+.board-card-link {
+    display: block;
+    padding: var(--space-4);
+    text-decoration: none;
+    color: inherit;
+    border-radius: var(--border-radius-lg);
+}
+
+.board-card-link:hover {
+    text-decoration: none;
+}
+
+.board-card-link:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: -2px;
+}
+
+.board-card-title {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-2);
+    line-height: var(--line-height-ui);
+}
+
+.board-card-desc {
+    margin-bottom: var(--space-3);
+    line-height: var(--line-height-body);
+}
+
+.board-card-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.board-card-badge {
+    display: inline-flex;
+    padding: var(--space-2xs) var(--space-2);
+    border-radius: var(--border-radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+}
+
+.board-card-badge--archived {
+    background-color: var(--color-warning-subtle);
+    color: var(--color-warning);
+}
+
+/* =============================================
+   14. Admin Pages — Tables & Layout
+   ============================================= */
+
+.admin-page {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.admin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-6);
+    gap: var(--space-4);
+    flex-wrap: wrap;
+}
+
+.admin-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    background-color: var(--color-raised);
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-sm);
+}
+
+.admin-table th,
+.admin-table td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.admin-table thead th {
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--letter-spacing-wide);
+    background-color: var(--color-elevated);
+}
+
+.admin-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.admin-table tbody tr:hover {
+    background-color: var(--color-hover-overlay);
+}
+
+.admin-table-actions {
+    text-align: right;
+    white-space: nowrap;
+}
+
+.btn-danger-text {
+    color: var(--color-error);
+}
+
+.btn-danger-text:hover:not(:disabled) {
+    color: #EF4444;
+}
+
+/* =============================================
+   15. Modal
+   ============================================= */
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-overlay);
+    z-index: var(--z-modal-backdrop);
+    padding: var(--space-4);
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal {
+    width: 100%;
+    max-width: var(--modal-width-sm);
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-xl);
+    box-shadow: var(--shadow-elevated);
+    z-index: var(--z-modal);
+}
+
+.modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.modal-header h2 {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+}
+
+.modal-body {
+    padding: var(--space-5);
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.modal-close {
+    font-size: var(--font-size-lg);
+    line-height: 1;
+    min-width: auto;
+    padding: var(--space-1) var(--space-2);
+}
+
+/* =============================================
+   16. Checkbox Group
+   ============================================= */
+
+.checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+}
+
+.checkbox-label input[type="checkbox"] {
+    accent-color: var(--color-primary);
+}
+
+/* =============================================
+   17. Navigation Links
+   ============================================= */
+
+.header-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.header-nav-link {
+    display: inline-flex;
+    align-items: center;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    border-radius: var(--border-radius-md);
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.header-nav-link:hover {
+    background-color: var(--color-hover-overlay);
+    color: var(--color-text);
+    text-decoration: none;
+}
+
+.header-nav-link:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.header-nav-link[aria-current="page"] {
+    color: var(--color-text);
+    background-color: var(--color-primary-subtle);
+}
+
+/* =============================================
+   18. Responsive Breakpoints
+   ============================================= */
+
 @media (max-width: 767px) {
     .login-card {
         padding: var(--space-6);
@@ -860,5 +1169,24 @@ small,
 
     .page-content {
         padding: var(--space-4);
+    }
+
+    .boards-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .boards-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .admin-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .admin-table th:nth-child(3),
+    .admin-table td:nth-child(3) {
+        display: none;
     }
 }
