@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**KanBoard** is a self-hosted, open-source Kanban task management system (Trello alternative). The project is currently in the **design/specification phase** — no application code exists yet. The repository contains requirements, role-specific system prompts, and OpenSpec workflow tooling to drive the project from specification through implementation.
+**Shuffle** is a self-hosted, open-source Kanban task management system (Trello alternative). The project is currently in the **design/specification phase** — no application code exists yet. The repository contains requirements, role-specific system prompts, and OpenSpec workflow tooling to drive the project from specification through implementation.
 
 ## Tech Stack (from REQUIREMENTS.md)
 

@@ -2786,7 +2786,7 @@ The `app.css` stylesheet defines CSS custom properties for consistent theming. S
        TYPOGRAPHY — Font Families
        ======================================== */
     --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-    --font-family-mono: 'SF Mono', 'Fira Code', 'Fira Mono', Menlo, Consolas, monospace;
+    --font-family-mono: 'SF Mono', 'Fira Mono', Menlo, Consolas, monospace;
 
     /* ========================================
        TYPOGRAPHY — Font Sizes
@@ -2885,6 +2885,7 @@ The `app.css` stylesheet defines CSS custom properties for consistent theming. S
     --z-modal-backdrop: 200;
     --z-modal: 250;
     --z-notification: 300;
+    --z-toast: 350;
     --z-drag: 400;
     --z-tooltip: 500;
 }
@@ -3027,7 +3028,7 @@ The font stack uses **system fonts only** — no web fonts to download. This gua
 | Android | Roboto |
 | Linux | Ubuntu / system sans-serif |
 
-Monospace follows the same strategy: SF Mono → Fira Code → Menlo → Consolas → fallback.
+Monospace follows the same strategy: SF Mono → Fira Mono → Menlo → Consolas → fallback. No ligature fonts (e.g., Fira Code) are included to ensure predictable code rendering in card descriptions.
 
 ##### Heading Hierarchy
 
@@ -4252,4 +4253,829 @@ All interactive components follow consistent focus behavior:
 
 ---
 
-*This specification is a work in progress. The visual design system is being developed iteratively — color tokens, typography, spacing/layout, and component design are complete; interactive states and motion/animation will follow.*
+#### E.9 Interactive States (Consolidated)
+
+This section consolidates all interactive state definitions. Component-specific states (buttons, inputs, checkboxes, cards, dropdowns) are defined in §E.8; this section covers remaining components and cross-cutting patterns.
+
+##### Sidebar Navigation Items
+
+```css
+.nav-item {
+    height: 36px;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);                       /* 8px icon-to-text */
+    padding: 0 var(--space-3);                 /* 0 12px */
+    border-radius: var(--border-radius-md);    /* 6px */
+    font-size: var(--font-size-sm);            /* 14px */
+    font-weight: var(--font-weight-regular);   /* 400 */
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: background 0.1s ease, color 0.1s ease;
+}
+
+.nav-item:hover {
+    background: var(--color-hover-overlay);
+    color: var(--color-text);
+}
+
+.nav-item:active {
+    background: var(--color-active-overlay);
+}
+
+.nav-item[aria-current="page"],
+.nav-item--active {
+    background: var(--color-primary-subtle);   /* rgba(109, 40, 217, 0.15) */
+    color: var(--color-primary-text);          /* Purple text */
+    font-weight: var(--font-weight-semibold);  /* 600 */
+}
+
+.nav-item:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: -2px;                      /* Inset to fit within sidebar padding */
+}
+
+.nav-item .nav-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    color: inherit;
+}
+```
+
+**Collapsed sidebar:** When sidebar is collapsed (48px), nav items show only the icon centered. Tooltip appears on hover (500ms delay) showing the label text.
+
+##### Board List Items (Sidebar)
+
+```css
+.board-list-item {
+    /* Inherits .nav-item base styles */
+    padding-left: var(--space-4);              /* 16px — indented under section */
+}
+
+.board-list-item .board-color-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--border-radius-full);
+    flex-shrink: 0;
+    /* background set per board color */
+}
+
+.board-list-item--active {
+    background: var(--color-primary-subtle);
+    font-weight: var(--font-weight-medium);    /* 500 — slightly less bold than nav */
+}
+```
+
+##### Header Icon Buttons (Notification Bell, User Avatar)
+
+```css
+.header-icon-btn {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--border-radius-md);    /* 6px */
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: background 0.1s ease, color 0.1s ease;
+}
+
+.header-icon-btn:hover {
+    background: var(--color-hover-overlay);
+    color: var(--color-text);
+}
+
+.header-icon-btn:active {
+    background: var(--color-active-overlay);
+}
+
+.header-icon-btn:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.header-icon-btn[aria-expanded="true"] {
+    background: var(--color-active-overlay);
+    color: var(--color-text);
+}
+```
+
+##### Avatar Hover (Interactive Contexts)
+
+Avatars are non-interactive by default (display-only). In interactive contexts (clickable user profiles, assignee pickers), they gain hover states:
+
+```css
+.avatar--interactive {
+    cursor: pointer;
+    transition: opacity 0.1s ease, box-shadow 0.1s ease;
+}
+
+.avatar--interactive:hover {
+    opacity: 0.85;
+    box-shadow: 0 0 0 2px var(--color-primary-subtle);
+}
+
+.avatar--interactive:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+```
+
+##### Drag-and-Drop States
+
+**Dragged card** (already defined in §E.8, restated for reference):
+
+```css
+.card[data-dragging="true"] {
+    box-shadow: var(--shadow-drag);
+    transform: rotate(2deg);
+    opacity: 0.9;
+    z-index: var(--z-drag);
+    cursor: grabbing;
+}
+```
+
+**Drop placeholder** — appears at the target position when dragging:
+
+```css
+.card-drop-placeholder {
+    background: var(--color-primary-subtle);   /* Solid tinted fill, ~15% purple */
+    border-radius: var(--border-radius-md);    /* 6px — matches card */
+    /* Height matches the dragged card's height (set via JS) */
+    min-height: 40px;
+    margin-top: var(--card-gap);               /* 8px — matches card spacing */
+    transition: height 0.15s ease;
+}
+```
+
+**Drop target lane** — the lane receiving a card from another lane gets a subtle highlight:
+
+```css
+.lane[data-drop-target="true"] {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+    background: color-mix(in srgb, var(--color-raised) 95%, var(--color-primary) 5%);
+}
+```
+
+**Lane drag handle** (for reordering lanes):
+
+```css
+.lane-drag-handle {
+    cursor: grab;
+    color: var(--color-text-disabled);
+    transition: color 0.1s ease;
+}
+
+.lane-drag-handle:hover {
+    color: var(--color-text-secondary);
+}
+
+.lane[data-dragging="true"] {
+    box-shadow: var(--shadow-drag);
+    opacity: 0.9;
+    z-index: var(--z-drag);
+}
+```
+
+##### Link States
+
+```css
+a {
+    color: var(--color-link);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+    transition: color 0.1s ease, text-decoration-thickness 0.1s ease;
+}
+
+a:hover {
+    color: var(--color-link-hover);
+    text-decoration-thickness: 2px;
+}
+
+a:active {
+    color: var(--color-primary-active);
+}
+
+a:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+a:visited {
+    color: var(--color-link);                  /* No visited color change — keeps UI clean */
+}
+```
+
+##### Inline Editable Fields (Lane Titles, Card Titles)
+
+Fields that switch from display to edit on click:
+
+```css
+/* Display state — looks like plain text */
+.editable-field {
+    padding: var(--space-1) var(--space-2);    /* 4px 8px */
+    border: 1px solid transparent;
+    border-radius: var(--border-radius-sm);    /* 4px */
+    cursor: text;
+    transition: background 0.1s ease, border-color 0.1s ease;
+}
+
+.editable-field:hover {
+    background: var(--color-hover-overlay);
+    border-color: var(--color-border-subtle);
+}
+
+/* Edit state — becomes a real input */
+.editable-field--editing {
+    background: var(--color-elevated);
+    border-color: var(--color-border-focus);
+    outline: none;
+    cursor: text;
+}
+```
+
+**Behavior:** Click or Enter to start editing. Enter or blur to save. Escape to cancel (revert to previous value).
+
+##### Toggle Switch (Settings Pages)
+
+```css
+.toggle {
+    width: 40px;
+    height: 22px;
+    border-radius: var(--border-radius-full);
+    background: var(--color-border);
+    border: none;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+}
+
+.toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--border-radius-full);
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s ease;
+}
+
+.toggle[aria-checked="true"] {
+    background: var(--color-primary);
+}
+
+.toggle[aria-checked="true"]::after {
+    transform: translateX(18px);
+}
+
+.toggle:hover {
+    filter: brightness(1.1);
+}
+
+.toggle:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.toggle:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+```
+
+---
+
+#### E.10 Motion & Animation System
+
+##### Motion Design Principles
+
+KanBoard uses a **snappy, minimal** motion style. Animations exist to provide spatial context and user feedback, not for decoration. Every animation must:
+1. Have a functional purpose (feedback, orientation, or continuity)
+2. Complete quickly (≤ 200ms for micro-interactions, ≤ 300ms for entrances/exits)
+3. Respect `prefers-reduced-motion` (see §E.10.8)
+
+##### E.10.1 Duration Tokens
+
+```css
+:root {
+    --duration-instant: 0ms;           /* State changes with no animation (color swaps on active) */
+    --duration-fast: 100ms;            /* Micro-interactions: hover overlays, active presses, color changes */
+    --duration-normal: 150ms;          /* Standard transitions: button states, input focus, dropdowns */
+    --duration-moderate: 200ms;        /* Sidebar collapse, modal/dropdown entrance, search expand */
+    --duration-slow: 300ms;            /* Complex entrance animations: toast slide-in, modal backdrop fade */
+    --duration-skeleton: 1500ms;       /* Skeleton shimmer pulse cycle */
+}
+```
+
+##### E.10.2 Easing Tokens
+
+```css
+:root {
+    --ease-default: ease;              /* General transitions (CSS default, suitable for most cases) */
+    --ease-in: ease-in;               /* Elements leaving the screen (accelerate out) */
+    --ease-out: ease-out;             /* Elements entering the screen (decelerate in) */
+    --ease-in-out: ease-in-out;       /* Elements moving position (sidebar, expand/collapse) */
+    --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);  /* Subtle overshoot for playful feedback (toast arrival) */
+}
+```
+
+##### E.10.3 Component Transitions Summary
+
+All transitions gathered in one reference table. Components already shown in §E.8 are included for completeness.
+
+| Component | Property | Duration | Easing | Trigger |
+|---|---|---|---|---|
+| **Button (primary)** | `background, box-shadow` | `--duration-normal` (150ms) | `ease` | hover, focus |
+| **Button (primary)** | `transform` | `--duration-fast` (100ms) | `ease` | active (scale 0.98) |
+| **Button (secondary)** | `background, border-color` | `--duration-normal` (150ms) | `ease` | hover |
+| **Button (ghost)** | `background, color` | `--duration-fast` (100ms) | `ease` | hover |
+| **Button (danger)** | `filter` | `--duration-normal` (150ms) | `ease` | hover |
+| **Input** | `border-color, background` | `--duration-normal` (150ms) | `ease` | hover, focus |
+| **Checkbox** | `background, border-color` | `--duration-normal` (150ms) | `ease` | hover, checked |
+| **Card** | `box-shadow, transform` | `--duration-normal` (150ms) | `ease` | hover, drag |
+| **Dropdown item** | `background` | `--duration-fast` (100ms) | `ease` | hover |
+| **Nav item** | `background, color` | `--duration-fast` (100ms) | `ease` | hover |
+| **Link** | `color, text-decoration-thickness` | `--duration-fast` (100ms) | `ease` | hover |
+| **Ghost lane button** | `border-color, color, background` | `--duration-normal` (150ms) | `ease` | hover |
+| **Card label bar** | `height` | `--duration-fast` (100ms) | `ease` | hover (8px→16px) |
+| **Sidebar** | `width` | `--duration-moderate` (200ms) | `ease-in-out` | collapse toggle |
+| **Editable field** | `background, border-color` | `--duration-fast` (100ms) | `ease` | hover, edit |
+| **Toggle switch** | `background` | `--duration-normal` (150ms) | `ease` | toggle |
+| **Toggle switch knob** | `transform` | `--duration-normal` (150ms) | `ease` | toggle |
+| **Avatar (interactive)** | `opacity, box-shadow` | `--duration-fast` (100ms) | `ease` | hover |
+
+##### E.10.4 Entrance & Exit Animations
+
+**Modal:**
+
+```css
+/* Backdrop — fade in */
+@keyframes modal-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+/* Modal panel — scale up + fade in */
+@keyframes modal-in {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* Exit — reverse */
+@keyframes modal-out {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+}
+
+.modal-backdrop {
+    animation: modal-backdrop-in var(--duration-moderate) var(--ease-out);
+}
+
+.modal {
+    animation: modal-in var(--duration-moderate) var(--ease-out);
+}
+
+.modal-backdrop--closing {
+    animation: modal-backdrop-in var(--duration-normal) var(--ease-in) reverse forwards;
+}
+
+.modal--closing {
+    animation: modal-out var(--duration-normal) var(--ease-in) forwards;
+}
+```
+
+**Dropdown Menu:**
+
+```css
+@keyframes dropdown-in {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.dropdown {
+    animation: dropdown-in var(--duration-normal) var(--ease-out);
+}
+
+.dropdown--closing {
+    animation: dropdown-in var(--duration-fast) var(--ease-in) reverse forwards;
+}
+```
+
+**Notification Panel (Header Dropdown):**
+
+Same animation as dropdown menu, applied to `.notification-panel`.
+
+**Mobile Search Expand:**
+
+```css
+@keyframes search-expand {
+    from {
+        width: 36px;
+        opacity: 0.5;
+    }
+    to {
+        width: 100%;
+        opacity: 1;
+    }
+}
+
+.header-search--expanding {
+    animation: search-expand var(--duration-moderate) var(--ease-in-out);
+}
+
+.header-search--collapsing {
+    animation: search-expand var(--duration-normal) var(--ease-in) reverse forwards;
+}
+```
+
+**Mobile Sidebar Overlay:**
+
+```css
+/* Sidebar slides in from left */
+@keyframes sidebar-slide-in {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(0); }
+}
+
+.app-sidebar--mobile-open {
+    animation: sidebar-slide-in var(--duration-moderate) var(--ease-out);
+}
+
+.app-sidebar--mobile-closing {
+    animation: sidebar-slide-in var(--duration-normal) var(--ease-in) reverse forwards;
+}
+
+/* Backdrop fades in */
+.sidebar-backdrop {
+    animation: modal-backdrop-in var(--duration-moderate) var(--ease-out);
+}
+```
+
+##### E.10.5 Toast Notifications
+
+**Position:** Fixed bottom-right corner. Offset: `--space-4` (16px) from viewport edges.
+
+**Stack behavior:** Maximum 3 toasts visible simultaneously. New toasts appear at the bottom; older toasts slide up to make room. When a 4th toast arrives, the oldest auto-dismisses. Toasts auto-dismiss after 5 seconds (configurable per-toast for errors: 8 seconds). Manual dismiss via close button (ghost icon button).
+
+**Variants:**
+
+| Variant | Left Border Color | Icon | Use Cases |
+|---|---|---|---|
+| **Success** | `--color-success` (#16A34A) | ✓ checkmark circle | Card saved, action completed |
+| **Error** | `--color-error` (#DC2626) | ✕ error circle | Save failed, validation error |
+| **Warning** | `--color-warning` (#CA8A04) | ⚠ triangle | Approaching limits, degraded state |
+| **Info** | `--color-info` (#2563EB) | ℹ info circle | General information, tips |
+
+**Toast layout:**
+
+```css
+.toast-container {
+    position: fixed;
+    bottom: var(--space-4);                    /* 16px from bottom */
+    right: var(--space-4);                     /* 16px from right */
+    z-index: var(--z-toast);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);                       /* 8px between stacked toasts */
+    pointer-events: none;
+    max-width: 380px;
+    width: calc(100vw - var(--space-8));       /* Responsive: max 100vw - 32px */
+}
+
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);                       /* 12px */
+    padding: var(--space-3) var(--space-4);    /* 12px 16px */
+    background: var(--color-elevated);
+    border-radius: var(--border-radius-lg);    /* 8px */
+    border-left: 3px solid;                    /* Color per variant */
+    box-shadow: var(--shadow-elevated);
+    pointer-events: auto;
+    min-height: 48px;
+}
+
+.toast-icon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    margin-top: 1px;                           /* Optical alignment with text */
+}
+
+.toast-content {
+    flex: 1;
+}
+
+.toast-title {
+    font-size: var(--font-size-sm);            /* 14px */
+    font-weight: var(--font-weight-medium);    /* 500 */
+    color: var(--color-text);
+    line-height: var(--line-height-ui);
+}
+
+.toast-message {
+    font-size: var(--font-size-xs);            /* 12px */
+    color: var(--color-text-secondary);
+    line-height: var(--line-height-body);
+    margin-top: var(--space-1);                /* 4px below title, if present */
+}
+
+.toast-close {
+    /* Ghost icon button, 24×24px */
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+```
+
+**Toast animations:**
+
+```css
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes toast-out {
+    from {
+        opacity: 1;
+        transform: translateX(0);
+        max-height: 120px;
+        margin-bottom: var(--space-2);
+    }
+    to {
+        opacity: 0;
+        transform: translateX(100%);
+        max-height: 0;
+        margin-bottom: 0;
+        padding-top: 0;
+        padding-bottom: 0;
+    }
+}
+
+.toast {
+    animation: toast-in var(--duration-slow) var(--ease-spring);
+}
+
+.toast--dismissing {
+    animation: toast-out var(--duration-moderate) var(--ease-in) forwards;
+}
+```
+
+**Auto-dismiss progress bar** (optional visual):
+
+```css
+.toast-progress {
+    position: absolute;
+    bottom: 0;
+    left: 3px;                                 /* Inset past left border */
+    right: 0;
+    height: 2px;
+    background: var(--color-text-disabled);
+    border-radius: 0 0 var(--border-radius-lg) 0;
+    transform-origin: left;
+    animation: toast-progress-shrink 5s linear forwards;
+}
+
+@keyframes toast-progress-shrink {
+    from { transform: scaleX(1); }
+    to   { transform: scaleX(0); }
+}
+```
+
+**Mobile (< 768px):** Toasts span full width, positioned at bottom. `max-width: 100%; right: 0; left: 0; bottom: 0;` with `--space-2` (8px) side padding.
+
+##### E.10.6 Loading States
+
+**Skeleton Screens:**
+
+Used for initial page loads and section loads (board view, card list, settings pages). Skeletons mirror the layout of the content they replace.
+
+```css
+@keyframes skeleton-pulse {
+    0%   { background-color: var(--color-raised); }
+    50%  { background-color: var(--color-elevated); }
+    100% { background-color: var(--color-raised); }
+}
+
+.skeleton {
+    animation: skeleton-pulse var(--duration-skeleton) ease-in-out infinite;
+    border-radius: var(--border-radius-sm);    /* 4px default */
+}
+
+/* Shape variants */
+.skeleton--text {
+    height: 14px;                              /* Matches body text */
+    width: 100%;
+    margin-bottom: var(--space-2);
+}
+
+.skeleton--text-short {
+    width: 60%;
+}
+
+.skeleton--heading {
+    height: 20px;
+    width: 40%;
+    margin-bottom: var(--space-3);
+}
+
+.skeleton--avatar {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--border-radius-md);    /* Matches avatar shape */
+}
+
+.skeleton--card {
+    height: 80px;
+    border-radius: var(--border-radius-md);    /* Matches card radius */
+    margin-bottom: var(--card-gap);            /* 8px */
+}
+
+.skeleton--button {
+    height: 36px;
+    width: 100px;
+    border-radius: var(--border-radius-lg);    /* Matches button radius */
+}
+```
+
+**Board view skeleton:** Shows 3 lane skeletons side-by-side, each containing 3–4 card skeletons of varying height (60px–100px) to simulate realistic content.
+
+**Card detail modal skeleton:** Header skeleton (title bar + close button), body with 2 text-block skeletons, sidebar with 3 short label skeletons.
+
+**Inline spinners (button loading):**
+
+Already defined in §E.8 — spinner replaces button text, button stays disabled and maintains width. Spinner sizes: 14px (small button), 16px (default), 20px (large).
+
+```css
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+.spinner {
+    display: inline-block;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: var(--border-radius-full);
+    animation: spin 0.6s linear infinite;
+}
+
+.spinner--sm  { width: 14px; height: 14px; }
+.spinner--md  { width: 16px; height: 16px; }
+.spinner--lg  { width: 20px; height: 20px; }
+
+/* Page-level centered spinner (fallback for non-skeleton contexts) */
+.spinner--page {
+    width: 32px;
+    height: 32px;
+    border-width: 3px;
+    margin: var(--space-8) auto;
+    color: var(--color-primary);
+}
+```
+
+##### E.10.7 Drag-and-Drop Animation
+
+**Card pickup:** Card lifts with `box-shadow: var(--shadow-drag)`, rotates `2deg`, and fades to `opacity: 0.9`. Transition: `--duration-normal` (150ms) `ease-out`.
+
+**Card movement:** The card follows the cursor/touch with no transition delay (JS-driven `transform: translate()`). The placeholder (solid tinted fill) smoothly expands/collapses at the target position using `height` transition at `--duration-normal` (150ms) `ease`.
+
+**Card drop:** On release, the card animates from its current position to the placeholder slot. Duration: `--duration-moderate` (200ms), easing: `ease-out`. Rotation returns to `0deg`, shadow returns to `var(--shadow-card)`, opacity returns to `1`.
+
+**Lane reordering:** Same pickup and drop animation as cards, but no rotation (lanes stay upright).
+
+**Other cards shift:** Adjacent cards above/below the placeholder smoothly shift position using `transform: translateY()` with `--duration-normal` (150ms) `ease`.
+
+##### E.10.8 Reduced Motion
+
+All animations respect `prefers-reduced-motion: reduce`. The strategy is to **replace motion with instant state changes** rather than removing feedback entirely:
+
+```css
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+
+    /* Skeleton still pulses but more gently */
+    .skeleton {
+        animation: none !important;
+        background-color: var(--color-elevated);
+    }
+
+    /* Drag-and-drop — no rotation, instant pickup */
+    .card[data-dragging="true"] {
+        transform: none;
+        transition: none;
+    }
+
+    /* Spinner still spins — essential for indicating loading */
+    .spinner {
+        animation-duration: 0.8s !important;
+        animation-iteration-count: infinite !important;
+    }
+}
+```
+
+**Exceptions to reduced motion:**
+- **Spinners** always animate (essential loading feedback; no motion-free alternative)
+- **Focus outlines** remain visible (non-motion accessibility cue)
+- **Color/opacity state changes** still apply instantly (they are not motion)
+
+##### E.10.9 Scroll Behavior
+
+```css
+html {
+    scroll-behavior: smooth;                   /* Smooth scrolling for anchor links */
+}
+
+/* Board horizontal scrolling — native touch + mouse wheel */
+.board-canvas {
+    scroll-behavior: auto;                     /* No smooth scroll on board — too laggy with many lanes */
+    -webkit-overflow-scrolling: touch;         /* iOS momentum scrolling */
+}
+
+/* Mobile snap scrolling (repeated from §E.8 for completeness) */
+@media (max-width: 767px) {
+    .board-canvas {
+        scroll-snap-type: x mandatory;
+    }
+    .lane {
+        scroll-snap-align: start;
+    }
+}
+```
+
+**Custom scrollbar styling** (Webkit + Firefox):
+
+Already defined via `--color-scrollbar-track`, `--color-scrollbar-thumb`, `--color-scrollbar-hover` tokens (see §E.3). Width: 8px desktop, hidden on mobile (overlay scrollbars).
+
+---
+
+#### E.11 Interactive State Cross-Reference
+
+Summary of every visual state per component type for implementation verification:
+
+| Component | Default | Hover | Active | Focus | Disabled | Loading | Error | Selected/Active |
+|---|---|---|---|---|---|---|---|---|
+| Button (primary) | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | — | — |
+| Button (secondary) | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | — | — |
+| Button (ghost) | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | — | — |
+| Button (danger) | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | — | — |
+| Text input | ✅ §E.8 | ✅ §E.8 | — | ✅ §E.8 | ✅ §E.8 | — | ✅ §E.8 | — |
+| Checkbox | ✅ §E.8 | ✅ §E.8 | — | ✅ §E.8 | ✅ §E.8 | — | — | ✅ §E.8 (checked) |
+| Toggle switch | ✅ §E.9 | ✅ §E.9 | — | ✅ §E.9 | ✅ §E.9 | — | — | ✅ §E.9 (on) |
+| Card | ✅ §E.8 | ✅ §E.8 | — | ✅ §E.8 | — | — | — | ✅ §E.8 (dragging) |
+| Dropdown item | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | ✅ §E.8 | — | — | — | — |
+| Nav item | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | — | — | — | ✅ §E.9 (current page) |
+| Board list item | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | — | — | — | ✅ §E.9 (active board) |
+| Header icon button | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | — | — | — | ✅ §E.9 (expanded) |
+| Link | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | ✅ §E.9 | — | — | — | — |
+| Editable field | ✅ §E.9 | ✅ §E.9 | — | — | — | — | — | ✅ §E.9 (editing) |
+| Toast | ✅ §E.10 | — | — | — | — | — | — | — |
+| Skeleton | ✅ §E.10 | — | — | — | — | — | — | — |
+
+---
+
+*This specification is a work in progress. The visual design system is being developed iteratively — color tokens, typography, spacing/layout, component design, interactive states, and motion/animation are complete. Accessibility review will follow.*
