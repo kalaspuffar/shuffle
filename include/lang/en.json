@@ -87,5 +87,36 @@
     "validation.name_length": "Name must be between {0} and {1} characters.",
     "validation.email_invalid": "A valid email address is required.",
     "validation.email_taken": "This email address is already in use.",
-    "validation.password_min_length": "Password must be at least {0} characters."
+    "validation.password_min_length": "Password must be at least {0} characters.",
+
+    "invite.subject": "You have been invited to Shuffle",
+    "invite.greeting": "Hello {0},",
+    "invite.body": "You have been invited to join Shuffle. Click the link below to set up your account:",
+    "invite.expiry": "This invitation expires in 72 hours.",
+    "invite.sent": "Invitation sent successfully.",
+
+    "activate.title": "Activate Account",
+    "activate.subtitle": "Set up your account",
+    "activate.submit": "Activate Account",
+    "activate.success": "Your account has been activated. You can now log in.",
+    "activate.invalid_token": "Invalid or missing invitation token.",
+    "activate.expired_token": "This invitation link has expired. Please contact your administrator.",
+    "activate.username_help": "3-64 characters: letters, numbers, dots, hyphens, and underscores.",
+    "activate.password_help": "Minimum 8 characters.",
+    "activate.confirm_password": "Confirm Password",
+    "activate.passwords_no_match": "Passwords do not match.",
+
+    "password.change": "Change Password",
+    "password.current": "Current Password",
+    "password.new": "New Password",
+    "password.confirm": "Confirm New Password",
+    "password.changed": "Password changed successfully.",
+    "password.current_incorrect": "Current password is incorrect.",
+
+    "flash.login_success": "Welcome back, {0}.",
+    "flash.logout_success": "You have been logged out.",
+    "flash.user_updated": "User updated successfully.",
+    "flash.user_deleted": "User deleted successfully.",
+    "flash.user_deactivated": "User account has been deactivated.",
+    "flash.user_activated": "User account has been activated."
 }
