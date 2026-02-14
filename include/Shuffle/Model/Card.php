@@ -196,7 +196,7 @@ class Card
     public function findByBoard(int $boardId): array
     {
         return $this->db->fetchAll(
-            'SELECT c.' . self::SELECT_COLUMNS
+            'SELECT c.id, c.lane_id, c.title, c.description, c.due_date, c.position, c.is_archived, c.created_by, c.created_at, c.updated_at'
             . ' FROM cards c'
             . ' JOIN lanes l ON c.lane_id = l.id'
             . ' WHERE l.board_id = ? AND c.is_archived = 0'
