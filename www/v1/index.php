@@ -75,6 +75,18 @@ $checklistItemModel  = new Shuffle\Model\ChecklistItem($db);
 $checklistService    = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 $checklistController = new Shuffle\Controller\ChecklistController($auth, $checklistService, $cardService);
 
+// Notification system
+$notificationModel      = new Shuffle\Model\Notification($db);
+$notificationService    = new Shuffle\Service\NotificationService($notificationModel, $cardModel);
+$notificationController = new Shuffle\Controller\NotificationController($auth, $notificationService);
+
+// Wire NotificationService into CommentService for comment notifications
+$commentService->setNotificationService($notificationService);
+
+// Search system
+$searchService    = new Shuffle\Service\SearchService($db);
+$searchController = new Shuffle\Controller\SearchController($auth, $searchService);
+
 // Wire services into CardService for full card loading
 $cardService->setCommentService($commentService);
 $cardService->setChecklistService($checklistService);
@@ -142,6 +154,16 @@ $router->post('/checklists/{checklistId}/items', [$checklistController, 'createI
 $router->put('/checklist-items/{id}', [$checklistController, 'updateItem']);
 $router->put('/checklist-items/{id}/position', [$checklistController, 'repositionItem']);
 $router->delete('/checklist-items/{id}', [$checklistController, 'deleteItem']);
+
+// Notification routes
+$router->get('/notifications', [$notificationController, 'index']);
+$router->get('/notifications/count', [$notificationController, 'count']);
+$router->put('/notifications/{id}/read', [$notificationController, 'markRead']);
+$router->post('/notifications/read-all', [$notificationController, 'markAllRead']);
+$router->delete('/notifications/{id}', [$notificationController, 'delete']);
+
+// Search routes
+$router->get('/search', [$searchController, 'search']);
 
 // Dispatch
 $router->dispatch($request, $response);

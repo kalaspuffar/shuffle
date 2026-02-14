@@ -48,11 +48,28 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
         </nav>
     </div>
     <div class="header-right">
-        <button type="button" class="header-icon-btn" aria-label="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>" title="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>">
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                <path d="M10 18a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Zm6-4V9a6 6 0 1 0-12 0v5l-1.5 1.5V16h15v-.5L16 14Z" fill="currentColor"/>
-            </svg>
-        </button>
+        <form class="header-search" action="/search.php" method="get" role="search" aria-label="<?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?>">
+            <input type="search" name="q" class="header-search-input" placeholder="<?= htmlspecialchars($lang->get('search.placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?>" autocomplete="off" minlength="3">
+        </form>
+        <div class="notification-wrapper">
+            <button type="button" class="header-icon-btn" id="notification-bell" aria-label="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>" aria-haspopup="true" aria-expanded="false">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                    <path d="M10 18a2 2 0 0 1-2-2h4a2 2 0 0 1-2 2Zm6-4V9a6 6 0 1 0-12 0v5l-1.5 1.5V16h15v-.5L16 14Z" fill="currentColor"/>
+                </svg>
+                <span class="notification-dot" id="notification-dot" aria-hidden="true" hidden></span>
+            </button>
+            <div class="notification-panel" id="notification-panel" role="menu" hidden>
+                <div class="notification-panel-header">
+                    <h3 class="notification-panel-title"><?= htmlspecialchars($lang->get('notification.notifications'), ENT_QUOTES, 'UTF-8') ?></h3>
+                    <button type="button" class="notification-mark-all-btn" id="notification-mark-all" aria-label="<?= htmlspecialchars($lang->get('notification.mark_all_read'), ENT_QUOTES, 'UTF-8') ?>">
+                        <?= htmlspecialchars($lang->get('notification.mark_all_read'), ENT_QUOTES, 'UTF-8') ?>
+                    </button>
+                </div>
+                <div class="notification-list" id="notification-list" role="list" aria-label="<?= htmlspecialchars($lang->get('notification.notifications'), ENT_QUOTES, 'UTF-8') ?>">
+                    <p class="notification-empty" id="notification-empty"><?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?></p>
+                </div>
+            </div>
+        </div>
         <div class="header-user-menu">
             <button type="button" class="header-user-btn" aria-haspopup="true" aria-expanded="false" aria-label="<?= htmlspecialchars($currentUser['name'], ENT_QUOTES, 'UTF-8') ?>">
                 <span class="user-avatar" aria-hidden="true"><?= htmlspecialchars(mb_strtoupper(mb_substr($currentUser['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
