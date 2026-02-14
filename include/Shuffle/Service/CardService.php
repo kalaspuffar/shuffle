@@ -44,6 +44,13 @@ class CardService
         $card['attachment_count'] = $this->cardModel->getAttachmentCount($id);
         $card['checklist_progress'] = $this->cardModel->getChecklistProgress($id);
 
+        // TODO: Phase 5+ — populate with real data when Comments, Checklists,
+        // Attachments, and Labels features are implemented (spec Section 5.7).
+        $card['comments'] = [];
+        $card['checklists'] = [];
+        $card['attachments'] = [];
+        $card['labels'] = [];
+
         return $card;
     }
 

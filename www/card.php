@@ -105,7 +105,7 @@ require ROOT_DIR . '/include/templates/header.php';
     <div class="card-detail-section">
         <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></h2>
         <?php if ($canEdit): ?>
-        <div id="description-display" class="markdown-body" style="cursor: pointer; min-height: 40px; padding: var(--space-3); border: 1px solid var(--color-border); border-radius: var(--border-radius-md);">
+        <div id="description-display" class="markdown-body description-display">
             <?php if (!empty($card['description_html'])): ?>
                 <?= $card['description_html'] ?>
             <?php else: ?>
@@ -114,7 +114,7 @@ require ROOT_DIR . '/include/templates/header.php';
         </div>
         <div id="description-edit" hidden>
             <textarea id="card-description" class="form-textarea" rows="8" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($card['description'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
-            <div class="form-actions mt-4" style="display: flex; gap: 8px;">
+            <div class="form-actions mt-4 description-edit-actions">
                 <button type="button" class="btn btn-primary btn-sm" id="btn-save-description"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
                 <button type="button" class="btn btn-secondary btn-sm" id="btn-cancel-description"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
             </div>

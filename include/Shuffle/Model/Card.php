@@ -27,13 +27,126 @@ class Card
     }
 
     /**
-     * Returns the Database instance for batch queries.
+     * Batch-loads user assignments for a set of card IDs.
      *
-     * @return Database
+     * @param array $cardIds Array of card IDs
+     * @return array Map of card_id => [user rows with id, name, email]
      */
-    public function getDb(): Database
+    public function batchLoadAssignments(array $cardIds): array
     {
-        return $this->db;
+        if (empty($cardIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT ca.card_id, u.id, u.name, u.email
+             FROM card_assignments ca
+             JOIN users u ON ca.user_id = u.id
+             WHERE ca.card_id IN (' . $placeholders . ')
+             ORDER BY u.name ASC',
+            $cardIds
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']][] = [
+                'id'    => (int) $row['id'],
+                'name'  => $row['name'],
+                'email' => $row['email'],
+            ];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Batch-loads comment counts for a set of card IDs.
+     *
+     * @param array $cardIds Array of card IDs
+     * @return array Map of card_id => count
+     */
+    public function batchLoadCommentCounts(array $cardIds): array
+    {
+        if (empty($cardIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT card_id, COUNT(*) AS cnt FROM comments
+             WHERE card_id IN (' . $placeholders . ')
+             GROUP BY card_id',
+            $cardIds
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']] = (int) $row['cnt'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Batch-loads attachment counts for a set of card IDs.
+     *
+     * @param array $cardIds Array of card IDs
+     * @return array Map of card_id => count
+     */
+    public function batchLoadAttachmentCounts(array $cardIds): array
+    {
+        if (empty($cardIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT card_id, COUNT(*) AS cnt FROM attachments
+             WHERE card_id IN (' . $placeholders . ')
+             GROUP BY card_id',
+            $cardIds
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']] = (int) $row['cnt'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Batch-loads checklist progress for a set of card IDs.
+     *
+     * @param array $cardIds Array of card IDs
+     * @return array Map of card_id => [total => int, done => int]
+     */
+    public function batchLoadChecklistProgress(array $cardIds): array
+    {
+        if (empty($cardIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT cl.card_id, COUNT(*) AS total, SUM(ci.is_checked) AS done
+             FROM checklist_items ci
+             JOIN checklists cl ON ci.checklist_id = cl.id
+             WHERE cl.card_id IN (' . $placeholders . ')
+             GROUP BY cl.card_id',
+            $cardIds
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']] = [
+                'total' => (int) $row['total'],
+                'done'  => (int) ($row['done'] ?? 0),
+            ];
+        }
+
+        return $map;
     }
 
     /**
@@ -323,15 +436,15 @@ class Card
     }
 
     /**
-     * Returns checklist progress for a card as [total, checked].
+     * Returns checklist progress for a card as [total, done].
      *
      * @param int $cardId Card ID
-     * @return array [total => int, checked => int]
+     * @return array [total => int, done => int]
      */
     public function getChecklistProgress(int $cardId): array
     {
         $row = $this->db->fetch(
-            'SELECT COUNT(*) AS total, SUM(ci.is_checked) AS checked
+            'SELECT COUNT(*) AS total, SUM(ci.is_checked) AS done
              FROM checklist_items ci
              JOIN checklists cl ON ci.checklist_id = cl.id
              WHERE cl.card_id = ?',
@@ -339,8 +452,8 @@ class Card
         );
 
         return [
-            'total'   => $row !== null ? (int) $row['total'] : 0,
-            'checked' => $row !== null ? (int) ($row['checked'] ?? 0) : 0,
+            'total' => $row !== null ? (int) $row['total'] : 0,
+            'done'  => $row !== null ? (int) ($row['done'] ?? 0) : 0,
         ];
     }
 

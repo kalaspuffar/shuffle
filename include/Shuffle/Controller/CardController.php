@@ -214,7 +214,8 @@ class CardController
     /**
      * DELETE /v1/cards/{id}
      *
-     * Permanently deletes a card.
+     * Permanently deletes a card. Requires admin role since this is a
+     * destructive action that cannot be undone (unlike archiving).
      *
      * @param Request  $request  HTTP request
      * @param Response $response HTTP response
@@ -222,7 +223,7 @@ class CardController
      */
     public function delete(Request $request, Response $response, array $params): void
     {
-        $this->auth->requireRole('member');
+        $this->auth->requireRole('admin');
         $id = (int) ($params['id'] ?? 0);
 
         $boardId = $this->cardService->getBoardIdForCard($id);

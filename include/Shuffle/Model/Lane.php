@@ -182,15 +182,17 @@ class Lane
     }
 
     /**
-     * Counts cards in a lane (non-archived).
+     * Counts active (non-archived) cards in a lane.
+     *
+     * Used by LaneService to guard against deleting lanes with active cards.
      *
      * @param int $id Lane ID
-     * @return int Card count
+     * @return int Active card count
      */
     public function countCards(int $id): int
     {
         $row = $this->db->fetch(
-            'SELECT COUNT(*) AS cnt FROM cards WHERE lane_id = ?',
+            'SELECT COUNT(*) AS cnt FROM cards WHERE lane_id = ? AND is_archived = 0',
             [$id]
         );
 

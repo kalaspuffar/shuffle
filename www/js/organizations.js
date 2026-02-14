@@ -3,6 +3,9 @@
  *
  * Handles organization create/edit modal, delete confirmation,
  * and form submission via the Shuffle API.
+ *
+ * Note: CSRF tokens are automatically attached to all state-changing
+ * requests (POST, PUT, DELETE) by Shuffle.api() in app.js.
  */
 (function () {
     'use strict';

@@ -64,6 +64,8 @@
     "card.create_success": "Card created successfully.",
     "card.move_success": "Card moved successfully.",
     "card.title_placeholder": "Enter card title...",
+    "card.draggable_card": "Draggable card",
+    "card.card": "Card",
     "card.back_to_board": "Back to board",
     "card.move_to_lane": "Move to {0}",
     "card.move_up": "Move Up",

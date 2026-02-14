@@ -207,10 +207,10 @@ class BoardService
             return (int) $c['id'];
         }, $allCards);
 
-        $assignmentMap = $this->batchLoadAssignments($allCardIds);
-        $commentCountMap = $this->batchLoadCommentCounts($allCardIds);
-        $attachmentCountMap = $this->batchLoadAttachmentCounts($allCardIds);
-        $checklistMap = $this->batchLoadChecklistProgress($allCardIds);
+        $assignmentMap = $this->cardModel->batchLoadAssignments($allCardIds);
+        $commentCountMap = $this->cardModel->batchLoadCommentCounts($allCardIds);
+        $attachmentCountMap = $this->cardModel->batchLoadAttachmentCounts($allCardIds);
+        $checklistMap = $this->cardModel->batchLoadChecklistProgress($allCardIds);
 
         foreach ($lanes as &$lane) {
             $laneId = (int) $lane['id'];
@@ -222,7 +222,7 @@ class BoardService
                 $card['assigned_users'] = $assignmentMap[$cid] ?? [];
                 $card['comment_count'] = $commentCountMap[$cid] ?? 0;
                 $card['attachment_count'] = $attachmentCountMap[$cid] ?? 0;
-                $card['checklist_progress'] = $checklistMap[$cid] ?? ['total' => 0, 'checked' => 0];
+                $card['checklist_progress'] = $checklistMap[$cid] ?? ['total' => 0, 'done' => 0];
             }
             unset($card);
 
@@ -233,129 +233,6 @@ class BoardService
         $board['lanes'] = $lanes;
 
         return $board;
-    }
-
-    /**
-     * Batch-loads user assignments for a set of card IDs.
-     *
-     * @param array $cardIds Array of card IDs
-     * @return array Map of card_id => [user rows]
-     */
-    private function batchLoadAssignments(array $cardIds): array
-    {
-        if (empty($cardIds)) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
-        $rows = $this->cardModel->getDb()->fetchAll(
-            'SELECT ca.card_id, u.id, u.name, u.email
-             FROM card_assignments ca
-             JOIN users u ON ca.user_id = u.id
-             WHERE ca.card_id IN (' . $placeholders . ')
-             ORDER BY u.name ASC',
-            $cardIds
-        );
-
-        $map = [];
-        foreach ($rows as $row) {
-            $map[(int) $row['card_id']][] = [
-                'id'    => (int) $row['id'],
-                'name'  => $row['name'],
-                'email' => $row['email'],
-            ];
-        }
-
-        return $map;
-    }
-
-    /**
-     * Batch-loads comment counts for a set of card IDs.
-     *
-     * @param array $cardIds Array of card IDs
-     * @return array Map of card_id => count
-     */
-    private function batchLoadCommentCounts(array $cardIds): array
-    {
-        if (empty($cardIds)) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
-        $rows = $this->cardModel->getDb()->fetchAll(
-            'SELECT card_id, COUNT(*) AS cnt FROM comments
-             WHERE card_id IN (' . $placeholders . ')
-             GROUP BY card_id',
-            $cardIds
-        );
-
-        $map = [];
-        foreach ($rows as $row) {
-            $map[(int) $row['card_id']] = (int) $row['cnt'];
-        }
-
-        return $map;
-    }
-
-    /**
-     * Batch-loads attachment counts for a set of card IDs.
-     *
-     * @param array $cardIds Array of card IDs
-     * @return array Map of card_id => count
-     */
-    private function batchLoadAttachmentCounts(array $cardIds): array
-    {
-        if (empty($cardIds)) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
-        $rows = $this->cardModel->getDb()->fetchAll(
-            'SELECT card_id, COUNT(*) AS cnt FROM attachments
-             WHERE card_id IN (' . $placeholders . ')
-             GROUP BY card_id',
-            $cardIds
-        );
-
-        $map = [];
-        foreach ($rows as $row) {
-            $map[(int) $row['card_id']] = (int) $row['cnt'];
-        }
-
-        return $map;
-    }
-
-    /**
-     * Batch-loads checklist progress for a set of card IDs.
-     *
-     * @param array $cardIds Array of card IDs
-     * @return array Map of card_id => [total, checked]
-     */
-    private function batchLoadChecklistProgress(array $cardIds): array
-    {
-        if (empty($cardIds)) {
-            return [];
-        }
-
-        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
-        $rows = $this->cardModel->getDb()->fetchAll(
-            'SELECT cl.card_id, COUNT(*) AS total, SUM(ci.is_checked) AS checked
-             FROM checklist_items ci
-             JOIN checklists cl ON ci.checklist_id = cl.id
-             WHERE cl.card_id IN (' . $placeholders . ')
-             GROUP BY cl.card_id',
-            $cardIds
-        );
-
-        $map = [];
-        foreach ($rows as $row) {
-            $map[(int) $row['card_id']] = [
-                'total'   => (int) $row['total'],
-                'checked' => (int) ($row['checked'] ?? 0),
-            ];
-        }
-
-        return $map;
     }
 
     /**

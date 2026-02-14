@@ -76,7 +76,7 @@ require ROOT_DIR . '/include/templates/header.php';
             </div>
             <div class="lane-cards" data-lane-id="<?= (int) $lane['id'] ?>" role="list" aria-label="<?= htmlspecialchars($lang->get('card.title'), ENT_QUOTES, 'UTF-8') ?>">
                 <?php foreach ($lane['cards'] as $card): ?>
-                <article class="card" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" role="listitem" aria-roledescription="<?= $canEdit ? 'Draggable card' : 'Card' ?>" tabindex="0">
+                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0">
                     <a href="/card.php?id=<?= (int) $card['id'] ?>" class="card-link">
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php
@@ -116,7 +116,7 @@ require ROOT_DIR . '/include/templates/header.php';
                             <?php if (($card['checklist_progress']['total'] ?? 0) > 0): ?>
                             <span class="card-meta-item">
                                 <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 8l3 3 7-7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                                <?= (int) $card['checklist_progress']['checked'] ?>/<?= (int) $card['checklist_progress']['total'] ?>
+                                <?= (int) $card['checklist_progress']['done'] ?>/<?= (int) $card['checklist_progress']['total'] ?>
                             </span>
                             <?php endif; ?>
 

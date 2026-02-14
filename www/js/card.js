@@ -3,6 +3,9 @@
  *
  * Handles inline title editing, description editing with Markdown preview,
  * due date changes, archive/restore, and delete actions.
+ *
+ * Note: CSRF tokens are automatically attached to all state-changing
+ * requests (POST, PUT, DELETE) by Shuffle.api() in app.js.
  */
 (function () {
     'use strict';
@@ -27,9 +30,6 @@
     var archiveBtn = document.getElementById('btn-archive-card');
     var restoreBtn = document.getElementById('btn-restore-card');
     var deleteBtn = document.getElementById('btn-delete-card');
-
-    // Debounce timer for auto-save
-    var saveTimer = null;
 
     /** Saves a card field update via API */
     function saveField(data) {

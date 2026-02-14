@@ -3,6 +3,9 @@
  *
  * Handles lane CRUD, card CRUD, drag-and-drop card movement,
  * lane reordering via context menu, and board version polling.
+ *
+ * Note: CSRF tokens are automatically attached to all state-changing
+ * requests (POST, PUT, DELETE) by Shuffle.api() in app.js.
  */
 (function () {
     'use strict';
@@ -259,6 +262,30 @@
             document.addEventListener('click', closeOnOutsideClick);
             document.addEventListener('keydown', closeOnEscape);
         }, 0);
+
+        // Full keyboard navigation for role="menu" per WAI-ARIA Authoring Practices
+        menu.addEventListener('keydown', function (e) {
+            var items = menu.querySelectorAll('.context-menu-item');
+            if (!items.length) return;
+
+            var currentIndex = Array.prototype.indexOf.call(items, document.activeElement);
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+                items[nextIndex].focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prevIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+                items[prevIndex].focus();
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                items[0].focus();
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                items[items.length - 1].focus();
+            }
+        });
 
         // Focus first item
         var firstItem = menu.querySelector('.context-menu-item');
@@ -651,14 +678,20 @@
 
     var POLL_INTERVAL = 15000; // 15 seconds
 
+    /**
+     * Polls the board version endpoint with If-None-Match header.
+     * Server responds 304 if version unchanged (no body), or 200 with new version.
+     */
     function pollBoardVersion() {
-        Shuffle.api('/v1/boards/' + BOARD_ID + '/version').then(function (result) {
+        var etag = '"' + boardVersion + '"';
+        Shuffle.api('/v1/boards/' + BOARD_ID + '/version', {
+            headers: { 'If-None-Match': etag }
+        }).then(function (result) {
             if (result.status === 200 && result.data && result.data.version) {
-                if (result.data.version > boardVersion) {
-                    // Board has changed, refresh
-                    window.location.reload();
-                }
+                boardVersion = result.data.version;
+                window.location.reload();
             }
+            // 304 means no change — do nothing
         });
     }
 
