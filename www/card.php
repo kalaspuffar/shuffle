@@ -18,13 +18,25 @@ if ($cardId < 1) {
     exit;
 }
 
-// Load card with comments and checklists
+// Initialize models and services
 $boardModel        = new Shuffle\Model\Board($db);
 $cardModel         = new Shuffle\Model\Card($db);
 $commentModel      = new Shuffle\Model\Comment($db);
 $checklistModel    = new Shuffle\Model\Checklist($db);
 $checklistItemModel = new Shuffle\Model\ChecklistItem($db);
 
+// Verify board access BEFORE loading full card data (BOARD-04b: strict board isolation)
+$boardId = $cardModel->getBoardId($cardId);
+if ($boardId === null || !$auth->canAccessBoard($boardId)) {
+    http_response_code(404);
+    $pageTitle = $lang->get('error.not_found');
+    require ROOT_DIR . '/include/templates/header.php';
+    echo '<p>' . htmlspecialchars($lang->get('error.not_found'), ENT_QUOTES, 'UTF-8') . '</p>';
+    require ROOT_DIR . '/include/templates/footer.php';
+    exit;
+}
+
+// Now load full card data with comments and checklists
 $commentService   = new Shuffle\Service\CommentService($commentModel, $cardModel, $boardModel);
 $checklistService = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 
@@ -35,17 +47,6 @@ $cardService->setChecklistService($checklistService);
 $card = $cardService->getCard($cardId);
 
 if ($card === null) {
-    http_response_code(404);
-    $pageTitle = $lang->get('error.not_found');
-    require ROOT_DIR . '/include/templates/header.php';
-    echo '<p>' . htmlspecialchars($lang->get('error.not_found'), ENT_QUOTES, 'UTF-8') . '</p>';
-    require ROOT_DIR . '/include/templates/footer.php';
-    exit;
-}
-
-// Verify board access
-$boardId = $cardModel->getBoardId($cardId);
-if ($boardId === null || !$auth->canAccessBoard($boardId)) {
     http_response_code(404);
     $pageTitle = $lang->get('error.not_found');
     require ROOT_DIR . '/include/templates/header.php';
@@ -213,7 +214,7 @@ require ROOT_DIR . '/include/templates/header.php';
                         <time class="comment-date" datetime="<?= htmlspecialchars($comment['created_at'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($comment['created_at'], ENT_QUOTES, 'UTF-8') ?></time>
                     </div>
                     <div class="comment-body markdown-body"><?= $comment['body_html'] ?></div>
-                    <?php if ($canEdit): ?>
+                    <?php if ($canEdit && ((int)$comment['user_id'] === (int)$currentUser['id'] || $currentUser['role'] === 'admin')): ?>
                     <div class="comment-actions">
                         <button type="button" class="btn btn-sm btn-secondary comment-edit-btn"><?= htmlspecialchars($lang->get('comment.edit'), ENT_QUOTES, 'UTF-8') ?></button>
                         <button type="button" class="btn btn-sm btn-danger comment-delete-btn"><?= htmlspecialchars($lang->get('comment.delete'), ENT_QUOTES, 'UTF-8') ?></button>
@@ -284,5 +285,5 @@ $cardLang = json_encode([
     'checklist_item_placeholder' => $lang->get('checklist.item_placeholder'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
-<script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>"></script>
+<script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

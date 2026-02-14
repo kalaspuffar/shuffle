@@ -71,6 +71,10 @@ class CommentService
             $this->boardModel->incrementVersion($boardId);
         }
 
+        // TODO: Phase 7 — Create notifications for all users assigned to the card
+        // (except the comment author). Per spec §5.8, new comments should notify
+        // assigned users. Requires NotificationService implementation.
+
         $comment = $this->commentModel->findById($commentId);
         $comment['body_html'] = Markdown::render($comment['body']);
 

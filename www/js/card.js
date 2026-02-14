@@ -11,8 +11,21 @@
     'use strict';
 
     var scriptTag = document.getElementById('card-script');
-    var LANG = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
+    var rawLang = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
+
+    /** Proxy LANG object that logs warnings on missing i18n keys during development */
+    var LANG = new Proxy(rawLang, {
+        get: function (target, prop) {
+            if (typeof prop === 'string' && !(prop in target)) {
+                console.warn('[Shuffle i18n] Missing LANG key: "' + prop + '"');
+            }
+            return target[prop];
+        }
+    });
+
     var CAN_EDIT = scriptTag && scriptTag.dataset.canEdit === '1';
+    var CURRENT_USER_ID = scriptTag ? parseInt(scriptTag.dataset.currentUserId, 10) : 0;
+    var CURRENT_USER_ROLE = scriptTag ? (scriptTag.dataset.currentUserRole || '') : '';
 
     var cardPage = document.querySelector('.card-detail-page');
     if (!cardPage) return;
@@ -200,24 +213,32 @@
 
         var initial = (comment.user_name || '?').charAt(0).toUpperCase();
 
-        div.innerHTML =
+        var isOwnerOrAdmin = (parseInt(comment.user_id, 10) === CURRENT_USER_ID || CURRENT_USER_ROLE === 'admin');
+
+        var html =
             '<div class="comment-header">' +
                 '<span class="comment-avatar" title="' + escapeHtml(comment.user_name) + '">' + escapeHtml(initial) + '</span>' +
                 '<span class="comment-author">' + escapeHtml(comment.user_name) + '</span>' +
                 '<time class="comment-date" datetime="' + escapeHtml(comment.created_at) + '">' + escapeHtml(comment.created_at) + '</time>' +
             '</div>' +
-            '<div class="comment-body markdown-body">' + (comment.body_html || escapeHtml(comment.body)) + '</div>' +
-            '<div class="comment-actions">' +
-                '<button type="button" class="btn btn-sm btn-secondary comment-edit-btn">' + escapeHtml(LANG.comment_edit || 'Edit') + '</button>' +
-                '<button type="button" class="btn btn-sm btn-danger comment-delete-btn">' + escapeHtml(LANG.comment_delete || 'Delete') + '</button>' +
-            '</div>' +
-            '<div class="comment-edit-form" hidden>' +
-                '<textarea class="form-textarea comment-edit-textarea" rows="4">' + escapeHtml(comment.body) + '</textarea>' +
-                '<div class="form-actions mt-4 description-edit-actions">' +
-                    '<button type="button" class="btn btn-primary btn-sm comment-save-btn">' + escapeHtml(LANG.action_save || 'Save') + '</button>' +
-                    '<button type="button" class="btn btn-secondary btn-sm comment-cancel-btn">' + escapeHtml(LANG.action_cancel || 'Cancel') + '</button>' +
+            '<div class="comment-body markdown-body">' + (comment.body_html || escapeHtml(comment.body)) + '</div>';
+
+        if (isOwnerOrAdmin) {
+            html +=
+                '<div class="comment-actions">' +
+                    '<button type="button" class="btn btn-sm btn-secondary comment-edit-btn">' + escapeHtml(LANG.comment_edit || 'Edit') + '</button>' +
+                    '<button type="button" class="btn btn-sm btn-danger comment-delete-btn">' + escapeHtml(LANG.comment_delete || 'Delete') + '</button>' +
                 '</div>' +
-            '</div>';
+                '<div class="comment-edit-form" hidden>' +
+                    '<textarea class="form-textarea comment-edit-textarea" rows="4">' + escapeHtml(comment.body) + '</textarea>' +
+                    '<div class="form-actions mt-4 description-edit-actions">' +
+                        '<button type="button" class="btn btn-primary btn-sm comment-save-btn">' + escapeHtml(LANG.action_save || 'Save') + '</button>' +
+                        '<button type="button" class="btn btn-secondary btn-sm comment-cancel-btn">' + escapeHtml(LANG.action_cancel || 'Cancel') + '</button>' +
+                    '</div>' +
+                '</div>';
+        }
+
+        div.innerHTML = html;
 
         return div;
     }
@@ -496,6 +517,8 @@
                 var itemId = itemEl.dataset.itemId;
                 var parentChecklist = btn.closest('.checklist');
 
+                if (!confirm(LANG.checklist_item_delete_confirm || 'Delete this item?')) return;
+
                 Shuffle.api('/v1/checklist-items/' + itemId, {
                     method: 'DELETE'
                 }).then(function (result) {
@@ -541,6 +564,13 @@
             });
         });
 
+        /* Checklist title — store original value on focus for revert */
+        checklistsList.addEventListener('focusin', function (e) {
+            if (e.target.classList.contains('checklist-title')) {
+                e.target.dataset.originalTitle = e.target.textContent.trim();
+            }
+        }, true);
+
         /* Checklist title inline edit — save on blur */
         checklistsList.addEventListener('blur', function (e) {
             if (!e.target.classList.contains('checklist-title')) return;
@@ -551,7 +581,8 @@
             var newTitle = e.target.textContent.trim();
 
             if (!newTitle) {
-                // Revert — reload
+                // Revert to original title when empty
+                e.target.textContent = e.target.dataset.originalTitle || 'Untitled';
                 return;
             }
 
@@ -560,6 +591,8 @@
                 body: { title: newTitle }
             }).then(function (result) {
                 if (result.status === 200) {
+                    // Update stored original title on successful save
+                    e.target.dataset.originalTitle = newTitle;
                     Shuffle.showFlash(LANG.checklist_update_success || 'Updated', 'success');
                 } else {
                     var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';

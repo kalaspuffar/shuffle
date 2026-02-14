@@ -53,6 +53,11 @@ class CardService
     /**
      * Retrieves a single card by ID with rendered Markdown description.
      *
+     * Requires CommentService and ChecklistService to be injected via
+     * setCommentService() and setChecklistService() for full card data.
+     * If not injected, comments and checklists will be empty arrays and
+     * a warning will be logged to help catch misconfiguration.
+     *
      * @param int $id Card ID
      * @return array|null Card with description_html, or null
      */
@@ -69,14 +74,20 @@ class CardService
         $card['checklist_progress'] = $this->cardModel->getChecklistProgress($id);
 
         // Load comments with rendered Markdown
-        $card['comments'] = $this->commentService !== null
-            ? $this->commentService->getCommentsForCard($id)
-            : [];
+        if ($this->commentService !== null) {
+            $card['comments'] = $this->commentService->getCommentsForCard($id);
+        } else {
+            $card['comments'] = [];
+            error_log('CardService::getCard() — CommentService not injected; comments will be empty');
+        }
 
         // Load checklists with items
-        $card['checklists'] = $this->checklistService !== null
-            ? $this->checklistService->getChecklistsForCard($id)
-            : [];
+        if ($this->checklistService !== null) {
+            $card['checklists'] = $this->checklistService->getChecklistsForCard($id);
+        } else {
+            $card['checklists'] = [];
+            error_log('CardService::getCard() — ChecklistService not injected; checklists will be empty');
+        }
 
         // TODO: Phase 6+ — populate when Attachments feature is implemented
         $card['attachments'] = [];
