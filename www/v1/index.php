@@ -66,6 +66,19 @@ $laneController = new Shuffle\Controller\LaneController($auth, $laneService);
 $cardService    = new Shuffle\Service\CardService($cardModel, $boardModel);
 $cardController = new Shuffle\Controller\CardController($auth, $cardService);
 
+$commentModel      = new Shuffle\Model\Comment($db);
+$commentService    = new Shuffle\Service\CommentService($commentModel, $cardModel, $boardModel);
+$commentController = new Shuffle\Controller\CommentController($auth, $commentService, $cardService);
+
+$checklistModel      = new Shuffle\Model\Checklist($db);
+$checklistItemModel  = new Shuffle\Model\ChecklistItem($db);
+$checklistService    = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
+$checklistController = new Shuffle\Controller\ChecklistController($auth, $checklistService, $cardService);
+
+// Wire services into CardService for full card loading
+$cardService->setCommentService($commentService);
+$cardService->setChecklistService($checklistService);
+
 // Register routes
 $router = new Shuffle\Core\Router();
 
@@ -115,6 +128,20 @@ $router->put('/cards/{id}/move', [$cardController, 'move']);
 $router->post('/cards/{id}/archive', [$cardController, 'archive']);
 $router->post('/cards/{id}/restore', [$cardController, 'restore']);
 $router->delete('/cards/{id}', [$cardController, 'delete']);
+
+// Comment routes
+$router->post('/cards/{cardId}/comments', [$commentController, 'create']);
+$router->put('/comments/{id}', [$commentController, 'update']);
+$router->delete('/comments/{id}', [$commentController, 'delete']);
+
+// Checklist routes
+$router->post('/cards/{cardId}/checklists', [$checklistController, 'create']);
+$router->put('/checklists/{id}', [$checklistController, 'update']);
+$router->delete('/checklists/{id}', [$checklistController, 'delete']);
+$router->post('/checklists/{checklistId}/items', [$checklistController, 'createItem']);
+$router->put('/checklist-items/{id}', [$checklistController, 'updateItem']);
+$router->put('/checklist-items/{id}/position', [$checklistController, 'repositionItem']);
+$router->delete('/checklist-items/{id}', [$checklistController, 'deleteItem']);
 
 // Dispatch
 $router->dispatch($request, $response);

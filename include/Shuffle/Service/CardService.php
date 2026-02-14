@@ -4,6 +4,8 @@ namespace Shuffle\Service;
 use Shuffle\Core\Markdown;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Service\CommentService;
+use Shuffle\Service\ChecklistService;
 
 /**
  * Card business logic service.
@@ -15,6 +17,8 @@ class CardService
 {
     private Card $cardModel;
     private Board $boardModel;
+    private ?CommentService $commentService = null;
+    private ?ChecklistService $checklistService = null;
 
     /**
      * @param Card  $cardModel  Card data access instance
@@ -24,6 +28,26 @@ class CardService
     {
         $this->cardModel = $cardModel;
         $this->boardModel = $boardModel;
+    }
+
+    /**
+     * Injects the CommentService for loading card comments.
+     *
+     * @param CommentService $commentService Comment service instance
+     */
+    public function setCommentService(CommentService $commentService): void
+    {
+        $this->commentService = $commentService;
+    }
+
+    /**
+     * Injects the ChecklistService for loading card checklists.
+     *
+     * @param ChecklistService $checklistService Checklist service instance
+     */
+    public function setChecklistService(ChecklistService $checklistService): void
+    {
+        $this->checklistService = $checklistService;
     }
 
     /**
@@ -44,11 +68,19 @@ class CardService
         $card['attachment_count'] = $this->cardModel->getAttachmentCount($id);
         $card['checklist_progress'] = $this->cardModel->getChecklistProgress($id);
 
-        // TODO: Phase 5+ — populate with real data when Comments, Checklists,
-        // Attachments, and Labels features are implemented (spec Section 5.7).
-        $card['comments'] = [];
-        $card['checklists'] = [];
+        // Load comments with rendered Markdown
+        $card['comments'] = $this->commentService !== null
+            ? $this->commentService->getCommentsForCard($id)
+            : [];
+
+        // Load checklists with items
+        $card['checklists'] = $this->checklistService !== null
+            ? $this->checklistService->getChecklistsForCard($id)
+            : [];
+
+        // TODO: Phase 6+ — populate when Attachments feature is implemented
         $card['attachments'] = [];
+        // TODO: Post-MVP — populate when Labels feature is implemented
         $card['labels'] = [];
 
         return $card;

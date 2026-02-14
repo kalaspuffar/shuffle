@@ -1874,7 +1874,244 @@ small,
 }
 
 /* =============================================
-   25. Board View — Mobile Responsive
+   25. Comments
+   ============================================= */
+
+.comment {
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    margin-bottom: var(--space-3);
+    background-color: var(--color-raised);
+}
+
+.comment-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.comment-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    color: var(--color-text-on-primary);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    flex-shrink: 0;
+}
+
+.comment-author {
+    font-weight: var(--font-weight-semibold);
+    font-size: var(--font-size-sm);
+}
+
+.comment-date {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-left: auto;
+}
+
+.comment-body {
+    margin-bottom: var(--space-2);
+}
+
+.comment-actions {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.comment-form {
+    margin-top: var(--space-4);
+}
+
+.comment-edit-form {
+    margin-top: var(--space-2);
+}
+
+/* =============================================
+   26. Checklists
+   ============================================= */
+
+.checklist {
+    padding: var(--space-4);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    margin-bottom: var(--space-3);
+    background-color: var(--color-raised);
+}
+
+.checklist-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+}
+
+.checklist-title {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    margin: 0;
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--border-radius-sm);
+    outline: none;
+    flex: 1;
+    min-width: 0;
+}
+
+.checklist-title[contenteditable="true"]:hover {
+    border-color: var(--color-border);
+}
+
+.checklist-title[contenteditable="true"]:focus {
+    border-color: var(--color-border-focus);
+}
+
+.checklist-progress {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+}
+
+.checklist-progress-bar {
+    flex: 1;
+    height: 6px;
+    background-color: var(--color-border);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.checklist-progress-fill {
+    height: 100%;
+    background-color: var(--color-success);
+    border-radius: 3px;
+    transition: width 0.2s ease;
+}
+
+.checklist-progress-text {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+    min-width: 32px;
+    text-align: right;
+}
+
+.checklist-items {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 var(--space-2) 0;
+}
+
+.checklist-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-1);
+    border-radius: var(--border-radius-sm);
+    transition: background-color 0.15s ease;
+}
+
+.checklist-item:hover {
+    background-color: var(--color-hover-overlay);
+}
+
+.checklist-item--checked .checklist-item-title {
+    text-decoration: line-through;
+    color: var(--color-text-secondary);
+}
+
+.checklist-item-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.checklist-item-checkbox {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+
+.checklist-item-title {
+    font-size: var(--font-size-sm);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.checklist-item-assignee {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background-color: var(--color-primary-subtle);
+    color: var(--color-primary-text);
+    font-size: 10px;
+    font-weight: var(--font-weight-semibold);
+    flex-shrink: 0;
+}
+
+.checklist-item-delete-btn {
+    opacity: 0;
+    border: none;
+    background: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    padding: var(--space-1);
+    border-radius: var(--border-radius-sm);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.checklist-item:hover .checklist-item-delete-btn {
+    opacity: 1;
+}
+
+.checklist-item-delete-btn:hover {
+    color: var(--color-error);
+}
+
+.checklist-item-delete-btn:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+}
+
+.checklist-add-item-form,
+.checklist-add-form {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-top: var(--space-2);
+}
+
+.checklist-add-item-input {
+    flex: 1;
+}
+
+.checklist-add-form {
+    margin-top: var(--space-4);
+}
+
+/* =============================================
+   27. Board View — Mobile Responsive
    ============================================= */
 
 @media (max-width: 767px) {

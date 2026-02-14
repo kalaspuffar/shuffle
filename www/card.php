@@ -18,10 +18,19 @@ if ($cardId < 1) {
     exit;
 }
 
-// Load card
-$boardModel   = new Shuffle\Model\Board($db);
-$cardModel    = new Shuffle\Model\Card($db);
+// Load card with comments and checklists
+$boardModel        = new Shuffle\Model\Board($db);
+$cardModel         = new Shuffle\Model\Card($db);
+$commentModel      = new Shuffle\Model\Comment($db);
+$checklistModel    = new Shuffle\Model\Checklist($db);
+$checklistItemModel = new Shuffle\Model\ChecklistItem($db);
+
+$commentService   = new Shuffle\Service\CommentService($commentModel, $cardModel, $boardModel);
+$checklistService = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
+
 $cardService  = new Shuffle\Service\CardService($cardModel, $boardModel);
+$cardService->setCommentService($commentService);
+$cardService->setChecklistService($checklistService);
 
 $card = $cardService->getCard($cardId);
 
@@ -126,6 +135,113 @@ require ROOT_DIR . '/include/templates/header.php';
         <?php endif; ?>
     </div>
 
+    <div class="card-detail-section" id="checklists-section">
+        <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('checklist.checklists'), ENT_QUOTES, 'UTF-8') ?></h2>
+        <div id="checklists-list">
+            <?php if (!empty($card['checklists'])): ?>
+                <?php foreach ($card['checklists'] as $checklist): ?>
+                <div class="checklist" data-checklist-id="<?= (int) $checklist['id'] ?>">
+                    <div class="checklist-header">
+                        <h3 class="checklist-title" <?= $canEdit ? 'contenteditable="true"' : '' ?>><?= htmlspecialchars($checklist['title'], ENT_QUOTES, 'UTF-8') ?></h3>
+                        <?php if ($canEdit): ?>
+                        <button type="button" class="btn btn-sm btn-danger checklist-delete-btn" aria-label="<?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?>">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                    <?php
+                        $totalItems = count($checklist['items']);
+                        $doneItems = 0;
+                        foreach ($checklist['items'] as $item) {
+                            if ($item['is_checked']) $doneItems++;
+                        }
+                        $progressPct = $totalItems > 0 ? round(($doneItems / $totalItems) * 100) : 0;
+                    ?>
+                    <div class="checklist-progress">
+                        <div class="checklist-progress-bar">
+                            <div class="checklist-progress-fill" style="width: <?= $progressPct ?>%" role="progressbar" aria-valuenow="<?= $doneItems ?>" aria-valuemin="0" aria-valuemax="<?= $totalItems ?>"></div>
+                        </div>
+                        <span class="checklist-progress-text"><?= $doneItems ?>/<?= $totalItems ?></span>
+                    </div>
+                    <ul class="checklist-items" role="list">
+                        <?php foreach ($checklist['items'] as $item): ?>
+                        <li class="checklist-item <?= $item['is_checked'] ? 'checklist-item--checked' : '' ?>" data-item-id="<?= (int) $item['id'] ?>">
+                            <label class="checklist-item-label">
+                                <input type="checkbox" class="checklist-item-checkbox" <?= $item['is_checked'] ? 'checked' : '' ?> <?= $canEdit ? '' : 'disabled' ?>>
+                                <span class="checklist-item-title"><?= htmlspecialchars($item['title'], ENT_QUOTES, 'UTF-8') ?></span>
+                            </label>
+                            <?php if (!empty($item['assigned_user_name'])): ?>
+                            <span class="checklist-item-assignee" title="<?= htmlspecialchars($item['assigned_user_name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($item['assigned_user_name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
+                            <?php endif; ?>
+                            <?php if ($canEdit): ?>
+                            <button type="button" class="checklist-item-delete-btn" aria-label="<?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?>">
+                                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                            </button>
+                            <?php endif; ?>
+                        </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php if ($canEdit): ?>
+                    <form class="checklist-add-item-form">
+                        <input type="text" class="form-input checklist-add-item-input" placeholder="<?= htmlspecialchars($lang->get('checklist.item_placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('checklist.item_placeholder'), ENT_QUOTES, 'UTF-8') ?>">
+                        <button type="submit" class="btn btn-sm btn-primary"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+                    </form>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-secondary" id="checklists-empty"><?= htmlspecialchars($lang->get('checklist.empty'), ENT_QUOTES, 'UTF-8') ?></p>
+            <?php endif; ?>
+        </div>
+        <?php if ($canEdit): ?>
+        <form class="checklist-add-form" id="add-checklist-form">
+            <input type="text" class="form-input" id="new-checklist-title" placeholder="<?= htmlspecialchars($lang->get('checklist.title_placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('checklist.title'), ENT_QUOTES, 'UTF-8') ?>">
+            <button type="submit" class="btn btn-sm btn-primary"><?= htmlspecialchars($lang->get('checklist.add'), ENT_QUOTES, 'UTF-8') ?></button>
+        </form>
+        <?php endif; ?>
+    </div>
+
+    <div class="card-detail-section" id="comments-section">
+        <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('comment.comments'), ENT_QUOTES, 'UTF-8') ?></h2>
+        <div id="comments-list">
+            <?php if (!empty($card['comments'])): ?>
+                <?php foreach ($card['comments'] as $comment): ?>
+                <div class="comment" data-comment-id="<?= (int) $comment['id'] ?>" data-user-id="<?= (int) $comment['user_id'] ?>">
+                    <div class="comment-header">
+                        <span class="comment-avatar" title="<?= htmlspecialchars($comment['user_name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($comment['user_name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span class="comment-author"><?= htmlspecialchars($comment['user_name'], ENT_QUOTES, 'UTF-8') ?></span>
+                        <time class="comment-date" datetime="<?= htmlspecialchars($comment['created_at'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($comment['created_at'], ENT_QUOTES, 'UTF-8') ?></time>
+                    </div>
+                    <div class="comment-body markdown-body"><?= $comment['body_html'] ?></div>
+                    <?php if ($canEdit): ?>
+                    <div class="comment-actions">
+                        <button type="button" class="btn btn-sm btn-secondary comment-edit-btn"><?= htmlspecialchars($lang->get('comment.edit'), ENT_QUOTES, 'UTF-8') ?></button>
+                        <button type="button" class="btn btn-sm btn-danger comment-delete-btn"><?= htmlspecialchars($lang->get('comment.delete'), ENT_QUOTES, 'UTF-8') ?></button>
+                    </div>
+                    <div class="comment-edit-form" hidden>
+                        <textarea class="form-textarea comment-edit-textarea" rows="4"><?= htmlspecialchars($comment['body'], ENT_QUOTES, 'UTF-8') ?></textarea>
+                        <div class="form-actions mt-4 description-edit-actions">
+                            <button type="button" class="btn btn-primary btn-sm comment-save-btn"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+                            <button type="button" class="btn btn-secondary btn-sm comment-cancel-btn"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-secondary" id="comments-empty"><?= htmlspecialchars($lang->get('comment.empty'), ENT_QUOTES, 'UTF-8') ?></p>
+            <?php endif; ?>
+        </div>
+        <?php if ($canEdit): ?>
+        <form class="comment-form" id="add-comment-form">
+            <textarea class="form-textarea" id="new-comment-body" rows="3" placeholder="<?= htmlspecialchars($lang->get('comment.body_placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('comment.body_placeholder'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+            <div class="form-actions mt-4">
+                <button type="submit" class="btn btn-primary btn-sm"><?= htmlspecialchars($lang->get('comment.add'), ENT_QUOTES, 'UTF-8') ?></button>
+            </div>
+        </form>
+        <?php endif; ?>
+    </div>
+
     <?php if ($canEdit): ?>
     <div class="card-detail-section">
         <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?></h2>
@@ -143,12 +259,29 @@ require ROOT_DIR . '/include/templates/header.php';
 
 <?php
 $cardLang = json_encode([
-    'update_success'   => $lang->get('card.update_success'),
-    'archive_success'  => $lang->get('card.archive_success'),
-    'restore_success'  => $lang->get('card.restore_success'),
-    'delete_success'   => $lang->get('card.delete_success'),
-    'delete_confirm'   => $lang->get('card.delete_confirm'),
-    'error_bad_request' => $lang->get('error.bad_request'),
+    'update_success'          => $lang->get('card.update_success'),
+    'archive_success'         => $lang->get('card.archive_success'),
+    'restore_success'         => $lang->get('card.restore_success'),
+    'delete_success'          => $lang->get('card.delete_success'),
+    'delete_confirm'          => $lang->get('card.delete_confirm'),
+    'error_bad_request'       => $lang->get('error.bad_request'),
+    'comment_create_success'  => $lang->get('comment.create_success'),
+    'comment_update_success'  => $lang->get('comment.update_success'),
+    'comment_delete_success'  => $lang->get('comment.delete_success'),
+    'comment_delete_confirm'  => $lang->get('comment.delete_confirm'),
+    'comment_empty'           => $lang->get('comment.empty'),
+    'comment_edit'            => $lang->get('comment.edit'),
+    'comment_delete'          => $lang->get('comment.delete'),
+    'action_save'             => $lang->get('action.save'),
+    'action_cancel'           => $lang->get('action.cancel'),
+    'action_delete'           => $lang->get('action.delete'),
+    'checklist_create_success' => $lang->get('checklist.create_success'),
+    'checklist_update_success' => $lang->get('checklist.update_success'),
+    'checklist_delete_success' => $lang->get('checklist.delete_success'),
+    'checklist_delete_confirm' => $lang->get('checklist.delete_confirm'),
+    'checklist_item_delete_confirm' => $lang->get('checklist.item_delete_confirm'),
+    'checklist_empty'          => $lang->get('checklist.empty'),
+    'checklist_item_placeholder' => $lang->get('checklist.item_placeholder'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>"></script>
