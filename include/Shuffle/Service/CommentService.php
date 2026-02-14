@@ -1,22 +1,26 @@
 <?php
+declare(strict_types=1);
+
 namespace Shuffle\Service;
 
 use Shuffle\Core\Markdown;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
 use Shuffle\Model\Comment;
+use Shuffle\Service\NotificationService;
 
 /**
  * Comment business logic service.
  *
  * Handles comment CRUD, validation, Markdown rendering,
- * ownership checks, and board version bumping.
+ * ownership checks, board version bumping, and comment notifications.
  */
 class CommentService
 {
     private Comment $commentModel;
     private Card $cardModel;
     private Board $boardModel;
+    private ?NotificationService $notificationService = null;
 
     /**
      * @param Comment $commentModel Comment data access instance
@@ -28,6 +32,16 @@ class CommentService
         $this->commentModel = $commentModel;
         $this->cardModel = $cardModel;
         $this->boardModel = $boardModel;
+    }
+
+    /**
+     * Injects the NotificationService for comment notifications.
+     *
+     * @param NotificationService $notificationService Notification service instance
+     */
+    public function setNotificationService(NotificationService $notificationService): void
+    {
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -71,9 +85,18 @@ class CommentService
             $this->boardModel->incrementVersion($boardId);
         }
 
-        // TODO: Phase 7 — Create notifications for all users assigned to the card
-        // (except the comment author). Per spec §5.8, new comments should notify
-        // assigned users. Requires NotificationService implementation.
+        // Notify all users assigned to the card (except the comment author)
+        if ($this->notificationService !== null) {
+            $card = $this->cardModel->findById($cardId);
+            if ($card !== null) {
+                $this->notificationService->notifyComment(
+                    $cardId,
+                    (int) $currentUser['id'],
+                    $card['title'],
+                    $currentUser['name']
+                );
+            }
+        }
 
         $comment = $this->commentModel->findById($commentId);
         $comment['body_html'] = Markdown::render($comment['body']);

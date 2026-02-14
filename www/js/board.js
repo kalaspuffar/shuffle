@@ -689,6 +689,9 @@
         }).then(function (result) {
             if (result.status === 200 && result.data && result.data.version) {
                 boardVersion = result.data.version;
+                // TODO: Replace full page reload with incremental DOM update via
+                // AJAX fetch of board data to avoid interrupting user activity
+                // (e.g. typing, mid-drag-and-drop).
                 window.location.reload();
             }
             // 304 means no change — do nothing

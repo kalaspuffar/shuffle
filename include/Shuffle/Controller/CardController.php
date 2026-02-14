@@ -97,7 +97,7 @@ class CardController
      */
     public function update(Request $request, Response $response, array $params): void
     {
-        $this->auth->requireRole('member');
+        $currentUser = $this->auth->requireRole('member');
         $id = (int) ($params['id'] ?? 0);
 
         $boardId = $this->cardService->getBoardIdForCard($id);
@@ -109,7 +109,7 @@ class CardController
         $body = $request->getBody();
 
         try {
-            $card = $this->cardService->updateCard($id, $body);
+            $card = $this->cardService->updateCard($id, $body, $currentUser);
             $response->json(['card' => $card]);
         } catch (\InvalidArgumentException $e) {
             $response->error($e->getMessage(), 400);

@@ -1,6 +1,7 @@
 {
     "app.name": "Shuffle",
     "app.tagline": "Kanban Task Management",
+    "app.locale": "en",
 
     "auth.login": "Log In",
     "auth.logout": "Log Out",
@@ -114,7 +115,35 @@
 
     "nav.main": "Main navigation",
 
+    "notification.notifications": "Notifications",
     "notification.no_notifications": "No notifications.",
+    "notification.mark_all_read": "Mark all read",
+    "notification.mark_read": "Mark as read",
+    "notification.dismiss": "Dismiss",
+    "notification.unread_count": "{0} unread notifications",
+    "notification.view_card": "View card",
+    "notification.assigned_to": "You were assigned to ''{0}''",
+    "notification.commented_on": "{0} commented on ''{1}''",
+    "notification.today": "Today",
+    "notification.yesterday": "Yesterday",
+    "notification.older": "Older",
+    "notification.time_just_now": "Just now",
+    "notification.time_minutes_ago": "{0}m ago",
+    "notification.time_hours_ago": "{0}h ago",
+    "notification.time_days_ago": "{0}d ago",
+
+    "search.search": "Search",
+    "search.placeholder": "Search cards...",
+    "search.results_title": "Search Results",
+    "search.results_for": "Results for \"{0}\"",
+    "search.no_results": "No results found.",
+    "search.query_too_short": "Search query must be at least 3 characters.",
+    "search.card_archived": "Archived",
+    "search.board_archived": "Board archived",
+    "search.result_count_singular": "{0} result",
+    "search.result_count_plural": "{0} results",
+    "search.in_board": "in {0}",
+    "search.in_lane": "{0}",
 
     "admin.users": "User Management",
     "admin.invite": "Invite User",

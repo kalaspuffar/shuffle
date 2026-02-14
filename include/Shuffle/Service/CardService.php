@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Shuffle\Service;
 
 use Shuffle\Core\Markdown;
@@ -6,6 +8,7 @@ use Shuffle\Model\Board;
 use Shuffle\Model\Card;
 use Shuffle\Service\CommentService;
 use Shuffle\Service\ChecklistService;
+use Shuffle\Service\NotificationService;
 
 /**
  * Card business logic service.
@@ -19,6 +22,7 @@ class CardService
     private Board $boardModel;
     private ?CommentService $commentService = null;
     private ?ChecklistService $checklistService = null;
+    private ?NotificationService $notificationService = null;
 
     /**
      * @param Card  $cardModel  Card data access instance
@@ -48,6 +52,16 @@ class CardService
     public function setChecklistService(ChecklistService $checklistService): void
     {
         $this->checklistService = $checklistService;
+    }
+
+    /**
+     * Injects the NotificationService for assignment notifications.
+     *
+     * @param NotificationService $notificationService Notification service instance
+     */
+    public function setNotificationService(NotificationService $notificationService): void
+    {
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -119,6 +133,20 @@ class CardService
             'created_by'  => (int) $currentUser['id'],
         ]);
 
+        // Sync assignments and notify newly assigned users
+        if (isset($data['assigned_user_ids']) && is_array($data['assigned_user_ids'])) {
+            $newlyAssigned = $this->cardModel->syncAssignments($cardId, $data['assigned_user_ids']);
+
+            if (!empty($newlyAssigned) && $this->notificationService !== null) {
+                $this->notificationService->notifyAssignment(
+                    $cardId,
+                    $newlyAssigned,
+                    (int) $currentUser['id'],
+                    trim($data['title'])
+                );
+            }
+        }
+
         $this->boardModel->incrementVersion($boardId);
 
         return $this->getCard($cardId);
@@ -133,7 +161,7 @@ class CardService
      * @throws \InvalidArgumentException If validation fails
      * @throws \RuntimeException If card not found
      */
-    public function updateCard(int $id, array $data): array
+    public function updateCard(int $id, array $data, array $currentUser = []): array
     {
         $card = $this->cardModel->findById($id);
         if ($card === null) {
@@ -158,10 +186,28 @@ class CardService
 
         if (!empty($updateData)) {
             $this->cardModel->update($id, $updateData);
-            $boardId = $this->cardModel->getBoardId($id);
-            if ($boardId !== null) {
-                $this->boardModel->incrementVersion($boardId);
+        }
+
+        // Sync assignments and notify newly assigned users
+        if (isset($data['assigned_user_ids']) && is_array($data['assigned_user_ids'])) {
+            $newlyAssigned = $this->cardModel->syncAssignments($id, $data['assigned_user_ids']);
+
+            if (!empty($newlyAssigned) && $this->notificationService !== null) {
+                $cardTitle = $updateData['title'] ?? $card['title'];
+                $assignerUserId = !empty($currentUser) ? (int) $currentUser['id'] : 0;
+
+                $this->notificationService->notifyAssignment(
+                    $id,
+                    $newlyAssigned,
+                    $assignerUserId,
+                    $cardTitle
+                );
             }
+        }
+
+        $boardId = $this->cardModel->getBoardId($id);
+        if ($boardId !== null) {
+            $this->boardModel->incrementVersion($boardId);
         }
 
         return $this->getCard($id);
