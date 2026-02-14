@@ -60,7 +60,8 @@ class Board
         $params = [];
 
         if ($role === 'admin') {
-            $sql = 'SELECT DISTINCT b.' . self::SELECT_COLUMNS . ' FROM boards b';
+            // No JOINs for admin, so DISTINCT is unnecessary
+            $sql = 'SELECT b.' . self::SELECT_COLUMNS . ' FROM boards b';
             if (!$includeArchived) {
                 $sql .= ' WHERE b.is_archived = 0';
             }
@@ -268,18 +269,26 @@ class Board
      */
     private function syncOrganizations(int $boardId, array $organizationIds): void
     {
-        // Remove existing associations
-        $this->db->execute(
-            'DELETE FROM board_organizations WHERE board_id = ?',
-            [$boardId]
-        );
-
-        // Insert new associations
-        foreach ($organizationIds as $orgId) {
+        $this->db->beginTransaction();
+        try {
+            // Remove existing associations
             $this->db->execute(
-                'INSERT INTO board_organizations (board_id, organization_id) VALUES (?, ?)',
-                [$boardId, (int) $orgId]
+                'DELETE FROM board_organizations WHERE board_id = ?',
+                [$boardId]
             );
+
+            // Insert new associations
+            foreach ($organizationIds as $orgId) {
+                $this->db->execute(
+                    'INSERT INTO board_organizations (board_id, organization_id) VALUES (?, ?)',
+                    [$boardId, (int) $orgId]
+                );
+            }
+
+            $this->db->commit();
+        } catch (\Exception $e) {
+            $this->db->rollBack();
+            throw $e;
         }
     }
 }

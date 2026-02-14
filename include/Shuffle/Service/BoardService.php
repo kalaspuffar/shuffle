@@ -2,23 +2,31 @@
 namespace Shuffle\Service;
 
 use Shuffle\Model\Board;
+use Shuffle\Model\Card;
+use Shuffle\Model\Lane;
 
 /**
  * Board business logic service.
  *
  * Handles board CRUD, archive/restore, access filtering,
- * and validation.
+ * and validation. Supports full board view with nested lanes and cards.
  */
 class BoardService
 {
     private Board $boardModel;
+    private ?Lane $laneModel = null;
+    private ?Card $cardModel = null;
 
     /**
-     * @param Board $boardModel Board data access instance
+     * @param Board     $boardModel Board data access instance
+     * @param Lane|null $laneModel  Lane data access instance (optional, for full view)
+     * @param Card|null $cardModel  Card data access instance (optional, for full view)
      */
-    public function __construct(Board $boardModel)
+    public function __construct(Board $boardModel, ?Lane $laneModel = null, ?Card $cardModel = null)
     {
         $this->boardModel = $boardModel;
+        $this->laneModel = $laneModel;
+        $this->cardModel = $cardModel;
     }
 
     /**
@@ -161,6 +169,70 @@ class BoardService
         }
 
         $this->boardModel->restore($id);
+    }
+
+    /**
+     * Returns a board with its lanes and cards nested.
+     *
+     * Each lane includes its ordered cards with metadata (comment count,
+     * checklist progress, attachment count, assigned users).
+     *
+     * @param int $id Board ID
+     * @return array|null Board with lanes and cards, or null
+     */
+    public function getBoardWithLanesAndCards(int $id): ?array
+    {
+        $board = $this->boardModel->findById($id);
+        if ($board === null) {
+            return null;
+        }
+
+        $board['lanes'] = [];
+
+        if ($this->laneModel === null || $this->cardModel === null) {
+            return $board;
+        }
+
+        $lanes = $this->laneModel->findByBoard($id);
+        $allCards = $this->cardModel->findByBoard($id);
+
+        // Group cards by lane_id
+        $cardsByLane = [];
+        foreach ($allCards as $card) {
+            $cardsByLane[(int) $card['lane_id']][] = $card;
+        }
+
+        // Batch-load metadata for all cards to avoid N+1 queries
+        $allCardIds = array_map(function ($c) {
+            return (int) $c['id'];
+        }, $allCards);
+
+        $assignmentMap = $this->cardModel->batchLoadAssignments($allCardIds);
+        $commentCountMap = $this->cardModel->batchLoadCommentCounts($allCardIds);
+        $attachmentCountMap = $this->cardModel->batchLoadAttachmentCounts($allCardIds);
+        $checklistMap = $this->cardModel->batchLoadChecklistProgress($allCardIds);
+
+        foreach ($lanes as &$lane) {
+            $laneId = (int) $lane['id'];
+            $laneCards = $cardsByLane[$laneId] ?? [];
+
+            // Enrich each card with metadata
+            foreach ($laneCards as &$card) {
+                $cid = (int) $card['id'];
+                $card['assigned_users'] = $assignmentMap[$cid] ?? [];
+                $card['comment_count'] = $commentCountMap[$cid] ?? 0;
+                $card['attachment_count'] = $attachmentCountMap[$cid] ?? 0;
+                $card['checklist_progress'] = $checklistMap[$cid] ?? ['total' => 0, 'done' => 0];
+            }
+            unset($card);
+
+            $lane['cards'] = $laneCards;
+        }
+        unset($lane);
+
+        $board['lanes'] = $lanes;
+
+        return $board;
     }
 
     /**
