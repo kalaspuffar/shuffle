@@ -77,11 +77,14 @@ $checklistController = new Shuffle\Controller\ChecklistController($auth, $checkl
 
 // Notification system
 $notificationModel      = new Shuffle\Model\Notification($db);
-$notificationService    = new Shuffle\Service\NotificationService($notificationModel, $cardModel);
+$notificationService    = new Shuffle\Service\NotificationService($notificationModel, $cardModel, $lang);
 $notificationController = new Shuffle\Controller\NotificationController($auth, $notificationService);
 
 // Wire NotificationService into CommentService for comment notifications
 $commentService->setNotificationService($notificationService);
+
+// Wire NotificationService into CardService for assignment notifications
+$cardService->setNotificationService($notificationService);
 
 // Search system
 $searchService    = new Shuffle\Service\SearchService($db);

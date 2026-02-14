@@ -11,6 +11,9 @@
     /** Polling interval in milliseconds (30 seconds) */
     var POLL_INTERVAL = 30000;
 
+    var scriptTag = document.getElementById('notification-script');
+    var LANG = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
+
     var bellBtn = document.getElementById('notification-bell');
     var dot = document.getElementById('notification-dot');
     var panel = document.getElementById('notification-panel');
@@ -143,21 +146,21 @@
         var fragment = document.createDocumentFragment();
 
         if (groups.today.length > 0) {
-            fragment.appendChild(createGroupHeader('Today'));
+            fragment.appendChild(createGroupHeader(LANG.today || 'Today'));
             groups.today.forEach(function (n) {
                 fragment.appendChild(createNotificationItem(n));
             });
         }
 
         if (groups.yesterday.length > 0) {
-            fragment.appendChild(createGroupHeader('Yesterday'));
+            fragment.appendChild(createGroupHeader(LANG.yesterday || 'Yesterday'));
             groups.yesterday.forEach(function (n) {
                 fragment.appendChild(createNotificationItem(n));
             });
         }
 
         if (groups.older.length > 0) {
-            fragment.appendChild(createGroupHeader('Older'));
+            fragment.appendChild(createGroupHeader(LANG.older || 'Older'));
             groups.older.forEach(function (n) {
                 fragment.appendChild(createNotificationItem(n));
             });
@@ -194,7 +197,7 @@
             + '<span class="notification-item-time">' + escapeHtml(timeAgo) + '</span>'
             + '</div>'
             + '<div class="notification-item-actions">'
-            + '<button type="button" class="notification-dismiss-btn" aria-label="Dismiss" data-dismiss="' + notification.id + '">&times;</button>'
+            + '<button type="button" class="notification-dismiss-btn" aria-label="' + escapeHtml(LANG.dismiss || 'Dismiss') + '" data-dismiss="' + notification.id + '">&times;</button>'
             + '</div>';
 
         // Click card link marks notification as read
@@ -253,6 +256,11 @@
        ============================================= */
 
     function pollNotificationCount() {
+        // Skip count poll when panel is open — loadNotifications() already fetches the count
+        if (!panel.hidden) {
+            return;
+        }
+
         Shuffle.api('/v1/notifications/count')
             .then(function (result) {
                 if (result.status === 200 && result.data) {
@@ -296,6 +304,15 @@
         return div.innerHTML;
     }
 
+    /** Simple string template: replaces {0}, {1} etc. */
+    function tmpl(str, args) {
+        if (!str) return '';
+        for (var i = 0; i < args.length; i++) {
+            str = str.replace('{' + i + '}', args[i]);
+        }
+        return str;
+    }
+
     function formatTimeAgo(dateString) {
         var date = new Date(dateString);
         var now = new Date();
@@ -303,20 +320,20 @@
         var diffMinutes = Math.floor(diffMs / 60000);
 
         if (diffMinutes < 1) {
-            return 'Just now';
+            return LANG.just_now || 'Just now';
         }
         if (diffMinutes < 60) {
-            return diffMinutes + 'm ago';
+            return tmpl(LANG.minutes_ago || '{0}m ago', [diffMinutes]);
         }
 
         var diffHours = Math.floor(diffMinutes / 60);
         if (diffHours < 24) {
-            return diffHours + 'h ago';
+            return tmpl(LANG.hours_ago || '{0}h ago', [diffHours]);
         }
 
         var diffDays = Math.floor(diffHours / 24);
         if (diffDays < 7) {
-            return diffDays + 'd ago';
+            return tmpl(LANG.days_ago || '{0}d ago', [diffDays]);
         }
 
         return date.toLocaleDateString();

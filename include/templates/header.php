@@ -50,6 +50,7 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
     <div class="header-right">
         <form class="header-search" action="/search.php" method="get" role="search" aria-label="<?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?>">
             <input type="search" name="q" class="header-search-input" placeholder="<?= htmlspecialchars($lang->get('search.placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?>" autocomplete="off" minlength="3">
+            <button type="submit" class="sr-only"><?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?></button>
         </form>
         <div class="notification-wrapper">
             <button type="button" class="header-icon-btn" id="notification-bell" aria-label="<?= htmlspecialchars($lang->get('notification.no_notifications'), ENT_QUOTES, 'UTF-8') ?>" aria-haspopup="true" aria-expanded="false">
@@ -58,7 +59,7 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
                 </svg>
                 <span class="notification-dot" id="notification-dot" aria-hidden="true" hidden></span>
             </button>
-            <div class="notification-panel" id="notification-panel" role="menu" hidden>
+            <div class="notification-panel" id="notification-panel" role="region" aria-label="<?= htmlspecialchars($lang->get('notification.notifications'), ENT_QUOTES, 'UTF-8') ?>" hidden>
                 <div class="notification-panel-header">
                     <h3 class="notification-panel-title"><?= htmlspecialchars($lang->get('notification.notifications'), ENT_QUOTES, 'UTF-8') ?></h3>
                     <button type="button" class="notification-mark-all-btn" id="notification-mark-all" aria-label="<?= htmlspecialchars($lang->get('notification.mark_all_read'), ENT_QUOTES, 'UTF-8') ?>">

@@ -458,6 +458,46 @@ class Card
     }
 
     /**
+     * Syncs card assignments, replacing existing assignments with the given user IDs.
+     *
+     * Returns the list of newly assigned user IDs (those not previously assigned).
+     *
+     * @param int   $cardId  Card ID
+     * @param array $userIds Array of user IDs to assign
+     * @return array Newly assigned user IDs
+     */
+    public function syncAssignments(int $cardId, array $userIds): array
+    {
+        $existingUsers = $this->getAssignedUsers($cardId);
+        $existingIds = array_map(function (array $user): int {
+            return (int) $user['id'];
+        }, $existingUsers);
+
+        $newIds = array_map('intval', $userIds);
+
+        // Remove assignments no longer in the list
+        $toRemove = array_diff($existingIds, $newIds);
+        if (!empty($toRemove)) {
+            $placeholders = implode(',', array_fill(0, count($toRemove), '?'));
+            $this->db->execute(
+                'DELETE FROM card_assignments WHERE card_id = ? AND user_id IN (' . $placeholders . ')',
+                array_merge([$cardId], array_values($toRemove))
+            );
+        }
+
+        // Add new assignments
+        $toAdd = array_diff($newIds, $existingIds);
+        foreach ($toAdd as $userId) {
+            $this->db->execute(
+                'INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)',
+                [$cardId, $userId]
+            );
+        }
+
+        return array_values($toAdd);
+    }
+
+    /**
      * Renumbers all card positions in a lane using POSITION_GAP increments.
      *
      * @param int $laneId Lane ID

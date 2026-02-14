@@ -55,50 +55,73 @@ class SearchService
         // Build the FULLTEXT search query in boolean mode
         $searchTerm = $this->buildSearchTerm($query);
 
-        $sql = 'SELECT c.id AS card_id, c.title AS card_title, c.description,
-                       c.is_archived, b.id AS board_id, b.title AS board_title,
-                       b.is_archived AS board_is_archived,
-                       l.id AS lane_id, l.title AS lane_title,
-                       MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE) AS relevance
-                FROM cards c
+        if ($searchTerm === '') {
+            throw new \InvalidArgumentException('Search query must contain valid search terms');
+        }
+
+        // Build the shared FROM/JOIN/WHERE clause for both count and result queries
+        $fromClause = 'FROM cards c
                 JOIN lanes l ON c.lane_id = l.id
                 JOIN boards b ON l.board_id = b.id';
 
-        $params = [$searchTerm];
+        $whereParams = [];
 
         // Access control: admins see everything, others see only accessible boards
         if ($currentUser['role'] !== 'admin') {
-            $sql .= ' LEFT JOIN board_organizations bo ON b.id = bo.board_id';
-            $sql .= ' WHERE (
-                        (b.visibility = ? AND b.created_by = ?)
-                        OR (b.visibility = ? AND bo.organization_id = ?)
-                      )';
-            $params[] = 'private';
-            $params[] = (int) $currentUser['id'];
-            $params[] = 'organization';
-            $params[] = $currentUser['organization_id'];
-            $sql .= ' AND MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE)';
-            $params[] = $searchTerm;
+            $organizationId = $currentUser['organization_id'] ?? null;
+
+            if ($organizationId !== null) {
+                $fromClause .= ' LEFT JOIN board_organizations bo ON b.id = bo.board_id';
+                $whereClause = ' WHERE (
+                            (b.visibility = ? AND b.created_by = ?)
+                            OR (b.visibility = ? AND bo.organization_id = ?)
+                          )';
+                $whereParams[] = 'private';
+                $whereParams[] = (int) $currentUser['id'];
+                $whereParams[] = 'organization';
+                $whereParams[] = $organizationId;
+            } else {
+                // User has no organization; only show private boards they created
+                $whereClause = ' WHERE (b.visibility = ? AND b.created_by = ?)';
+                $whereParams[] = 'private';
+                $whereParams[] = (int) $currentUser['id'];
+            }
+
+            $whereClause .= ' AND MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE)';
+            $whereParams[] = $searchTerm;
         } else {
-            $sql .= ' WHERE MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE)';
-            $params[] = $searchTerm;
+            $whereClause = ' WHERE MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE)';
+            $whereParams[] = $searchTerm;
         }
 
         // Optional board filter
         if ($boardId !== null) {
-            $sql .= ' AND b.id = ?';
-            $params[] = $boardId;
+            $whereClause .= ' AND b.id = ?';
+            $whereParams[] = $boardId;
         }
 
         // Archive filtering
         if (!$includeArchived) {
-            $sql .= ' AND c.is_archived = 0 AND b.is_archived = 0';
+            $whereClause .= ' AND c.is_archived = 0 AND b.is_archived = 0';
         }
 
-        $sql .= ' ORDER BY relevance DESC LIMIT ?';
-        $params[] = $limit;
+        // Get total count of matching results
+        $countSql = 'SELECT COUNT(*) AS total ' . $fromClause . $whereClause;
+        $countRow = $this->db->fetch($countSql, $whereParams);
+        $total = $countRow !== null ? (int) $countRow['total'] : 0;
 
-        $rows = $this->db->fetchAll($sql, $params);
+        // Get paginated results with relevance ordering
+        $resultSql = 'SELECT c.id AS card_id, c.title AS card_title, c.description,
+                       c.is_archived, b.id AS board_id, b.title AS board_title,
+                       b.is_archived AS board_is_archived,
+                       l.id AS lane_id, l.title AS lane_title,
+                       MATCH(c.title, c.description) AGAINST(? IN BOOLEAN MODE) AS relevance '
+                    . $fromClause . $whereClause
+                    . ' ORDER BY relevance DESC LIMIT ?';
+
+        $resultParams = array_merge([$searchTerm], $whereParams, [$limit]);
+
+        $rows = $this->db->fetchAll($resultSql, $resultParams);
 
         $results = [];
         foreach ($rows as $row) {
@@ -117,7 +140,7 @@ class SearchService
 
         return [
             'results' => $results,
-            'total'   => count($results),
+            'total'   => $total,
         ];
     }
 

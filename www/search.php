@@ -65,7 +65,10 @@ require ROOT_DIR . '/include/templates/header.php';
     <?php if ($query !== ''): ?>
     <p class="search-results-summary">
         <?= htmlspecialchars(str_replace('{0}', $query, $lang->get('search.results_for')), ENT_QUOTES, 'UTF-8') ?>
-        — <?= (int) $searchResults['total'] ?> result<?= $searchResults['total'] !== 1 ? 's' : '' ?>
+        — <?php
+            $countKey = $searchResults['total'] === 1 ? 'search.result_count_singular' : 'search.result_count_plural';
+            echo htmlspecialchars($lang->get($countKey, [$searchResults['total']]), ENT_QUOTES, 'UTF-8');
+        ?>
     </p>
     <?php endif; ?>
 

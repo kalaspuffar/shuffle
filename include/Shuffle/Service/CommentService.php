@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Shuffle\Service;
 
 use Shuffle\Core\Markdown;

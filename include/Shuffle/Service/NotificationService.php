@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Shuffle\Service;
 
+use Shuffle\Core\Lang;
 use Shuffle\Model\Card;
 use Shuffle\Model\Notification;
 
@@ -17,15 +18,18 @@ class NotificationService
 {
     private Notification $notificationModel;
     private Card $cardModel;
+    private Lang $lang;
 
     /**
      * @param Notification $notificationModel Notification data access instance
      * @param Card         $cardModel         Card data access instance (for assignment lookups)
+     * @param Lang         $lang              Internationalization service
      */
-    public function __construct(Notification $notificationModel, Card $cardModel)
+    public function __construct(Notification $notificationModel, Card $cardModel, Lang $lang)
     {
         $this->notificationModel = $notificationModel;
         $this->cardModel = $cardModel;
+        $this->lang = $lang;
     }
 
     /**
@@ -121,7 +125,8 @@ class NotificationService
                 continue;
             }
 
-            $message = "You were assigned to '" . mb_substr($cardTitle, 0, 100, 'UTF-8') . "'";
+            $truncatedTitle = mb_substr($cardTitle, 0, 100, 'UTF-8');
+            $message = $this->lang->get('notification.assigned_to', [$truncatedTitle]);
 
             $this->notificationModel->create([
                 'user_id'      => $userId,
@@ -156,7 +161,7 @@ class NotificationService
             }
 
             $truncatedTitle = mb_substr($cardTitle, 0, 100, 'UTF-8');
-            $message = $authorName . " commented on '" . $truncatedTitle . "'";
+            $message = $this->lang->get('notification.commented_on', [$authorName, $truncatedTitle]);
 
             $this->notificationModel->create([
                 'user_id'      => $userId,
