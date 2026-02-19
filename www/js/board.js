@@ -742,7 +742,32 @@
                 afterCardId = parseInt(lastCard.dataset.cardId, 10);
             }
 
-            // Move card via API
+            // Capture current DOM position so we can revert if the API call fails
+            var originalParent = draggedCard.parentNode;
+            var originalNextSibling = draggedCard.nextSibling;
+
+            // Optimistic DOM update — move the card immediately so the UI feels
+            // responsive; the API call confirms or reverts below.
+            removeDropIndicator();
+            var afterCardEl = afterCardId !== null
+                ? laneCards.querySelector('.card[data-card-id="' + afterCardId + '"]')
+                : null;
+            if (afterCardEl) {
+                laneCards.insertBefore(draggedCard, afterCardEl.nextSibling);
+            } else if (afterCardId === null) {
+                laneCards.insertBefore(draggedCard, laneCards.firstChild);
+            } else {
+                laneCards.appendChild(draggedCard);
+            }
+
+            var cardTitle = draggedCard.querySelector('.card-title').textContent;
+            var laneName = laneCards.closest('.lane').querySelector('.lane-title').textContent;
+            announce(tmpl(LANG.announce_card_dropped || 'Dropped card {0} in {1}.', [cardTitle, laneName]));
+
+            // dragend fires after drop and nulls draggedCard — capture it for the closure
+            var movedCard = draggedCard;
+
+            // Persist the move; revert the DOM on failure
             Shuffle.api('/v1/cards/' + cardId + '/move', {
                 method: 'PUT',
                 body: {
@@ -750,18 +775,18 @@
                     after_card_id: afterCardId
                 }
             }).then(function (result) {
-                if (result.status === 200) {
-                    var laneName = laneCards.closest('.lane').querySelector('.lane-title').textContent;
-                    var cardTitle = draggedCard.querySelector('.card-title').textContent;
-                    announce(tmpl(LANG.announce_card_dropped || 'Dropped card {0} in {1}.', [cardTitle, laneName]));
-                    window.location.reload();
-                } else {
+                if (result.status !== 200) {
+                    // Revert the optimistic DOM update
+                    if (originalNextSibling) {
+                        originalParent.insertBefore(movedCard, originalNextSibling);
+                    } else {
+                        originalParent.appendChild(movedCard);
+                    }
                     var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
                     Shuffle.showFlash(msg, 'error');
                 }
             });
 
-            removeDropIndicator();
             removeDropTargets();
         });
     }
@@ -828,12 +853,33 @@
             return; // Already at boundary
         }
 
+        // Capture original DOM position for potential revert
+        var originalParent = card.parentNode;
+        var originalNextSibling = card.nextSibling;
+
+        // Optimistic DOM update
+        if (direction === 'up') {
+            originalParent.insertBefore(card, siblings[index - 1]);
+        } else {
+            var afterEl = siblings[index + 1];
+            if (afterEl.nextSibling) {
+                originalParent.insertBefore(card, afterEl.nextSibling);
+            } else {
+                originalParent.appendChild(card);
+            }
+        }
+
         Shuffle.api('/v1/cards/' + cardId + '/move', {
             method: 'PUT',
             body: { lane_id: laneId, after_card_id: afterCardId }
         }).then(function (result) {
-            if (result.status === 200) {
-                window.location.reload();
+            if (result.status !== 200) {
+                // Revert the optimistic DOM update
+                if (originalNextSibling) {
+                    originalParent.insertBefore(card, originalNextSibling);
+                } else {
+                    originalParent.appendChild(card);
+                }
             }
         });
     }
@@ -847,17 +893,34 @@
 
         var targetLane = lanes[targetIndex];
         var targetLaneId = parseInt(targetLane.dataset.laneId, 10);
+        var targetLaneCards = targetLane.querySelector('.lane-cards');
+
+        var cardEl = currentLane.querySelector('.card[data-card-id="' + cardId + '"]');
+        if (!cardEl) return;
+
+        // Capture original DOM position for potential revert
+        var originalParent = cardEl.parentNode;
+        var originalNextSibling = cardEl.nextSibling;
+
+        // Optimistic DOM update — prepend to the top of the target lane
+        targetLaneCards.insertBefore(cardEl, targetLaneCards.firstChild);
+
+        var laneName = targetLane.querySelector('.lane-title').textContent;
+        var cardTitleEl = cardEl.querySelector('.card-title');
+        var title = cardTitleEl ? cardTitleEl.textContent : '';
+        announce(tmpl(LANG.announce_card_moved || 'Card {0} moved to {1}.', [title, laneName]));
 
         Shuffle.api('/v1/cards/' + cardId + '/move', {
             method: 'PUT',
             body: { lane_id: targetLaneId, after_card_id: null }
         }).then(function (result) {
-            if (result.status === 200) {
-                var laneName = targetLane.querySelector('.lane-title').textContent;
-                var cardTitle = currentLane.querySelector('.card[data-card-id="' + cardId + '"] .card-title');
-                var title = cardTitle ? cardTitle.textContent : '';
-                announce(tmpl(LANG.announce_card_moved || 'Card {0} moved to {1}.', [title, laneName]));
-                window.location.reload();
+            if (result.status !== 200) {
+                // Revert the optimistic DOM update
+                if (originalNextSibling) {
+                    originalParent.insertBefore(cardEl, originalNextSibling);
+                } else {
+                    originalParent.appendChild(cardEl);
+                }
             }
         });
     }
