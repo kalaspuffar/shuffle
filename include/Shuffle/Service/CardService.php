@@ -6,6 +6,7 @@ namespace Shuffle\Service;
 use Shuffle\Core\Markdown;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Service\AttachmentService;
 use Shuffle\Service\CommentService;
 use Shuffle\Service\ChecklistService;
 use Shuffle\Service\NotificationService;
@@ -22,6 +23,7 @@ class CardService
     private Board $boardModel;
     private ?CommentService $commentService = null;
     private ?ChecklistService $checklistService = null;
+    private ?AttachmentService $attachmentService = null;
     private ?NotificationService $notificationService = null;
 
     /**
@@ -52,6 +54,16 @@ class CardService
     public function setChecklistService(ChecklistService $checklistService): void
     {
         $this->checklistService = $checklistService;
+    }
+
+    /**
+     * Injects the AttachmentService for loading card attachments.
+     *
+     * @param AttachmentService $attachmentService Attachment service instance
+     */
+    public function setAttachmentService(AttachmentService $attachmentService): void
+    {
+        $this->attachmentService = $attachmentService;
     }
 
     /**
@@ -103,8 +115,13 @@ class CardService
             error_log('CardService::getCard() — ChecklistService not injected; checklists will be empty');
         }
 
-        // TODO: Phase 6+ — populate when Attachments feature is implemented
-        $card['attachments'] = [];
+        // Load attachments
+        if ($this->attachmentService !== null) {
+            $card['attachments'] = $this->attachmentService->getAttachmentsForCard($id);
+        } else {
+            $card['attachments'] = [];
+            error_log('CardService::getCard() — AttachmentService not injected; attachments will be empty');
+        }
         // TODO: Post-MVP — populate when Labels feature is implemented
         $card['labels'] = [];
 
