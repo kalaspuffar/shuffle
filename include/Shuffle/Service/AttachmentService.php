@@ -29,6 +29,65 @@ class AttachmentService
         'application/x-zip', 'application/gzip', 'application/json',
         'application/xml', 'application/msword', 'application/vnd.',
         'audio/', 'video/',
+        // Fallback for files the browser could not identify — stored safely in S3
+        'application/octet-stream',
+    ];
+
+    /**
+     * Extension-to-MIME fallback map.
+     *
+     * Browsers report application/octet-stream when they cannot identify a file
+     * type (e.g. on some OS/browser combinations). We resolve the real type from
+     * the file extension so metadata stored in the database is accurate and so
+     * known file types pass the allowlist even when the browser mis-reports them.
+     */
+    private const EXTENSION_MIME_MAP = [
+        // Images
+        'jpg'      => 'image/jpeg',
+        'jpeg'     => 'image/jpeg',
+        'png'      => 'image/png',
+        'gif'      => 'image/gif',
+        'webp'     => 'image/webp',
+        'svg'      => 'image/svg+xml',
+        'ico'      => 'image/x-icon',
+        'bmp'      => 'image/bmp',
+        'tiff'     => 'image/tiff',
+        'tif'      => 'image/tiff',
+        // Documents
+        'pdf'      => 'application/pdf',
+        'doc'      => 'application/msword',
+        'docx'     => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'xls'      => 'application/vnd.ms-excel',
+        'xlsx'     => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'ppt'      => 'application/vnd.ms-powerpoint',
+        'pptx'     => 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        'odt'      => 'application/vnd.oasis.opendocument.text',
+        'ods'      => 'application/vnd.oasis.opendocument.spreadsheet',
+        'odp'      => 'application/vnd.oasis.opendocument.presentation',
+        // Archives
+        'zip'      => 'application/zip',
+        'gz'       => 'application/gzip',
+        // Text / data
+        'txt'      => 'text/plain',
+        'md'       => 'text/plain',
+        'markdown' => 'text/plain',
+        'csv'      => 'text/csv',
+        'html'     => 'text/html',
+        'htm'      => 'text/html',
+        'xml'      => 'text/xml',
+        'json'     => 'application/json',
+        // Audio
+        'mp3'      => 'audio/mpeg',
+        'wav'      => 'audio/wav',
+        'ogg'      => 'audio/ogg',
+        'flac'     => 'audio/flac',
+        'm4a'      => 'audio/mp4',
+        // Video
+        'mp4'      => 'video/mp4',
+        'webm'     => 'video/webm',
+        'avi'      => 'video/x-msvideo',
+        'mov'      => 'video/quicktime',
+        'mkv'      => 'video/x-matroska',
     ];
 
     /**
@@ -79,6 +138,13 @@ class AttachmentService
         string $mimeType,
         $inputStream
     ): array {
+        // Browsers report application/octet-stream when they cannot detect the
+        // file type. Resolve from the filename extension so the stored metadata
+        // is accurate and so common file types pass the allowlist check.
+        if ($mimeType === 'application/octet-stream') {
+            $mimeType = $this->resolveMimeTypeFromExtension($fileName);
+        }
+
         $this->validateUpload($fileName, $fileSize, $mimeType);
 
         $boardId = $this->cardModel->getBoardId($cardId);
@@ -327,5 +393,21 @@ class AttachmentService
             $name = 'file';
         }
         return $name;
+    }
+
+    /**
+     * Resolves a MIME type from a filename extension.
+     *
+     * Used as a fallback when the client reports application/octet-stream,
+     * which browsers emit when they cannot identify the file type.
+     * Returns application/octet-stream unchanged for unrecognised extensions.
+     *
+     * @param string $fileName Original filename
+     * @return string Resolved MIME type
+     */
+    private function resolveMimeTypeFromExtension(string $fileName): string
+    {
+        $ext = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
+        return self::EXTENSION_MIME_MAP[$ext] ?? 'application/octet-stream';
     }
 }
