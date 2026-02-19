@@ -230,5 +230,20 @@
     "flash.user_updated": "User updated successfully.",
     "flash.user_deleted": "User deleted successfully.",
     "flash.user_deactivated": "User account has been deactivated.",
-    "flash.user_activated": "User account has been activated."
+    "flash.user_activated": "User account has been activated.",
+
+    "import.starting": "Starting Trello import from: {0}",
+    "import.board_exists": "Board with Trello ID ''{0}'' has already been imported.",
+    "import.board_created": "Board created: {0} (ID {1})",
+    "import.members_imported": "Members: {0} processed ({1} created, {2} matched)",
+    "import.lanes_imported": "Lanes: {0} imported",
+    "import.cards_imported": "Cards: {0} imported",
+    "import.checklists_imported": "Checklists: {0} imported with {1} items",
+    "import.comments_imported": "Comments: {0} imported",
+    "import.attachments_imported": "Attachments: {0} uploaded, {1} skipped",
+    "import.complete": "Import complete. Board ID: {0}",
+    "import.failed": "Import failed: {0}",
+    "import.dry_run_complete": "Dry-run validation complete — no data was written.",
+    "import.invalid_json": "Invalid or unreadable JSON file: {0}",
+    "import.missing_keys": "Missing required top-level keys: {0}"
 }
