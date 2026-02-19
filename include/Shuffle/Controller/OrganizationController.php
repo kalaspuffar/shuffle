@@ -165,4 +165,60 @@ class OrganizationController
             $response->error($e->getMessage(), 404);
         }
     }
+
+    /**
+     * POST /v1/organizations/{id}/members
+     *
+     * Assigns a user to this organization. Admin only.
+     * Body: { "user_id": <int> }
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function addMember(Request $request, Response $response, array $params): void
+    {
+        $this->auth->requireRole('admin');
+        $orgId  = (int) ($params['id'] ?? 0);
+        $body   = $request->getBody();
+        $userId = (int) ($body['user_id'] ?? 0);
+
+        if ($userId <= 0) {
+            $response->error('user_id is required', 400);
+            return;
+        }
+
+        try {
+            $this->orgService->addMember($orgId, $userId);
+            $members = $this->orgService->getOrganizationMembers($orgId);
+            $response->json(['members' => $members]);
+        } catch (\RuntimeException $e) {
+            $status = str_contains($e->getMessage(), 'not found') ? 404 : 409;
+            $response->error($e->getMessage(), $status);
+        }
+    }
+
+    /**
+     * DELETE /v1/organizations/{id}/members/{userId}
+     *
+     * Removes a user from this organization. Admin only.
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters: id, userId
+     */
+    public function removeMember(Request $request, Response $response, array $params): void
+    {
+        $this->auth->requireRole('admin');
+        $orgId  = (int) ($params['id'] ?? 0);
+        $userId = (int) ($params['userId'] ?? 0);
+
+        try {
+            $this->orgService->removeMember($orgId, $userId);
+            $response->noContent();
+        } catch (\RuntimeException $e) {
+            $status = str_contains($e->getMessage(), 'not found') ? 404 : 409;
+            $response->error($e->getMessage(), $status);
+        }
+    }
 }

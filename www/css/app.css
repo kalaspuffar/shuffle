@@ -1038,6 +1038,53 @@ small,
     color: var(--color-error-hover);
 }
 
+/* Admin sub-page navigation */
+.admin-header-title {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.back-link {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+}
+
+.back-link:hover {
+    color: var(--color-text);
+    text-decoration: underline;
+}
+
+/* Section headings within admin pages */
+.section-heading {
+    font-size: var(--font-size-base);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-3);
+    text-transform: uppercase;
+    letter-spacing: var(--letter-spacing-wide);
+    font-size: var(--font-size-xs);
+}
+
+/* Spacing between admin page sections */
+.admin-subsection {
+    margin-top: var(--space-8);
+}
+
+/* Inline form (select + button side-by-side) */
+.form-group--inline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.form-group--inline .form-select {
+    min-width: 280px;
+    flex: 1;
+}
+
 /* =============================================
    15. Modal
    ============================================= */
