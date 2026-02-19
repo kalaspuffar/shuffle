@@ -609,6 +609,57 @@
             }
         });
 
+        /* Checklist item reorder — Ctrl+ArrowUp / Ctrl+ArrowDown */
+        if (CAN_EDIT) {
+            checklistsList.addEventListener('keydown', function (e) {
+                if (!e.ctrlKey) return;
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+
+                var itemEl = e.target.closest('.checklist-item');
+                if (!itemEl) return;
+
+                e.preventDefault();
+
+                var itemId = parseInt(itemEl.dataset.itemId, 10);
+                var itemsList = itemEl.closest('.checklist-items');
+                var siblings = itemsList ? itemsList.querySelectorAll('.checklist-item') : [];
+                var index = Array.prototype.indexOf.call(siblings, itemEl);
+
+                var afterItemId = null;
+
+                if (e.key === 'ArrowUp' && index > 0) {
+                    // Move before previous → place after the item two positions up
+                    afterItemId = index > 1 ? parseInt(siblings[index - 2].dataset.itemId, 10) : null;
+                } else if (e.key === 'ArrowDown' && index < siblings.length - 1) {
+                    // Move after the next sibling
+                    afterItemId = parseInt(siblings[index + 1].dataset.itemId, 10);
+                } else {
+                    return; // Already at boundary
+                }
+
+                var direction = e.key; // capture before async
+
+                Shuffle.api('/v1/checklist-items/' + itemId + '/position', {
+                    method: 'PUT',
+                    body: { after_item_id: afterItemId }
+                }).then(function (result) {
+                    if (result.status === 200) {
+                        // Reorder DOM to match new position
+                        if (direction === 'ArrowUp' && index > 0) {
+                            itemsList.insertBefore(itemEl, siblings[index - 1]);
+                        } else if (direction === 'ArrowDown' && index < siblings.length - 1) {
+                            var nextSibling = siblings[index + 1].nextSibling;
+                            itemsList.insertBefore(itemEl, nextSibling);
+                        }
+                        itemEl.focus();
+                    } else {
+                        var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                        Shuffle.showFlash(msg, 'error');
+                    }
+                });
+            });
+        }
+
         /* Add item form — delegated submit */
         checklistsList.addEventListener('submit', function (e) {
             if (!e.target.classList.contains('checklist-add-item-form')) return;

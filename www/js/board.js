@@ -165,6 +165,7 @@
             }).then(function (result) {
                 if (result.status === 200) {
                     Shuffle.showFlash(LANG.lane_rename_success || 'Renamed', 'success');
+                    announce(LANG.lane_rename_success || 'Renamed');
                 } else {
                     titleEl.textContent = originalTitle;
                     var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
@@ -183,6 +184,7 @@
                 titleEl.textContent = originalTitle;
                 titleEl.removeEventListener('keydown', onKey);
                 titleEl.setAttribute('contenteditable', 'false');
+                announce(LANG.lane_rename_cancel || 'Rename cancelled');
             }
         });
     }
@@ -356,6 +358,189 @@
                 window.location.reload();
             } else if (result.status === 409) {
                 Shuffle.showFlash(LANG.lane_delete_has_cards || 'Lane has cards', 'error');
+            } else {
+                var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                Shuffle.showFlash(msg, 'error');
+            }
+        });
+    }
+
+    /* =============================================
+       Card Context Menu
+       ============================================= */
+
+    var activeCardMenu = null;
+
+    if (CAN_EDIT) {
+        lanesContainer.addEventListener('click', function (e) {
+            var menuBtn = e.target.closest('[data-card-menu]');
+            if (!menuBtn) return;
+            e.stopPropagation();
+
+            var cardId = parseInt(menuBtn.dataset.cardMenu, 10);
+            var card = menuBtn.closest('.card');
+            showCardContextMenu(menuBtn, card, cardId);
+        });
+    }
+
+    function showCardContextMenu(anchor, card, cardId) {
+        closeCardContextMenu();
+
+        var laneCards = card.closest('.lane-cards');
+        var lane = card.closest('.lane');
+        var laneId = parseInt(laneCards.dataset.laneId, 10);
+        var siblings = laneCards.querySelectorAll('.card');
+        var cardIndex = Array.prototype.indexOf.call(siblings, card);
+        var isFirst = (cardIndex === 0);
+        var isLast = (cardIndex === siblings.length - 1);
+
+        var menu = document.createElement('div');
+        menu.className = 'context-menu';
+        menu.setAttribute('role', 'menu');
+
+        var items = [];
+
+        if (!isFirst) {
+            items.push('<button type="button" class="context-menu-item" role="menuitem" data-action="move-up">' + escapeHtml(LANG.card_move_up || 'Move Up') + '</button>');
+        }
+        if (!isLast) {
+            items.push('<button type="button" class="context-menu-item" role="menuitem" data-action="move-down">' + escapeHtml(LANG.card_move_down || 'Move Down') + '</button>');
+        }
+
+        // Move to other lanes
+        var lanes = lanesContainer.querySelectorAll('.lane');
+        var hasOtherLanes = false;
+        for (var i = 0; i < lanes.length; i++) {
+            var otherLaneId = parseInt(lanes[i].dataset.laneId, 10);
+            if (otherLaneId !== laneId) {
+                hasOtherLanes = true;
+                break;
+            }
+        }
+        if (hasOtherLanes) {
+            if (items.length > 0) {
+                items.push('<div class="context-menu-divider" role="separator"></div>');
+            }
+            for (var j = 0; j < lanes.length; j++) {
+                var laneEl = lanes[j];
+                var otherLaneId2 = parseInt(laneEl.dataset.laneId, 10);
+                if (otherLaneId2 === laneId) continue;
+                var laneName = laneEl.querySelector('.lane-title').textContent;
+                var label = tmpl(LANG.card_move_to_lane || 'Move to {0}', [escapeHtml(laneName)]);
+                items.push('<button type="button" class="context-menu-item" role="menuitem" data-action="move-to-lane" data-target-lane="' + otherLaneId2 + '">' + label + '</button>');
+            }
+        }
+
+        items.push('<div class="context-menu-divider" role="separator"></div>');
+        items.push('<button type="button" class="context-menu-item context-menu-item--danger" role="menuitem" data-action="archive">' + escapeHtml(LANG.action_archive || 'Archive') + '</button>');
+
+        menu.innerHTML = items.join('');
+
+        // Position relative to card
+        card.style.position = 'relative';
+        menu.style.position = 'absolute';
+        menu.style.top = '0';
+        menu.style.right = '28px';
+        card.appendChild(menu);
+
+        activeCardMenu = menu;
+
+        menu.addEventListener('click', function (e) {
+            var btn = e.target.closest('[data-action]');
+            if (!btn) return;
+
+            var action = btn.dataset.action;
+            closeCardContextMenu();
+
+            if (action === 'move-up') {
+                moveCardKeyboard(cardId, laneId, card, 'up');
+            } else if (action === 'move-down') {
+                moveCardKeyboard(cardId, laneId, card, 'down');
+            } else if (action === 'move-to-lane') {
+                var targetLaneId = parseInt(btn.dataset.targetLane, 10);
+                moveCardToLane(cardId, targetLaneId);
+            } else if (action === 'archive') {
+                archiveCard(cardId, card);
+            }
+        });
+
+        setTimeout(function () {
+            document.addEventListener('click', closeCardMenuOnOutsideClick);
+            document.addEventListener('keydown', closeCardMenuOnEscape);
+        }, 0);
+
+        menu.addEventListener('keydown', function (e) {
+            var menuItems = menu.querySelectorAll('.context-menu-item');
+            if (!menuItems.length) return;
+
+            var currentIndex = Array.prototype.indexOf.call(menuItems, document.activeElement);
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var nextIndex = currentIndex < menuItems.length - 1 ? currentIndex + 1 : 0;
+                menuItems[nextIndex].focus();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prevIndex = currentIndex > 0 ? currentIndex - 1 : menuItems.length - 1;
+                menuItems[prevIndex].focus();
+            } else if (e.key === 'Home') {
+                e.preventDefault();
+                menuItems[0].focus();
+            } else if (e.key === 'End') {
+                e.preventDefault();
+                menuItems[menuItems.length - 1].focus();
+            }
+        });
+
+        var firstItem = menu.querySelector('.context-menu-item');
+        if (firstItem) firstItem.focus();
+    }
+
+    function closeCardContextMenu() {
+        if (activeCardMenu) {
+            activeCardMenu.remove();
+            activeCardMenu = null;
+        }
+        document.removeEventListener('click', closeCardMenuOnOutsideClick);
+        document.removeEventListener('keydown', closeCardMenuOnEscape);
+    }
+
+    function closeCardMenuOnOutsideClick(e) {
+        if (activeCardMenu && !activeCardMenu.contains(e.target)) {
+            closeCardContextMenu();
+        }
+    }
+
+    function closeCardMenuOnEscape(e) {
+        if (e.key === 'Escape') {
+            closeCardContextMenu();
+        }
+    }
+
+    function moveCardToLane(cardId, targetLaneId) {
+        Shuffle.api('/v1/cards/' + cardId + '/move', {
+            method: 'PUT',
+            body: { lane_id: targetLaneId, after_card_id: null }
+        }).then(function (result) {
+            if (result.status === 200) {
+                Shuffle.showFlash(LANG.card_move_success || 'Card moved', 'success');
+                window.location.reload();
+            } else {
+                var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                Shuffle.showFlash(msg, 'error');
+            }
+        });
+    }
+
+    function archiveCard(cardId, card) {
+        if (!confirm(LANG.card_archive_confirm || 'Are you sure?')) return;
+
+        Shuffle.api('/v1/cards/' + cardId + '/archive', {
+            method: 'POST'
+        }).then(function (result) {
+            if (result.status === 200) {
+                card.remove();
+                Shuffle.showFlash(LANG.card_archive_success || 'Card archived', 'success');
             } else {
                 var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
                 Shuffle.showFlash(msg, 'error');

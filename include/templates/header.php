@@ -34,6 +34,7 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
+<a href="#main-content" class="skip-link"><?= htmlspecialchars($lang->get('nav.skip_to_content'), ENT_QUOTES, 'UTF-8') ?></a>
 <?php if ($currentUser !== null): ?>
 <header class="app-header" role="banner">
     <div class="header-left">

@@ -46,6 +46,7 @@
     "lane.move_right": "Move Right",
     "lane.create_success": "Lane created successfully.",
     "lane.rename_success": "Lane renamed successfully.",
+    "lane.rename_cancel": "Lane rename cancelled.",
     "lane.delete_success": "Lane deleted successfully.",
     "lane.empty": "No cards in this lane.",
     "lane.title_placeholder": "Enter lane title...",
@@ -71,6 +72,9 @@
     "card.move_to_lane": "Move to {0}",
     "card.move_up": "Move Up",
     "card.move_down": "Move Down",
+    "card.card_options": "Card options",
+    "card.due_overdue": "Overdue",
+    "card.due_soon": "Due soon",
 
     "board.loading": "Loading board...",
     "board.empty": "This board has no lanes yet. Add a lane to get started.",
@@ -121,6 +125,7 @@
     "label.color": "Color",
 
     "nav.main": "Main navigation",
+    "nav.skip_to_content": "Skip to main content",
 
     "notification.notifications": "Notifications",
     "notification.no_notifications": "No notifications.",

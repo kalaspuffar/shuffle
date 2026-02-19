@@ -76,33 +76,37 @@ require ROOT_DIR . '/include/templates/header.php';
             </div>
             <div class="lane-cards" data-lane-id="<?= (int) $lane['id'] ?>" role="list" aria-label="<?= htmlspecialchars($lang->get('card.title'), ENT_QUOTES, 'UTF-8') ?>">
                 <?php foreach ($lane['cards'] as $card): ?>
-                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0">
+                <?php
+                $hasMeta = !empty($card['due_date'])
+                    || ($card['comment_count'] ?? 0) > 0
+                    || ($card['checklist_progress']['total'] ?? 0) > 0
+                    || ($card['attachment_count'] ?? 0) > 0
+                    || !empty($card['assigned_users']);
+                $cardMetaId = $hasMeta ? 'card-meta-' . (int) $card['id'] : null;
+                ?>
+                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0"<?= $cardMetaId ? ' aria-describedby="' . $cardMetaId . '"' : '' ?>>
                     <a href="/card.php?id=<?= (int) $card['id'] ?>" class="card-link">
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
-                        <?php
-                        $hasMeta = !empty($card['due_date'])
-                            || ($card['comment_count'] ?? 0) > 0
-                            || ($card['checklist_progress']['total'] ?? 0) > 0
-                            || ($card['attachment_count'] ?? 0) > 0
-                            || !empty($card['assigned_users']);
-                        ?>
                         <?php if ($hasMeta): ?>
-                        <div class="card-meta">
+                        <div class="card-meta" id="<?= $cardMetaId ?>">
                             <?php if (!empty($card['due_date'])): ?>
                             <?php
                             $dueDate = new DateTime($card['due_date']);
                             $today = new DateTime('today');
                             $diff = $today->diff($dueDate);
                             $dueDateClass = '';
+                            $dueDateLabel = '';
                             if ($dueDate < $today) {
                                 $dueDateClass = ' card-due-date--overdue';
+                                $dueDateLabel = $lang->get('card.due_overdue');
                             } elseif ($diff->days <= 2) {
                                 $dueDateClass = ' card-due-date--soon';
+                                $dueDateLabel = $lang->get('card.due_soon');
                             }
                             ?>
                             <span class="card-meta-item card-due-date<?= $dueDateClass ?>">
                                 <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 1v2m6-2v2M2 6h12M3 3h10a1 1 0 011 1v9a1 1 0 01-1 1H3a1 1 0 01-1-1V4a1 1 0 011-1z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
-                                <?= htmlspecialchars($dueDate->format('M j'), ENT_QUOTES, 'UTF-8') ?>
+                                <?= htmlspecialchars($dueDate->format('M j'), ENT_QUOTES, 'UTF-8') ?><?php if ($dueDateLabel): ?><span class="sr-only"> (<?= htmlspecialchars($dueDateLabel, ENT_QUOTES, 'UTF-8') ?>)</span><?php endif; ?>
                             </span>
                             <?php endif; ?>
 
@@ -140,6 +144,15 @@ require ROOT_DIR . '/include/templates/header.php';
                         </div>
                         <?php endif; ?>
                     </a>
+                    <?php if ($canEdit): ?>
+                    <button type="button" class="card-menu-btn" aria-label="<?= htmlspecialchars($lang->get('card.card_options'), ENT_QUOTES, 'UTF-8') ?>" aria-haspopup="true" data-card-menu="<?= (int) $card['id'] ?>">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                            <circle cx="3" cy="8" r="1.5" fill="currentColor"/>
+                            <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
+                            <circle cx="13" cy="8" r="1.5" fill="currentColor"/>
+                        </svg>
+                    </button>
+                    <?php endif; ?>
                 </article>
                 <?php endforeach; ?>
             </div>
@@ -185,13 +198,20 @@ $boardLang = json_encode([
     'card_create_success'  => $lang->get('card.create_success'),
     'card_title_placeholder' => $lang->get('card.title_placeholder'),
     'card_move_success'    => $lang->get('card.move_success'),
+    'card_move_up'         => $lang->get('card.move_up'),
+    'card_move_down'       => $lang->get('card.move_down'),
+    'card_move_to_lane'    => $lang->get('card.move_to_lane'),
+    'card_archive_confirm' => $lang->get('action.confirm'),
+    'card_archive_success' => $lang->get('card.archive_success'),
     'announce_card_moved'  => $lang->get('announce.card_moved'),
     'announce_card_picked_up' => $lang->get('announce.card_picked_up'),
     'announce_card_dropped' => $lang->get('announce.card_dropped'),
     'announce_lane_moved'  => $lang->get('announce.lane_moved'),
+    'lane_rename_cancel'   => $lang->get('lane.rename_cancel'),
     'action_save'          => $lang->get('action.save'),
     'action_cancel'        => $lang->get('action.cancel'),
     'action_delete'        => $lang->get('action.delete'),
+    'action_archive'       => $lang->get('action.archive'),
     'error_bad_request'    => $lang->get('error.bad_request'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
