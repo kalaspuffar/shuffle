@@ -40,9 +40,20 @@ if ($boardId === null || !$auth->canAccessBoard($boardId)) {
 $commentService   = new Shuffle\Service\CommentService($commentModel, $cardModel, $boardModel);
 $checklistService = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 
+$attachmentModel   = new Shuffle\Model\Attachment($db);
+$s3Client          = new Shuffle\Core\S3Client($config['s3'] ?? []);
+$attachmentService = new Shuffle\Service\AttachmentService(
+    $attachmentModel,
+    $cardModel,
+    $boardModel,
+    $s3Client,
+    $config['upload']['chunk_size'] ?? 5242880
+);
+
 $cardService  = new Shuffle\Service\CardService($cardModel, $boardModel);
 $cardService->setCommentService($commentService);
 $cardService->setChecklistService($checklistService);
+$cardService->setAttachmentService($attachmentService);
 
 $card = $cardService->getCard($cardId);
 
@@ -59,6 +70,22 @@ if ($card === null) {
 $board = $boardModel->findById($boardId);
 
 $canEdit = in_array($currentUser['role'], ['admin', 'member'], true);
+
+/**
+ * Formats a file size in bytes to a human-readable string.
+ */
+function formatFileSize(int $bytes): string
+{
+    if ($bytes < 1024) {
+        return $bytes . ' B';
+    } elseif ($bytes < 1048576) {
+        return round($bytes / 1024, 1) . ' KB';
+    } elseif ($bytes < 1073741824) {
+        return round($bytes / 1048576, 1) . ' MB';
+    }
+    return round($bytes / 1073741824, 1) . ' GB';
+}
+
 $pageTitle = $card['title'];
 $currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
@@ -202,6 +229,46 @@ require ROOT_DIR . '/include/templates/header.php';
         <?php endif; ?>
     </div>
 
+    <div class="card-detail-section" id="attachments-section">
+        <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('attachment.attachments'), ENT_QUOTES, 'UTF-8') ?></h2>
+        <div id="attachments-list">
+            <?php if (!empty($card['attachments'])): ?>
+                <?php foreach ($card['attachments'] as $attachment): ?>
+                <div class="attachment" data-attachment-id="<?= (int) $attachment['id'] ?>">
+                    <div class="attachment-info">
+                        <svg class="attachment-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v8m0 0l3-3m-3 3L5 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <a href="/v1/attachments/<?= (int) $attachment['id'] ?>/download" class="attachment-name"><?= htmlspecialchars($attachment['file_name'], ENT_QUOTES, 'UTF-8') ?></a>
+                        <span class="attachment-size"><?= htmlspecialchars(formatFileSize((int) $attachment['file_size']), ENT_QUOTES, 'UTF-8') ?></span>
+                        <span class="attachment-uploader"><?= htmlspecialchars($attachment['user_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
+                    </div>
+                    <?php if ($canEdit): ?>
+                    <button type="button" class="btn btn-sm btn-danger attachment-delete-btn" aria-label="<?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?>">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                    </button>
+                    <?php endif; ?>
+                </div>
+                <?php endforeach; ?>
+            <?php else: ?>
+                <p class="text-secondary" id="attachments-empty"><?= htmlspecialchars($lang->get('attachment.empty'), ENT_QUOTES, 'UTF-8') ?></p>
+            <?php endif; ?>
+        </div>
+        <?php if ($canEdit): ?>
+        <div class="attachment-upload" id="attachment-upload">
+            <label class="btn btn-sm btn-secondary attachment-upload-btn" for="attachment-file-input">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                <?= htmlspecialchars($lang->get('attachment.add'), ENT_QUOTES, 'UTF-8') ?>
+            </label>
+            <input type="file" id="attachment-file-input" class="sr-only" aria-label="<?= htmlspecialchars($lang->get('attachment.add'), ENT_QUOTES, 'UTF-8') ?>">
+            <div class="attachment-progress" id="attachment-progress" hidden>
+                <div class="attachment-progress-bar">
+                    <div class="attachment-progress-fill" id="attachment-progress-fill" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <span class="attachment-progress-text" id="attachment-progress-text">0%</span>
+            </div>
+        </div>
+        <?php endif; ?>
+    </div>
+
     <div class="card-detail-section" id="comments-section">
         <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('comment.comments'), ENT_QUOTES, 'UTF-8') ?></h2>
         <div id="comments-list">
@@ -283,6 +350,12 @@ $cardLang = json_encode([
     'checklist_item_delete_confirm' => $lang->get('checklist.item_delete_confirm'),
     'checklist_empty'          => $lang->get('checklist.empty'),
     'checklist_item_placeholder' => $lang->get('checklist.item_placeholder'),
+    'attachment_upload_success' => $lang->get('attachment.upload_success'),
+    'attachment_delete_success' => $lang->get('attachment.delete_success'),
+    'attachment_delete_confirm' => $lang->get('attachment.delete_confirm'),
+    'attachment_upload_error'   => $lang->get('attachment.upload_error'),
+    'attachment_empty'          => $lang->get('attachment.empty'),
+    'attachment_download'       => $lang->get('attachment.download'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>

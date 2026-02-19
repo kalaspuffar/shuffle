@@ -86,6 +86,18 @@ $commentService->setNotificationService($notificationService);
 // Wire NotificationService into CardService for assignment notifications
 $cardService->setNotificationService($notificationService);
 
+// Attachment system
+$attachmentModel   = new Shuffle\Model\Attachment($db);
+$s3Client          = new Shuffle\Core\S3Client($config['s3'] ?? []);
+$attachmentService = new Shuffle\Service\AttachmentService(
+    $attachmentModel,
+    $cardModel,
+    $boardModel,
+    $s3Client,
+    $config['upload']['chunk_size'] ?? 5242880
+);
+$attachmentController = new Shuffle\Controller\AttachmentController($auth, $attachmentService, $cardService);
+
 // Search system
 $searchService    = new Shuffle\Service\SearchService($db);
 $searchController = new Shuffle\Controller\SearchController($auth, $searchService);
@@ -93,6 +105,7 @@ $searchController = new Shuffle\Controller\SearchController($auth, $searchServic
 // Wire services into CardService for full card loading
 $cardService->setCommentService($commentService);
 $cardService->setChecklistService($checklistService);
+$cardService->setAttachmentService($attachmentService);
 
 // Register routes
 $router = new Shuffle\Core\Router();
@@ -167,6 +180,12 @@ $router->delete('/notifications/{id}', [$notificationController, 'delete']);
 
 // Search routes
 $router->get('/search', [$searchController, 'search']);
+
+// Attachment routes
+$router->post('/cards/{cardId}/attachments', [$attachmentController, 'create']);
+$router->get('/cards/{cardId}/attachments', [$attachmentController, 'index']);
+$router->get('/attachments/{id}/download', [$attachmentController, 'download']);
+$router->delete('/attachments/{id}', [$attachmentController, 'delete']);
 
 // Dispatch
 $router->dispatch($request, $response);

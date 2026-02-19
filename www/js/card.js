@@ -642,4 +642,155 @@
         });
     }
 
+    /* ===================================================================
+       Attachments
+       =================================================================== */
+
+    var attachmentsList = document.getElementById('attachments-list');
+    var fileInput = document.getElementById('attachment-file-input');
+    var progressContainer = document.getElementById('attachment-progress');
+    var progressFill = document.getElementById('attachment-progress-fill');
+    var progressText = document.getElementById('attachment-progress-text');
+
+    /** Formats bytes to a human-readable string */
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+        return (bytes / 1073741824).toFixed(1) + ' GB';
+    }
+
+    /** Builds DOM element for a single attachment */
+    function buildAttachmentEl(attachment) {
+        var div = document.createElement('div');
+        div.className = 'attachment';
+        div.dataset.attachmentId = attachment.id;
+
+        var html =
+            '<div class="attachment-info">' +
+                '<svg class="attachment-icon" width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+                    '<path d="M8 3v8m0 0l3-3m-3 3L5 8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>' +
+                '</svg>' +
+                '<a href="/v1/attachments/' + attachment.id + '/download" class="attachment-name">' +
+                    escapeHtml(attachment.file_name) +
+                '</a>' +
+                '<span class="attachment-size">' + escapeHtml(formatFileSize(attachment.file_size)) + '</span>' +
+            '</div>';
+
+        if (CAN_EDIT) {
+            html +=
+                '<button type="button" class="btn btn-sm btn-danger attachment-delete-btn" ' +
+                    'aria-label="' + escapeHtml(LANG.action_delete || 'Delete') + '">' +
+                    '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+                        '<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+                    '</svg>' +
+                '</button>';
+        }
+
+        div.innerHTML = html;
+        return div;
+    }
+
+    /* File input — upload on change */
+    if (fileInput && CAN_EDIT) {
+        fileInput.addEventListener('change', function () {
+            var file = fileInput.files[0];
+            if (!file) return;
+
+            // Reset file input so the same file can be re-uploaded if needed
+            var fileName = file.name;
+            var fileSize = file.size;
+            var mimeType = file.type || 'application/octet-stream';
+
+            // Show progress UI
+            if (progressContainer) progressContainer.hidden = false;
+            if (progressFill) {
+                progressFill.style.width = '0%';
+                progressFill.setAttribute('aria-valuenow', '0');
+            }
+            if (progressText) progressText.textContent = '0%';
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/v1/cards/' + CARD_ID + '/attachments');
+            xhr.setRequestHeader('X-CSRF-Token', Shuffle.getCsrfToken());
+            xhr.setRequestHeader('Content-Type', mimeType);
+            xhr.setRequestHeader('X-File-Name', encodeURIComponent(fileName));
+            xhr.setRequestHeader('X-File-Size', String(fileSize));
+
+            xhr.upload.addEventListener('progress', function (e) {
+                if (e.lengthComputable) {
+                    var pct = Math.round((e.loaded / e.total) * 100);
+                    if (progressFill) {
+                        progressFill.style.width = pct + '%';
+                        progressFill.setAttribute('aria-valuenow', pct);
+                    }
+                    if (progressText) progressText.textContent = pct + '%';
+                }
+            });
+
+            xhr.addEventListener('load', function () {
+                if (progressContainer) progressContainer.hidden = true;
+                fileInput.value = '';
+
+                if (xhr.status === 201) {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data && data.attachment) {
+                        var emptyMsg = document.getElementById('attachments-empty');
+                        if (emptyMsg) emptyMsg.remove();
+
+                        attachmentsList.appendChild(buildAttachmentEl(data.attachment));
+                        Shuffle.showFlash(LANG.attachment_upload_success || 'Uploaded', 'success');
+                    }
+                } else {
+                    var errData = {};
+                    try { errData = JSON.parse(xhr.responseText); } catch (e) {}
+                    var msg = errData.error || LANG.attachment_upload_error || 'Upload failed';
+                    Shuffle.showFlash(msg, 'error');
+                }
+            });
+
+            xhr.addEventListener('error', function () {
+                if (progressContainer) progressContainer.hidden = true;
+                fileInput.value = '';
+                Shuffle.showFlash(LANG.attachment_upload_error || 'Upload failed', 'error');
+            });
+
+            xhr.send(file);
+        });
+    }
+
+    /* Attachment delete — delegated */
+    if (attachmentsList && CAN_EDIT) {
+        attachmentsList.addEventListener('click', function (e) {
+            var btn = e.target.closest('.attachment-delete-btn');
+            if (!btn) return;
+
+            var attachmentEl = btn.closest('.attachment');
+            if (!attachmentEl) return;
+            var attachmentId = attachmentEl.dataset.attachmentId;
+
+            if (!confirm(LANG.attachment_delete_confirm || 'Delete this attachment?')) return;
+
+            Shuffle.api('/v1/attachments/' + attachmentId, {
+                method: 'DELETE'
+            }).then(function (result) {
+                if (result.status === 204) {
+                    attachmentEl.remove();
+                    Shuffle.showFlash(LANG.attachment_delete_success || 'Deleted', 'success');
+
+                    if (!attachmentsList.querySelector('.attachment')) {
+                        var emptyP = document.createElement('p');
+                        emptyP.className = 'text-secondary';
+                        emptyP.id = 'attachments-empty';
+                        emptyP.textContent = LANG.attachment_empty || 'No attachments yet.';
+                        attachmentsList.appendChild(emptyP);
+                    }
+                } else {
+                    var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                    Shuffle.showFlash(msg, 'error');
+                }
+            });
+        });
+    }
+
 })();
