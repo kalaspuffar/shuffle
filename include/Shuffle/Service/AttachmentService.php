@@ -21,6 +21,7 @@ class AttachmentService
     private Board $boardModel;
     private S3Client $s3;
     private int $chunkSize;
+    private int $maxFileSize;
 
     /** MIME types allowed for upload */
     private const ALLOWED_MIME_PREFIXES = [
@@ -35,20 +36,23 @@ class AttachmentService
      * @param Card       $cardModel       Card data access (for board ID lookup)
      * @param Board      $boardModel      Board data access (for version bumping)
      * @param S3Client   $s3              S3 storage client
-     * @param int        $chunkSize       Multipart chunk size in bytes (default 5MB)
+     * @param int        $chunkSize       Multipart chunk size in bytes (default 5 MB)
+     * @param int        $maxFileSize     Maximum allowed upload size in bytes (default 100 MB)
      */
     public function __construct(
         Attachment $attachmentModel,
         Card $cardModel,
         Board $boardModel,
         S3Client $s3,
-        int $chunkSize = 5242880
+        int $chunkSize = 5242880,
+        int $maxFileSize = 104857600
     ) {
         $this->attachmentModel = $attachmentModel;
         $this->cardModel       = $cardModel;
         $this->boardModel      = $boardModel;
         $this->s3              = $s3;
         $this->chunkSize       = $chunkSize;
+        $this->maxFileSize     = $maxFileSize;
     }
 
     /**
@@ -75,7 +79,7 @@ class AttachmentService
         string $mimeType,
         $inputStream
     ): array {
-        $this->validateUpload($fileName, $mimeType);
+        $this->validateUpload($fileName, $fileSize, $mimeType);
 
         $boardId = $this->cardModel->getBoardId($cardId);
         if ($boardId === null) {
@@ -180,18 +184,28 @@ class AttachmentService
     }
 
     /**
+     * Returns a single attachment record by ID.
+     *
+     * @param int $attachmentId Attachment ID
+     * @return array|null Attachment row or null if not found
+     */
+    public function getAttachment(int $attachmentId): ?array
+    {
+        return $this->attachmentModel->findById($attachmentId);
+    }
+
+    /**
      * Returns the board ID for an attachment (for access control checks).
+     *
+     * Resolved via a single JOIN query (attachments → cards → lanes) to
+     * avoid two database round-trips on every download and delete call.
      *
      * @param int $attachmentId Attachment ID
      * @return int|null Board ID or null
      */
     public function getBoardIdForAttachment(int $attachmentId): ?int
     {
-        $attachment = $this->attachmentModel->findById($attachmentId);
-        if ($attachment === null) {
-            return null;
-        }
-        return $this->cardModel->getBoardId((int) $attachment['card_id']);
+        return $this->attachmentModel->getBoardId($attachmentId);
     }
 
     /**
@@ -248,13 +262,20 @@ class AttachmentService
      * Validates upload parameters.
      *
      * @param string $fileName Original filename
+     * @param int    $fileSize File size in bytes
      * @param string $mimeType MIME type
      * @throws \InvalidArgumentException On validation failure
      */
-    private function validateUpload(string $fileName, string $mimeType): void
+    private function validateUpload(string $fileName, int $fileSize, string $mimeType): void
     {
         if (trim($fileName) === '') {
             throw new \InvalidArgumentException('File name is required');
+        }
+
+        if ($fileSize > $this->maxFileSize) {
+            throw new \InvalidArgumentException(
+                'File size exceeds the maximum allowed size of ' . $this->maxFileSize . ' bytes'
+            );
         }
 
         if (mb_strlen($fileName, 'UTF-8') > 255) {
@@ -299,6 +320,12 @@ class AttachmentService
         // Collapse multiple underscores
         $name = preg_replace('/_+/', '_', $name);
         // Trim underscores from edges
-        return trim($name, '_');
+        $name = trim($name, '_');
+        // Guard against symbol-only filenames (e.g. "!!!" → "") that would produce an
+        // empty S3 key segment
+        if ($name === '') {
+            $name = 'file';
+        }
+        return $name;
     }
 }

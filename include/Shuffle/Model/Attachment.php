@@ -15,7 +15,8 @@ class Attachment
 {
     private Database $db;
 
-    private const SELECT_COLUMNS = 'id, card_id, user_id, file_name, file_size, s3_key, mime_type, uploaded_at';
+    // uploaded_at is aliased to created_at to match the documented API response shape
+    private const SELECT_COLUMNS = 'id, card_id, user_id, file_name, file_size, s3_key, mime_type, uploaded_at AS created_at';
 
     /**
      * @param Database $db Database instance
@@ -89,6 +90,29 @@ class Attachment
     public function delete(int $id): void
     {
         $this->db->execute('DELETE FROM attachments WHERE id = ?', [$id]);
+    }
+
+    /**
+     * Returns the board ID that contains the given attachment.
+     *
+     * Uses a single JOIN across attachments → cards → lanes to avoid two
+     * round-trips on every download and delete access-control check.
+     *
+     * @param int $id Attachment ID
+     * @return int|null Board ID or null if attachment does not exist
+     */
+    public function getBoardId(int $id): ?int
+    {
+        $row = $this->db->fetch(
+            'SELECT l.board_id
+             FROM attachments a
+             JOIN cards c ON a.card_id = c.id
+             JOIN lanes l ON c.lane_id = l.id
+             WHERE a.id = ?',
+            [$id]
+        );
+
+        return $row !== null ? (int) $row['board_id'] : null;
     }
 
     /**

@@ -184,6 +184,13 @@ class AttachmentController
             return;
         }
 
+        // Enforce uploader-or-admin rule: only the uploader or an admin may delete
+        $attachment = $this->attachmentService->getAttachment($id);
+        if ($currentUser['role'] !== 'admin' && (int) $attachment['user_id'] !== (int) $currentUser['id']) {
+            $response->error('You do not have permission to delete this attachment', 403);
+            return;
+        }
+
         try {
             $this->attachmentService->deleteAttachment($id);
             $response->noContent();

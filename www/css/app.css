@@ -267,8 +267,11 @@ textarea {
 /* Skip navigation link */
 .skip-link {
     position: absolute;
-    top: -100%;
+    top: var(--space-2);
     left: var(--space-4);
+    /* Transform off-screen instead of top:-100% so hiding works regardless of
+       the positioned ancestor's height (e.g. on short/empty pages). */
+    transform: translateY(calc(-100% - var(--space-4)));
     z-index: var(--z-tooltip);
     padding: var(--space-2) var(--space-4);
     background: var(--color-primary);
@@ -278,7 +281,7 @@ textarea {
 }
 
 .skip-link:focus {
-    top: var(--space-2);
+    transform: translateY(0);
 }
 
 /* =============================================
@@ -2682,8 +2685,11 @@ small,
 /* Skip link — visually hidden until focused */
 .skip-link {
     position: absolute;
-    top: -100%;
+    top: var(--space-2);
     left: var(--space-2);
+    /* Transform off-screen instead of top:-100% so hiding works regardless of
+       the positioned ancestor's height (e.g. on short/empty pages). */
+    transform: translateY(calc(-100% - var(--space-4)));
     z-index: 9999;
     padding: var(--space-2) var(--space-4);
     background: var(--color-primary);
@@ -2692,11 +2698,11 @@ small,
     font-size: var(--font-size-sm);
     font-weight: 600;
     text-decoration: none;
-    transition: top 0.1s;
+    transition: transform 0.1s;
 }
 
 .skip-link:focus {
-    top: var(--space-2);
+    transform: translateY(0);
 }
 
 /* Card context menu trigger button */
