@@ -498,8 +498,13 @@
 
     function closeCardContextMenu() {
         if (activeCardMenu) {
+            // Capture the trigger button before removing the menu so focus can be
+            // returned to it (WCAG 2.1 SC 2.4.3 — keyboard users must not lose position).
+            var card = activeCardMenu.closest('.card');
+            var trigger = card ? card.querySelector('.card-menu-btn') : null;
             activeCardMenu.remove();
             activeCardMenu = null;
+            if (trigger) trigger.focus();
         }
         document.removeEventListener('click', closeCardMenuOnOutsideClick);
         document.removeEventListener('keydown', closeCardMenuOnEscape);

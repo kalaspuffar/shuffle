@@ -25,18 +25,18 @@ use Shuffle\Core\S3Client;
 class ImportService
 {
     private Database $db;
-    private S3Client $s3;
+    private ?S3Client $s3;
     private int $chunkSize;
 
     /** Gap between position values for lanes and cards */
     private const POSITION_GAP = 1000;
 
     /**
-     * @param Database $db        Database instance
-     * @param S3Client $s3        S3 client for attachment uploads
-     * @param int      $chunkSize Multipart chunk size in bytes
+     * @param Database      $db        Database instance
+     * @param S3Client|null $s3        S3 client for attachment uploads (null = skip attachments)
+     * @param int           $chunkSize Multipart chunk size in bytes
      */
-    public function __construct(Database $db, S3Client $s3, int $chunkSize = 5242880)
+    public function __construct(Database $db, ?S3Client $s3, int $chunkSize = 5242880)
     {
         $this->db        = $db;
         $this->s3        = $s3;
@@ -126,18 +126,22 @@ class ImportService
             $this->out('Importing comments...');
             $this->importComments($data['actions'] ?? [], $cardMap, $userMap, $importerUserId);
 
-            // Step 8: Import attachments (download from Trello CDN, upload to S3)
-            $this->out('Importing attachments (this may take a while)...');
-            $this->importAttachments($data['cards'] ?? [], $cardMap, $boardId, $importerUserId);
-
             $this->db->commit();
-
-            $this->out('Import complete! Board ID: ' . $boardId);
-            return $boardId;
         } catch (\Exception $e) {
             $this->db->rollBack();
             throw $e;
         }
+
+        // Step 8: Import attachments outside the transaction.
+        // Attachment downloads (Trello CDN) and S3 uploads are long-running network
+        // operations that must not hold a DB transaction open (risks exceeding
+        // innodb_lock_wait_timeout). Failures are non-fatal and logged per the
+        // resilience policy ("failed downloads are skipped").
+        $this->out('Importing attachments (this may take a while)...');
+        $this->importAttachments($data['cards'] ?? [], $cardMap, $boardId, $importerUserId);
+
+        $this->out('Import complete! Board ID: ' . $boardId);
+        return $boardId;
     }
 
     /**
@@ -465,6 +469,11 @@ class ImportService
      */
     private function importAttachments(array $cards, array $cardMap, int $boardId, int $importerUserId): void
     {
+        if ($this->s3 === null) {
+            $this->out('  Skipping attachments — S3 client not configured.');
+            return;
+        }
+
         foreach ($cards as $card) {
             $trelloCardId = $card['id'] ?? null;
             if (!$trelloCardId || !isset($cardMap[$trelloCardId])) {
@@ -498,8 +507,9 @@ class ImportService
                     $safeFileName = preg_replace('/[^a-zA-Z0-9._-]/', '_', basename($fileName));
                     $s3Key = $boardId . '/' . $cardId . '/' . $uuid . '_' . $safeFileName;
 
-                    // Upload to S3
-                    $stream = fopen('php://memory', 'rb+');
+                    // php://temp spills to disk above 2 MB, avoiding double-buffering large
+                    // attachments entirely in memory (file string + stream simultaneously).
+                    $stream = fopen('php://temp', 'rb+');
                     fwrite($stream, $fileData);
                     rewind($stream);
 
@@ -604,7 +614,9 @@ class ImportService
      */
     private function validateTrelloJson(array $data): void
     {
-        $required = ['id', 'name', 'lists', 'cards'];
+        // Required keys must match what the CLI dry-run checks to guarantee
+        // a file that passes dry-run will also pass full import validation.
+        $required = ['id', 'name', 'lists', 'cards', 'members', 'actions'];
         foreach ($required as $field) {
             if (!array_key_exists($field, $data)) {
                 throw new \InvalidArgumentException(

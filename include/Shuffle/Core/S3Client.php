@@ -330,24 +330,32 @@ class S3Client
             $cleanKey = substr($keyPath, 0, $qPos);
         }
 
-        // Build canonical URI (path-style: /{bucket}/{key})
-        $canonicalUri = '/' . $this->bucket . '/' . $this->uriEncodePath($cleanKey);
-
-        // Parse and sort query string parameters
-        $canonicalQueryString = $this->buildCanonicalQueryString($queryString);
-
-        // Compute payload hash
-        $payloadHash = hash('sha256', $body);
-
-        // Build host header
+        // Build canonical URI and Host header based on addressing style
         $parsedEndpoint = parse_url($this->endpoint);
-        $host = $parsedEndpoint['host'] ?? 'localhost';
+        $hostName = $parsedEndpoint['host'] ?? 'localhost';
+
+        if ($this->pathStyle) {
+            // Path-style: bucket is in the URI path, host is the bare endpoint host
+            $canonicalUri = '/' . $this->bucket . '/' . $this->uriEncodePath($cleanKey);
+            $host = $hostName;
+        } else {
+            // Virtual-hosted style: bucket is a subdomain, URI path contains only the key
+            $canonicalUri = '/' . $this->uriEncodePath($cleanKey);
+            $host = $this->bucket . '.' . $hostName;
+        }
+
         if (isset($parsedEndpoint['port'])) {
             $defaultPort = ($parsedEndpoint['scheme'] ?? 'http') === 'https' ? 443 : 80;
             if ((int) $parsedEndpoint['port'] !== $defaultPort) {
                 $host .= ':' . $parsedEndpoint['port'];
             }
         }
+
+        // Parse and sort query string parameters
+        $canonicalQueryString = $this->buildCanonicalQueryString($queryString);
+
+        // Compute payload hash
+        $payloadHash = hash('sha256', $body);
 
         // Merge required headers
         $headers['Host']                 = $host;
@@ -427,7 +435,11 @@ class S3Client
     }
 
     /**
-     * Builds the full URL for an S3 request using path-style addressing.
+     * Builds the full URL for an S3 request.
+     *
+     * Supports both path-style (MinIO) and virtual-hosted-style (AWS S3) addressing.
+     * Path-style:           {endpoint}/{bucket}/{key}
+     * Virtual-hosted-style: {scheme}://{bucket}.{host}[:{port}]/{key}
      *
      * @param string $keyPath Object key, possibly with query string
      * @return string Full URL
@@ -441,7 +453,18 @@ class S3Client
             $cleanKey = substr($keyPath, 0, $qPos);
         }
 
-        return $this->endpoint . '/' . $this->bucket . '/' . $this->uriEncodePath($cleanKey) . $queryString;
+        if ($this->pathStyle) {
+            return $this->endpoint . '/' . $this->bucket . '/' . $this->uriEncodePath($cleanKey) . $queryString;
+        }
+
+        // Virtual-hosted style: bucket becomes a subdomain of the endpoint host
+        $parsed = parse_url($this->endpoint);
+        $baseUrl = ($parsed['scheme'] ?? 'https') . '://' . $this->bucket . '.' . ($parsed['host'] ?? '');
+        if (isset($parsed['port'])) {
+            $baseUrl .= ':' . $parsed['port'];
+        }
+
+        return $baseUrl . '/' . $this->uriEncodePath($cleanKey) . $queryString;
     }
 
     /**
@@ -474,10 +497,16 @@ class S3Client
         }
 
         $params = [];
-        parse_str($queryString, $parsed);
-
-        foreach ($parsed as $key => $value) {
-            $params[] = rawurlencode($key) . '=' . rawurlencode((string) $value);
+        // Use manual split instead of parse_str() to avoid PHP's dot/space-to-underscore
+        // mangling of parameter names (e.g. "x.amz-key" → "x_amz-key").
+        foreach (explode('&', $queryString) as $pair) {
+            $parts = explode('=', $pair, 2);
+            $key   = $parts[0] ?? '';
+            $value = $parts[1] ?? '';
+            if ($key === '') {
+                continue;
+            }
+            $params[] = rawurlencode(rawurldecode($key)) . '=' . rawurlencode(rawurldecode($value));
         }
 
         sort($params);

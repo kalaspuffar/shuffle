@@ -132,8 +132,11 @@ if (!empty($config['s3']['endpoint'])) {
     }
 }
 
-$attachmentModel = new Shuffle\Model\Attachment($db);
-$importService   = new Shuffle\Service\ImportService($db, $attachmentModel, $s3Client);
+$importService = new Shuffle\Service\ImportService(
+    $db,
+    $s3Client,
+    $config['upload']['chunk_size'] ?? 5242880
+);
 
 // Run the import
 try {
