@@ -17,7 +17,9 @@
      * Called after a successful activate/deactivate API call.
      */
     function updateStatusCell(row, newStatus) {
-        var statusBadge = row.querySelector('.status-badge');
+        var statusBadge   = row.querySelector('.status-badge');
+        var deactivateBtn, activateBtn, userName, userId, newBtn;
+
         if (statusBadge) {
             statusBadge.className = 'status-badge status-badge--' + newStatus;
             statusBadge.textContent = newStatus === 'active'
@@ -26,14 +28,14 @@
         }
 
         // Swap deactivate ↔ activate button
-        var deactivateBtn = row.querySelector('.btn-deactivate-user');
-        var activateBtn   = row.querySelector('.btn-activate-user');
+        deactivateBtn = row.querySelector('.btn-deactivate-user');
+        activateBtn   = row.querySelector('.btn-activate-user');
 
         if (newStatus === 'inactive' && deactivateBtn) {
-            var userName = deactivateBtn.dataset.userName;
-            var userId   = deactivateBtn.dataset.userId;
+            userName = deactivateBtn.dataset.userName;
+            userId   = deactivateBtn.dataset.userId;
 
-            var newBtn = document.createElement('button');
+            newBtn = document.createElement('button');
             newBtn.type = 'button';
             newBtn.className = 'btn btn-ghost btn-activate-user';
             newBtn.dataset.userId   = userId;
@@ -44,10 +46,10 @@
             deactivateBtn.replaceWith(newBtn);
 
         } else if (newStatus === 'active' && activateBtn) {
-            var userName = activateBtn.dataset.userName;
-            var userId   = activateBtn.dataset.userId;
+            userName = activateBtn.dataset.userName;
+            userId   = activateBtn.dataset.userId;
 
-            var newBtn = document.createElement('button');
+            newBtn = document.createElement('button');
             newBtn.type = 'button';
             newBtn.className = 'btn btn-ghost btn-deactivate-user';
             newBtn.dataset.userId   = userId;
@@ -89,8 +91,7 @@
         var btn = e.target.closest('.btn-deactivate-user');
         if (!btn) return;
 
-        var userId   = btn.dataset.userId;
-        var userName = btn.dataset.userName;
+        var userId = btn.dataset.userId;
 
         if (!confirm(LANG.deactivate_confirm || 'Deactivate this user?')) return;
 
@@ -114,8 +115,7 @@
         var btn = e.target.closest('.btn-activate-user');
         if (!btn) return;
 
-        var userId   = btn.dataset.userId;
-        var userName = btn.dataset.userName;
+        var userId = btn.dataset.userId;
 
         if (!confirm(LANG.activate_confirm || 'Reactivate this user?')) return;
 

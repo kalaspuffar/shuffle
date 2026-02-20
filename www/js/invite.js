@@ -11,16 +11,26 @@
     var scriptTag = document.getElementById('invite-script');
     var LANG = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
 
-    var form       = document.getElementById('invite-form');
-    var submitBtn  = document.getElementById('invite-submit');
+    var form            = document.getElementById('invite-form');
+    var submitBtn       = document.getElementById('invite-submit');
+    var emailField      = document.getElementById('invite-email');
+    var emailErrorSpan  = document.getElementById('invite-email-error');
+
+    // Clear email error state as soon as the user starts correcting the address
+    emailField.addEventListener('input', function () {
+        emailField.removeAttribute('aria-invalid');
+        if (emailErrorSpan) {
+            emailErrorSpan.hidden = true;
+            emailErrorSpan.textContent = '';
+        }
+    });
 
     form.addEventListener('submit', function (e) {
         e.preventDefault();
 
-        var nameField  = document.getElementById('invite-name');
-        var emailField = document.getElementById('invite-email');
-        var roleField  = document.getElementById('invite-role');
-        var orgField   = document.getElementById('invite-org');
+        var nameField = document.getElementById('invite-name');
+        var roleField = document.getElementById('invite-role');
+        var orgField  = document.getElementById('invite-org');
 
         var payload = {
             name:  nameField.value.trim(),
@@ -42,6 +52,12 @@
             submitBtn.disabled = false;
 
             if (result.status === 201) {
+                // Clear any previous field error state before redirecting
+                emailField.removeAttribute('aria-invalid');
+                if (emailErrorSpan) {
+                    emailErrorSpan.hidden = true;
+                    emailErrorSpan.textContent = '';
+                }
                 // Show success and redirect to user list
                 Shuffle.showFlash(LANG.invite_sent || 'Invitation sent successfully.', 'success');
                 setTimeout(function () {
@@ -52,6 +68,14 @@
                     ? result.data.error
                     : (LANG.error_bad_request || 'Error');
                 Shuffle.showFlash(msg, 'error');
+                // Mark the email field as invalid — duplicate/invalid email is the
+                // most common cause of invite failure, and it is the only uniquely-
+                // constrained field in this form.
+                emailField.setAttribute('aria-invalid', 'true');
+                if (emailErrorSpan) {
+                    emailErrorSpan.textContent = msg;
+                    emailErrorSpan.hidden = false;
+                }
             }
         });
     });

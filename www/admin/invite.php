@@ -65,7 +65,9 @@ require ROOT_DIR . '/include/templates/header.php';
                        class="form-input"
                        required
                        aria-required="true"
+                       aria-describedby="invite-email-error"
                        autocomplete="email">
+                <span id="invite-email-error" class="form-error" aria-live="polite" hidden></span>
             </div>
 
             <div class="form-group">

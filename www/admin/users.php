@@ -18,8 +18,14 @@ $userService      = new Shuffle\Service\UserService($userModel);
 $orgModel         = new Shuffle\Model\Organization($db);
 $orgService       = new Shuffle\Service\OrganizationService($orgModel);
 
-$users         = $userService->listUsers();
+$allUsers      = $userService->listUsers();
 $organizations = $orgService->listOrganizations();
+
+// Apply optional status filter from ?status= query parameter
+$statusFilter = in_array($_GET['status'] ?? '', ['active', 'inactive']) ? $_GET['status'] : 'all';
+$users = $statusFilter !== 'all'
+    ? array_values(array_filter($allUsers, fn($u) => $u['status'] === $statusFilter))
+    : $allUsers;
 
 // Build a lookup map: orgId → name (used in the table)
 $orgNames = [];
@@ -42,6 +48,20 @@ require ROOT_DIR . '/include/templates/header.php';
 
     <!-- Flash message area for JS feedback -->
     <div id="flash-message" class="flash-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+    <form method="get" action="/admin/users.php" class="admin-filters">
+        <label for="status-filter" class="form-label">
+            <?= htmlspecialchars($lang->get('user.filter_status'), ENT_QUOTES, 'UTF-8') ?>
+        </label>
+        <select id="status-filter" name="status" class="form-select form-select--inline">
+            <option value="all"     <?= $statusFilter === 'all'      ? 'selected' : '' ?>><?= htmlspecialchars($lang->get('user.filter_all'),        ENT_QUOTES, 'UTF-8') ?></option>
+            <option value="active"  <?= $statusFilter === 'active'   ? 'selected' : '' ?>><?= htmlspecialchars($lang->get('user.status_active'),    ENT_QUOTES, 'UTF-8') ?></option>
+            <option value="inactive"<?= $statusFilter === 'inactive' ? 'selected' : '' ?>><?= htmlspecialchars($lang->get('user.status_inactive'),  ENT_QUOTES, 'UTF-8') ?></option>
+        </select>
+        <button type="submit" class="btn btn-secondary btn-sm">
+            <?= htmlspecialchars($lang->get('search.search'), ENT_QUOTES, 'UTF-8') ?>
+        </button>
+    </form>
 
     <?php if (empty($users)): ?>
     <p class="text-secondary"><?= htmlspecialchars($lang->get('user.no_users'), ENT_QUOTES, 'UTF-8') ?></p>
@@ -90,8 +110,9 @@ require ROOT_DIR . '/include/templates/header.php';
                     </td>
                     <td><?= htmlspecialchars($orgName, ENT_QUOTES, 'UTF-8') ?></td>
                     <td>
+                        <?php $statusKey = 'user.status_' . $userStatus; ?>
                         <span class="status-badge status-badge--<?= htmlspecialchars($userStatus, ENT_QUOTES, 'UTF-8') ?>">
-                            <?= htmlspecialchars($lang->get('user.status_' . $userStatus) ?: ucfirst($userStatus), ENT_QUOTES, 'UTF-8') ?>
+                            <?= htmlspecialchars($lang->has($statusKey) ? $lang->get($statusKey) : ucfirst($userStatus), ENT_QUOTES, 'UTF-8') ?>
                         </span>
                     </td>
                     <td class="admin-table-actions">

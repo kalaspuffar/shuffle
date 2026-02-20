@@ -181,7 +181,6 @@
     "invite.name": "Full Name",
     "invite.email": "Email Address",
     "invite.role": "Role",
-    "invite.organization": "Organization",
     "invite.organization_optional": "Organization (optional)",
     "invite.submit": "Send Invitation",
     "invite.back_to_users": "Back to User Management",
