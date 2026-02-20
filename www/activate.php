@@ -11,7 +11,6 @@ require_once dirname(__DIR__) . '/include/bootstrap.php';
 // Token may arrive via GET (link click) or POST body (form submission)
 $token = $_GET['token'] ?? $_POST['token'] ?? '';
 $error = '';
-$success = false;
 
 // Validate that a token is provided
 if ($token === '') {
@@ -79,15 +78,6 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
                 <p class="login-tagline"><?= htmlspecialchars($lang->get('activate.subtitle'), ENT_QUOTES, 'UTF-8') ?></p>
             </div>
 
-            <?php if ($success): ?>
-            <div class="flash-message flash-success" role="alert" aria-live="assertive">
-                <?= htmlspecialchars($lang->get('activate.success'), ENT_QUOTES, 'UTF-8') ?>
-            </div>
-            <p class="text-center">
-                <a href="/login.php" class="btn btn-primary btn-full"><?= htmlspecialchars($lang->get('auth.login_button'), ENT_QUOTES, 'UTF-8') ?></a>
-            </p>
-            <?php else: ?>
-
             <?php if ($error !== ''): ?>
             <div class="flash-message flash-error" role="alert" aria-live="assertive">
                 <?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?>
@@ -152,7 +142,6 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
                     <?= htmlspecialchars($lang->get('activate.submit'), ENT_QUOTES, 'UTF-8') ?>
                 </button>
             </form>
-            <?php endif; ?>
             <?php endif; ?>
         </div>
     </main>

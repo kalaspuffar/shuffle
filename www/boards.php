@@ -32,9 +32,17 @@ $isAdmin = ($currentUser['role'] === 'admin');
 $checklistStepsDone = [];
 $showChecklist = false;
 if ($isAdmin) {
-    $orgCount   = (int) $db->fetch('SELECT COUNT(*) AS cnt FROM organizations')['cnt'];
-    $userCount  = (int) $db->fetch('SELECT COUNT(*) AS cnt FROM users WHERE status = ?', ['active'])['cnt'];
-    $boardCount = (int) $db->fetch('SELECT COUNT(*) AS cnt FROM boards')['cnt'];
+    // Single consolidated query — avoids three round trips and keeps archived boards excluded
+    $checklistCounts = $db->fetch(
+        'SELECT
+            (SELECT COUNT(*) FROM organizations)                       AS org_count,
+            (SELECT COUNT(*) FROM users WHERE status = ?)             AS user_count,
+            (SELECT COUNT(*) FROM boards WHERE is_archived = 0)       AS board_count',
+        ['active']
+    );
+    $orgCount   = (int) $checklistCounts['org_count'];
+    $userCount  = (int) $checklistCounts['user_count'];
+    $boardCount = (int) $checklistCounts['board_count'];
 
     $checklistStepsDone = [
         'org'   => $orgCount >= 1,
@@ -167,7 +175,7 @@ require ROOT_DIR . '/include/templates/header.php';
             <?php if ($canCreate): ?>
             <button type="button"
                 class="btn btn-ghost board-card-edit"
-                aria-label="<?= htmlspecialchars($lang->get('board.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
+                aria-label="<?= htmlspecialchars($lang->get('action.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
                 aria-haspopup="dialog"
                 data-board-id="<?= (int) $board['id'] ?>"
                 data-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>"

@@ -23,15 +23,15 @@ if (!empty($boards)) {
 }
 
 $pageTitle   = $lang->get('welcome.title');
-$currentPage = 'welcome';
+$currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
 <div class="welcome-page">
-    <div class="welcome-card login-card">
-        <div class="welcome-header login-header">
-            <h1 class="welcome-title login-title"><?= htmlspecialchars($lang->get('welcome.title'), ENT_QUOTES, 'UTF-8') ?></h1>
-            <p class="login-tagline"><?= htmlspecialchars($lang->get('welcome.message'), ENT_QUOTES, 'UTF-8') ?></p>
+    <div class="welcome-card">
+        <div class="welcome-header">
+            <h1 class="welcome-title"><?= htmlspecialchars($lang->get('welcome.title'), ENT_QUOTES, 'UTF-8') ?></h1>
+            <p class="welcome-tagline"><?= htmlspecialchars($lang->get('welcome.message'), ENT_QUOTES, 'UTF-8') ?></p>
         </div>
         <a href="/boards.php" class="btn btn-primary btn-full">
             <?= htmlspecialchars($lang->get('welcome.go_to_boards'), ENT_QUOTES, 'UTF-8') ?>

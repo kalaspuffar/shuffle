@@ -2873,7 +2873,8 @@ small,
 
 .getting-started-step--done .getting-started-label {
     text-decoration: line-through;
-    color: var(--color-text-disabled);
+    /* --color-text-disabled fails WCAG AA at 16px; strikethrough already signals completion */
+    color: var(--color-text-secondary);
 }
 
 .getting-started-link {
@@ -2970,9 +2971,15 @@ small,
 .welcome-card {
     width: 100%;
     max-width: var(--modal-width-sm);
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-xl);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-elevated);
 }
 
 .welcome-header {
+    text-align: center;
     margin-bottom: var(--space-6);
 }
 
@@ -2981,4 +2988,10 @@ small,
     font-weight: var(--font-weight-bold);
     color: var(--color-text);
     margin-bottom: var(--space-2);
+}
+
+.welcome-tagline {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    margin-bottom: 0;
 }
