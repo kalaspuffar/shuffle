@@ -71,17 +71,31 @@ if ($isPost) {
             exit;
         }
 
-        // Forward navigation — validate the current step
+        // Forward navigation — call the appropriate step processor and apply its result
+        $result = null;
         switch ($step) {
             case 1:
-                processStep1();
+                $result = processStep1($lang);
                 break;
             case 2:
-                processStep2();
+                $result = processStep2($lang);
                 break;
             case 3:
-                processStep3();
+                $result = processStep3($lang, $db, $config);
                 break;
+        }
+
+        if ($result !== null) {
+            if ($result['ok']) {
+                // Apply session updates, then PRG redirect
+                foreach ($result['sessionUpdates'] as $key => $val) {
+                    $_SESSION['setup'][$key] = $val;
+                }
+                header('Location: /setup.php');
+                exit;
+            }
+            $fieldErrors = $result['fieldErrors'];
+            $errors      = array_merge($errors, $result['errors']);
         }
     }
 }
@@ -91,9 +105,16 @@ if ($isPost) {
 // either redirects (success) or populates $fieldErrors / $errors (failure).
 // --------------------------------------------------------------------------
 
-function processStep1(): void
+/**
+ * Validates Step 1 POST data (organisation + admin account).
+ * Returns a result array — the caller applies session updates and handles the PRG redirect.
+ * The admin password is hashed with Argon2id immediately; plaintext is never stored.
+ *
+ * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
+ */
+function processStep1(object $lang): array
 {
-    global $step, $lang, $fieldErrors, $errors;
+    $fieldErrors = [];
 
     $orgName  = trim($_POST['org_name'] ?? '');
     $username = trim($_POST['username'] ?? '');
@@ -146,26 +167,39 @@ function processStep1(): void
     }
 
     if (!empty($fieldErrors)) {
-        return;
+        return ['ok' => false, 'fieldErrors' => $fieldErrors, 'errors' => []];
     }
 
-    $_SESSION['setup']['step1'] = [
-        'org_name' => $orgName,
-        'username' => $username,
-        'fullname' => $fullname,
-        'email'    => $email,
-        'password' => $password,
+    return [
+        'ok'          => true,
+        'fieldErrors' => [],
+        'errors'      => [],
+        'sessionUpdates' => [
+            'step1' => [
+                'org_name'      => $orgName,
+                'username'      => $username,
+                'fullname'      => $fullname,
+                'email'         => $email,
+                // Store the Argon2id hash — plaintext password is never written to the session
+                'password_hash' => password_hash($password, PASSWORD_ARGON2ID),
+            ],
+            'step' => 2,
+        ],
     ];
-    $_SESSION['setup']['step'] = 2;
-    $step = 2;
-
-    header('Location: /setup.php');
-    exit;
 }
 
-function processStep2(): void
+/**
+ * Validates Step 2 POST data (SMTP configuration).
+ * Returns a result array — the caller applies session updates and handles the PRG redirect.
+ * Session keys intentionally match POST field names so $fieldValue() works symmetrically
+ * with Step 1 — no secondary fallback lookup is required in the template.
+ *
+ * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
+ */
+function processStep2(object $lang): array
 {
-    global $step, $lang, $fieldErrors, $errors;
+    $fieldErrors = [];
+    $errors      = [];
 
     $host       = trim($_POST['smtp_host'] ?? '');
     $port       = trim($_POST['smtp_port'] ?? '');
@@ -211,28 +245,40 @@ function processStep2(): void
     }
 
     if (!empty($fieldErrors) || !empty($errors)) {
-        return;
+        return ['ok' => false, 'fieldErrors' => $fieldErrors, 'errors' => $errors];
     }
 
-    $_SESSION['setup']['step2'] = [
-        'host'       => $host,
-        'port'       => (int)$port,
-        'encryption' => $encryption,
-        'username'   => $username,
-        'password'   => $password,
-        'from_email' => $fromEmail,
-        'from_name'  => $fromName,
+    // Keys match POST field names so $fieldValue('smtp_host', 'step2') etc. resolve correctly
+    return [
+        'ok'          => true,
+        'fieldErrors' => [],
+        'errors'      => [],
+        'sessionUpdates' => [
+            'step2' => [
+                'smtp_host'       => $host,
+                'smtp_port'       => (int)$port,
+                'smtp_encryption' => $encryption,
+                'smtp_username'   => $username,
+                'smtp_password'   => $password,
+                'smtp_from_email' => $fromEmail,
+                'smtp_from_name'  => $fromName,
+            ],
+            'step' => 3,
+        ],
     ];
-    $_SESSION['setup']['step'] = 3;
-    $step = 3;
-
-    header('Location: /setup.php');
-    exit;
 }
 
-function processStep3(): void
+/**
+ * Validates Step 3 POST data, then (inside a single atomic transaction) creates the
+ * organisation, admin user, SMTP settings, and invited member, and sends the invitation
+ * email. On success, the display-safe subset of setup data is consolidated into step3 and
+ * all plaintext/hashed credentials are wiped from the session immediately.
+ *
+ * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
+ */
+function processStep3(object $lang, object $db, array $config): array
 {
-    global $step, $lang, $fieldErrors, $errors, $db, $config;
+    $fieldErrors = [];
 
     $inviteeEmail = trim($_POST['invitee_email'] ?? '');
     $inviteeName  = trim($_POST['invitee_name'] ?? '');
@@ -251,7 +297,7 @@ function processStep3(): void
     }
 
     if (!empty($fieldErrors)) {
-        return;
+        return ['ok' => false, 'fieldErrors' => $fieldErrors, 'errors' => []];
     }
 
     $step1 = $_SESSION['setup']['step1'];
@@ -267,23 +313,23 @@ function processStep3(): void
         $db->execute('INSERT INTO organizations (name) VALUES (?)', [$step1['org_name']]);
         $orgId = (int)$db->lastInsertId();
 
-        // 2. Create admin user (active immediately — no invite token needed)
-        $passwordHash = password_hash($step1['password'], PASSWORD_ARGON2ID);
+        // 2. Create admin user — use the Argon2id hash stored in processStep1();
+        //    plaintext password was never written to the session.
         $db->execute(
             'INSERT INTO users (username, password_hash, name, email, role, organization_id, status)
              VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [$step1['username'], $passwordHash, $step1['fullname'], $step1['email'], 'admin', $orgId, 'active']
+            [$step1['username'], $step1['password_hash'], $step1['fullname'], $step1['email'], 'admin', $orgId, 'active']
         );
 
         // 3. Persist SMTP settings to the settings table
         $smtpKeys = [
-            'smtp.host'       => $step2['host'],
-            'smtp.port'       => (string)$step2['port'],
-            'smtp.encryption' => $step2['encryption'],
-            'smtp.username'   => $step2['username'],
-            'smtp.password'   => $step2['password'],
-            'smtp.from_email' => $step2['from_email'],
-            'smtp.from_name'  => $step2['from_name'],
+            'smtp.host'       => $step2['smtp_host'],
+            'smtp.port'       => (string)$step2['smtp_port'],
+            'smtp.encryption' => $step2['smtp_encryption'],
+            'smtp.username'   => $step2['smtp_username'],
+            'smtp.password'   => $step2['smtp_password'],
+            'smtp.from_email' => $step2['smtp_from_email'],
+            'smtp.from_name'  => $step2['smtp_from_name'],
         ];
         foreach ($smtpKeys as $key => $value) {
             $db->execute(
@@ -304,13 +350,13 @@ function processStep3(): void
 
         // 5. Send the invitation email — using the newly configured SMTP settings
         $mailer = new Shuffle\Core\Mailer([
-            'host'       => $step2['host'],
-            'port'       => (int)$step2['port'],
-            'encryption' => $step2['encryption'],
-            'username'   => $step2['username'],
-            'password'   => $step2['password'],
-            'from_email' => $step2['from_email'],
-            'from_name'  => $step2['from_name'],
+            'host'       => $step2['smtp_host'],
+            'port'       => (int)$step2['smtp_port'],
+            'encryption' => $step2['smtp_encryption'],
+            'username'   => $step2['smtp_username'],
+            'password'   => $step2['smtp_password'],
+            'from_email' => $step2['smtp_from_email'],
+            'from_name'  => $step2['smtp_from_name'],
         ]);
 
         $appUrl      = $config['app']['url'] ?? 'http://localhost';
@@ -341,22 +387,33 @@ HTML;
         // All operations succeeded — commit the transaction
         $db->commit();
 
-        $_SESSION['setup']['step3'] = [
-            'invitee_email' => $inviteeEmail,
-            'invitee_name'  => $displayName,
+        // Consolidate display-safe values into step3, then wipe step1 and step2 so that
+        // the Argon2id hash and SMTP password do not linger in the session beyond this point.
+        return [
+            'ok'          => true,
+            'fieldErrors' => [],
+            'errors'      => [],
+            'sessionUpdates' => [
+                'step3' => [
+                    'invitee_email'   => $inviteeEmail,
+                    'invitee_name'    => $displayName,
+                    // Move display-only fields here so step1/step2 can be wiped immediately
+                    'org_name'        => $step1['org_name'],
+                    'admin_username'  => $step1['username'],
+                    'smtp_from_email' => $step2['smtp_from_email'],
+                ],
+                'step1' => [],  // Wipe — Argon2id hash no longer needed
+                'step2' => [],  // Wipe — SMTP password no longer needed
+                'step'  => 4,
+            ],
         ];
-        $_SESSION['setup']['step'] = 4;
-        $step = 4;
-
-        header('Location: /setup.php');
-        exit;
 
     } catch (\RuntimeException $e) {
         $db->rollBack();
-        $errors[] = $lang->get('setup.err_invite_send_failed', [$e->getMessage()]);
+        return ['ok' => false, 'fieldErrors' => [], 'errors' => [$lang->get('setup.err_invite_send_failed', [$e->getMessage()])]];
     } catch (\Exception $e) {
         $db->rollBack();
-        $errors[] = $lang->get('setup.err_transaction_failed');
+        return ['ok' => false, 'fieldErrors' => [], 'errors' => [$lang->get('setup.err_transaction_failed')]];
     }
 }
 
@@ -651,7 +708,7 @@ $stepLabels = [
                                 name="smtp_host"
                                 class="form-input<?= invalidClass('smtp_host') ?>"
                                 placeholder="<?= t('setup.smtp_host_placeholder') ?>"
-                                value="<?= h($fieldValue('smtp_host', 'step2') ?: ($_SESSION['setup']['step2']['host'] ?? '')) ?>"
+                                value="<?= h($fieldValue('smtp_host', 'step2')) ?>"
                                 autocomplete="off"
                                 spellcheck="false"
                                 required
@@ -668,7 +725,7 @@ $stepLabels = [
                                 id="smtp_port"
                                 name="smtp_port"
                                 class="form-input<?= invalidClass('smtp_port') ?>"
-                                value="<?= h((string)($fieldValue('smtp_port', 'step2') ?: ($_SESSION['setup']['step2']['port'] ?? '587'))) ?>"
+                                value="<?= h($fieldValue('smtp_port', 'step2') ?: '587') ?>"
                                 min="1"
                                 max="65535"
                                 required
@@ -684,7 +741,7 @@ $stepLabels = [
                         <?php
                         $currentEncryption = $isPost
                             ? ($_POST['smtp_encryption'] ?? 'tls')
-                            : ($_SESSION['setup']['step2']['encryption'] ?? 'tls');
+                            : ($_SESSION['setup']['step2']['smtp_encryption'] ?? 'tls');
                         ?>
                         <select
                             id="smtp_encryption"
@@ -710,7 +767,7 @@ $stepLabels = [
                                 name="smtp_username"
                                 class="form-input"
                                 placeholder="<?= t('setup.smtp_username_placeholder') ?>"
-                                value="<?= h($fieldValue('smtp_username', 'step2') ?: ($_SESSION['setup']['step2']['username'] ?? '')) ?>"
+                                value="<?= h($fieldValue('smtp_username', 'step2')) ?>"
                                 autocomplete="off"
                                 autocapitalize="none"
                                 spellcheck="false"
@@ -737,7 +794,7 @@ $stepLabels = [
                             name="smtp_from_email"
                             class="form-input<?= invalidClass('smtp_from_email') ?>"
                             placeholder="<?= t('setup.smtp_from_email_placeholder') ?>"
-                            value="<?= h($fieldValue('smtp_from_email', 'step2') ?: ($_SESSION['setup']['step2']['from_email'] ?? '')) ?>"
+                            value="<?= h($fieldValue('smtp_from_email', 'step2')) ?>"
                             autocomplete="off"
                             required
                             aria-required="true"
@@ -754,7 +811,7 @@ $stepLabels = [
                             name="smtp_from_name"
                             class="form-input<?= invalidClass('smtp_from_name') ?>"
                             placeholder="<?= t('setup.smtp_from_name_placeholder') ?>"
-                            value="<?= h($fieldValue('smtp_from_name', 'step2') ?: ($_SESSION['setup']['step2']['from_name'] ?? '')) ?>"
+                            value="<?= h($fieldValue('smtp_from_name', 'step2')) ?>"
                             autocomplete="off"
                             required
                             aria-required="true"
@@ -765,6 +822,10 @@ $stepLabels = [
 
                     <!-- SMTP test section -->
                     <div class="smtp-test-section">
+                        <!-- Label is "Test Connection" rather than the spec's "Send Test Email"
+                             because the endpoint performs a TCP + AUTH handshake only — no
+                             email is actually sent. The more accurate label was chosen
+                             deliberately; the delta spec should be updated to match. -->
                         <button
                             type="button"
                             id="smtp-test-btn"
@@ -788,7 +849,6 @@ $stepLabels = [
                             value="next"
                             id="smtp-next-btn"
                             class="btn btn-primary"
-                            data-label="<?= t('setup.btn_next') ?>"
                         ><?= t('setup.btn_smtp_next') ?></button>
                     </div>
                 </form>
@@ -860,15 +920,15 @@ $stepLabels = [
                 <dl class="setup-summary">
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_org_name') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step1']['org_name'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step3']['org_name'] ?? '') ?></dd>
                     </div>
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_admin_username') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step1']['username'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step3']['admin_username'] ?? '') ?></dd>
                     </div>
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_smtp_from') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step2']['from_email'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step3']['smtp_from_email'] ?? '') ?></dd>
                     </div>
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_invite_sent_to') ?></dt>
@@ -880,6 +940,12 @@ $stepLabels = [
                     <a href="/login.php" class="btn btn-primary"><?= t('setup.go_to_login') ?></a>
                 </div>
             </div>
+            <?php
+            // Belt-and-suspenders: destroy the setup session namespace as soon as the
+            // confirmation screen has rendered. This closes the step-4 security exception
+            // window immediately rather than leaving it open for up to 24 hours.
+            unset($_SESSION['setup']);
+            ?>
             <?php endif; ?>
 
         </div><!-- /.setup-card -->

@@ -47,7 +47,6 @@ $userModel   = new Shuffle\Model\User($db);
 $userService = new Shuffle\Service\UserService($userModel);
 
 // Resolve SMTP config: database settings take precedence over config.php
-$settingModel = new Shuffle\Model\Setting($db);
 $smtpRows = $db->fetchAll(
     "SELECT `key`, `value` FROM `settings` WHERE `key` LIKE 'smtp.%'"
 );

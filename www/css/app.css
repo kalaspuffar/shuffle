@@ -3480,9 +3480,13 @@ small,
         flex: 1 1 auto;
     }
 
-    /* Step labels: hide text, show circles only */
+    /* Step labels: scale down on narrow screens rather than hiding entirely,
+       so sighted users still have text context beyond the numbered circles. */
     .wizard-step-label {
-        display: none;
+        font-size: 0.6rem;
+        white-space: normal;
+        text-align: center;
+        max-width: 3.5rem;
     }
 
     .wizard-actions {
