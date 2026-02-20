@@ -141,6 +141,38 @@ class S3Client
     }
 
     /**
+     * Tests S3 connectivity by issuing a ListObjectsV2 request with max-keys=1.
+     *
+     * A 200 response confirms that the endpoint is reachable, the credentials
+     * are accepted, and the bucket exists and is accessible. Any other outcome
+     * throws a RuntimeException with a human-readable description.
+     *
+     * @throws \RuntimeException On connection failure, credential rejection, or missing bucket
+     */
+    public function testConnection(): void
+    {
+        $response = $this->sendRequest('GET', '?list-type=2&max-keys=1', [], '');
+
+        if ($response['status'] === 0) {
+            throw new \RuntimeException('Could not connect to S3 endpoint — check the URL and port');
+        }
+
+        if ($response['status'] === 403) {
+            throw new \RuntimeException('Access denied (HTTP 403) — check your access key and secret key');
+        }
+
+        if ($response['status'] === 404) {
+            throw new \RuntimeException('Bucket not found (HTTP 404) — check the bucket name');
+        }
+
+        if ($response['status'] < 200 || $response['status'] >= 300) {
+            throw new \RuntimeException(
+                'S3 connection test failed with status ' . $response['status']
+            );
+        }
+    }
+
+    /**
      * Initiates a multipart upload.
      *
      * @param string $key         S3 object key

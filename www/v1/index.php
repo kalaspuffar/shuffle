@@ -25,7 +25,7 @@ $response = new Shuffle\Core\Response();
 $method = $request->getMethod();
 $path = $request->getPath();
 
-$csrfExemptPaths = ['/auth/login', '/users/activate', '/setup/test-smtp'];
+$csrfExemptPaths = ['/auth/login', '/users/activate', '/setup/test-smtp', '/setup/test-s3'];
 $requiresCsrf = in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH'], true);
 
 if ($requiresCsrf) {
@@ -203,6 +203,7 @@ $router->get('/search', [$searchController, 'search']);
 
 // Setup routes (unauthenticated, guarded internally)
 $router->post('/setup/test-smtp', [$setupController, 'testSmtp']);
+$router->post('/setup/test-s3',   [$setupController, 'testS3']);
 
 // Attachment routes
 $router->post('/cards/{cardId}/attachments', [$attachmentController, 'create']);
