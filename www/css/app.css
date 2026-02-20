@@ -2809,3 +2809,176 @@ small,
     outline: none;
     box-shadow: 0 0 0 2px var(--color-primary);
 }
+
+/* =============================================
+   Getting-Started Checklist (admin first-run)
+   ============================================= */
+
+.getting-started {
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    padding: var(--space-6);
+    margin-bottom: var(--space-6);
+}
+
+.getting-started-title {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    margin-bottom: var(--space-4);
+}
+
+.getting-started-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.getting-started-step {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.getting-started-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--border-radius-full);
+    background-color: var(--color-elevated);
+    border: 2px solid var(--color-border);
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    line-height: 1;
+}
+
+.getting-started-step--done .getting-started-indicator {
+    background-color: var(--color-success-subtle);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+
+.getting-started-label {
+    font-size: var(--font-size-md);
+    color: var(--color-text-secondary);
+}
+
+.getting-started-step--done .getting-started-label {
+    text-decoration: line-through;
+    color: var(--color-text-disabled);
+}
+
+.getting-started-link {
+    color: var(--color-primary-text);
+    text-decoration: none;
+    font-weight: var(--font-weight-medium);
+}
+
+.getting-started-link:hover {
+    text-decoration: underline;
+}
+
+.getting-started-link:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+    border-radius: var(--border-radius-sm);
+}
+
+/* =============================================
+   Role-Aware Empty State (boards page)
+   ============================================= */
+
+.boards-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: var(--space-3xl) var(--space-lg);
+    gap: var(--space-4);
+}
+
+/* CSS-only illustration placeholder — a rounded square with a subtle grid */
+.boards-empty-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: var(--border-radius-xl);
+    background-color: var(--color-elevated);
+    border: 2px solid var(--color-border);
+    position: relative;
+    margin-bottom: var(--space-2);
+}
+
+.boards-empty-icon::before,
+.boards-empty-icon::after {
+    content: '';
+    position: absolute;
+    background-color: var(--color-border);
+}
+
+/* Horizontal divider line inside the icon placeholder */
+.boards-empty-icon::before {
+    top: 40%;
+    left: 12px;
+    right: 12px;
+    height: 2px;
+    border-radius: 1px;
+}
+
+/* Vertical divider line inside the icon placeholder */
+.boards-empty-icon::after {
+    left: 40%;
+    top: 12px;
+    bottom: 12px;
+    width: 2px;
+    border-radius: 1px;
+}
+
+.boards-empty-heading {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    margin: 0;
+}
+
+.boards-empty-desc {
+    font-size: var(--font-size-md);
+    max-width: 380px;
+    margin: 0;
+}
+
+/* =============================================
+   Welcome Page (post-activation)
+   ============================================= */
+
+.welcome-page {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - var(--header-height));
+    padding: var(--space-4);
+}
+
+.welcome-card {
+    width: 100%;
+    max-width: var(--modal-width-sm);
+}
+
+.welcome-header {
+    margin-bottom: var(--space-6);
+}
+
+.welcome-title {
+    font-size: var(--font-size-2xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    margin-bottom: var(--space-2);
+}

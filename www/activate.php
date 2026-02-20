@@ -35,8 +35,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error === '') {
             $userService = new Shuffle\Service\UserService($userModel);
 
             try {
-                $userService->activateUser($token, $username, $password);
-                $success = true;
+                $activatedUser = $userService->activateUser($token, $username, $password);
+
+                // Log the user in and send them directly to the welcome page
+                session_regenerate_id(true);
+                $_SESSION['user_id'] = $activatedUser['id'];
+
+                header('Location: /welcome.php');
+                exit;
             } catch (\InvalidArgumentException $e) {
                 $error = $e->getMessage();
             } catch (\RuntimeException $e) {

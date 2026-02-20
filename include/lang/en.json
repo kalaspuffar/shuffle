@@ -26,6 +26,12 @@
     "board.description": "Description",
     "board.boards": "Boards",
     "board.no_boards": "No boards found.",
+    "board.empty_admin": "Create your first board",
+    "board.empty_admin_desc": "Get started by creating a board to organise your team's work.",
+    "board.empty_member": "Create your first board",
+    "board.empty_member_desc": "Create a board to get started, or wait for an admin to assign you to one.",
+    "board.empty_viewer": "No boards yet",
+    "board.empty_viewer_desc": "Boards you have access to will appear here. Contact your administrator to request access.",
     "board.archived": "Archived",
     "board.show_archived": "Show archived",
     "board.visibility": "Visibility",
@@ -288,5 +294,15 @@
     "import.failed": "Import failed: {0}",
     "import.dry_run_complete": "Dry-run validation complete — no data was written.",
     "import.invalid_json": "Invalid or unreadable JSON file: {0}",
-    "import.missing_keys": "Missing required top-level keys: {0}"
+    "import.missing_keys": "Missing required top-level keys: {0}",
+
+    "onboarding.getting_started": "Getting Started",
+    "onboarding.step_create_org": "Create an organization",
+    "onboarding.step_invite_users": "Invite team members",
+    "onboarding.step_create_board": "Create your first board",
+    "onboarding.step_done": "Done",
+
+    "welcome.title": "You're all set!",
+    "welcome.message": "Your account is ready. Head over to your boards to get started.",
+    "welcome.go_to_boards": "Go to Boards"
 }
