@@ -28,12 +28,91 @@ if ($currentUser['role'] === 'admin' || $currentUser['role'] === 'member') {
 $canCreate = in_array($currentUser['role'], ['admin', 'member'], true);
 $isAdmin = ($currentUser['role'] === 'admin');
 
+// Gather first-run checklist state for admins (no extra queries for non-admins)
+$checklistStepsDone = [];
+$showChecklist = false;
+if ($isAdmin) {
+    // Single consolidated query — avoids three round trips and keeps archived boards excluded
+    $checklistCounts = $db->fetch(
+        'SELECT
+            (SELECT COUNT(*) FROM organizations)                       AS org_count,
+            (SELECT COUNT(*) FROM users WHERE status = ?)             AS user_count,
+            (SELECT COUNT(*) FROM boards WHERE is_archived = 0)       AS board_count',
+        ['active']
+    );
+    $orgCount   = (int) $checklistCounts['org_count'];
+    $userCount  = (int) $checklistCounts['user_count'];
+    $boardCount = (int) $checklistCounts['board_count'];
+
+    $checklistStepsDone = [
+        'org'   => $orgCount >= 1,
+        'users' => $userCount >= 2,
+        'board' => $boardCount >= 1,
+    ];
+
+    // Checklist disappears once every step is complete
+    $showChecklist = !($checklistStepsDone['org'] && $checklistStepsDone['users'] && $checklistStepsDone['board']);
+}
+
 $pageTitle = $lang->get('board.boards');
 $currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
 <div class="boards-page">
+
+    <?php if ($showChecklist): ?>
+    <section class="getting-started" aria-label="<?= htmlspecialchars($lang->get('onboarding.getting_started'), ENT_QUOTES, 'UTF-8') ?>">
+        <h2 class="getting-started-title"><?= htmlspecialchars($lang->get('onboarding.getting_started'), ENT_QUOTES, 'UTF-8') ?></h2>
+        <ol class="getting-started-steps" role="list">
+
+            <li class="getting-started-step<?= $checklistStepsDone['org'] ? ' getting-started-step--done' : '' ?>"
+                aria-label="<?= $checklistStepsDone['org']
+                    ? htmlspecialchars($lang->get('onboarding.step_create_org') . ' — ' . $lang->get('onboarding.step_done'), ENT_QUOTES, 'UTF-8')
+                    : htmlspecialchars($lang->get('onboarding.step_create_org'), ENT_QUOTES, 'UTF-8') ?>">
+                <span class="getting-started-indicator" aria-hidden="true"><?= $checklistStepsDone['org'] ? '✓' : '1' ?></span>
+                <span class="getting-started-label">
+                    <?php if ($checklistStepsDone['org']): ?>
+                        <?= htmlspecialchars($lang->get('onboarding.step_create_org'), ENT_QUOTES, 'UTF-8') ?>
+                    <?php else: ?>
+                        <a href="/admin/organizations.php" class="getting-started-link"><?= htmlspecialchars($lang->get('onboarding.step_create_org'), ENT_QUOTES, 'UTF-8') ?></a>
+                    <?php endif; ?>
+                </span>
+            </li>
+
+            <li class="getting-started-step<?= $checklistStepsDone['users'] ? ' getting-started-step--done' : '' ?>"
+                aria-label="<?= $checklistStepsDone['users']
+                    ? htmlspecialchars($lang->get('onboarding.step_invite_users') . ' — ' . $lang->get('onboarding.step_done'), ENT_QUOTES, 'UTF-8')
+                    : htmlspecialchars($lang->get('onboarding.step_invite_users'), ENT_QUOTES, 'UTF-8') ?>">
+                <span class="getting-started-indicator" aria-hidden="true"><?= $checklistStepsDone['users'] ? '✓' : '2' ?></span>
+                <span class="getting-started-label">
+                    <?php if ($checklistStepsDone['users']): ?>
+                        <?= htmlspecialchars($lang->get('onboarding.step_invite_users'), ENT_QUOTES, 'UTF-8') ?>
+                    <?php else: ?>
+                        <a href="/admin/invite.php" class="getting-started-link"><?= htmlspecialchars($lang->get('onboarding.step_invite_users'), ENT_QUOTES, 'UTF-8') ?></a>
+                    <?php endif; ?>
+                </span>
+            </li>
+
+            <li class="getting-started-step<?= $checklistStepsDone['board'] ? ' getting-started-step--done' : '' ?>"
+                aria-label="<?= $checklistStepsDone['board']
+                    ? htmlspecialchars($lang->get('onboarding.step_create_board') . ' — ' . $lang->get('onboarding.step_done'), ENT_QUOTES, 'UTF-8')
+                    : htmlspecialchars($lang->get('onboarding.step_create_board'), ENT_QUOTES, 'UTF-8') ?>">
+                <span class="getting-started-indicator" aria-hidden="true"><?= $checklistStepsDone['board'] ? '✓' : '3' ?></span>
+                <span class="getting-started-label">
+                    <?php if ($checklistStepsDone['board']): ?>
+                        <?= htmlspecialchars($lang->get('onboarding.step_create_board'), ENT_QUOTES, 'UTF-8') ?>
+                    <?php else: ?>
+                        <?php // Link triggers create modal via ?create=1 — boards.js opens it on page load ?>
+                        <a href="/boards.php?create=1" class="getting-started-link"><?= htmlspecialchars($lang->get('onboarding.step_create_board'), ENT_QUOTES, 'UTF-8') ?></a>
+                    <?php endif; ?>
+                </span>
+            </li>
+
+        </ol>
+    </section>
+    <?php endif; ?>
+
     <div class="boards-header">
         <h1><?= htmlspecialchars($lang->get('board.boards'), ENT_QUOTES, 'UTF-8') ?></h1>
         <div class="boards-header-actions">
@@ -52,7 +131,25 @@ require ROOT_DIR . '/include/templates/header.php';
     </div>
 
     <?php if (empty($boards)): ?>
-    <p class="boards-empty text-secondary"><?= htmlspecialchars($lang->get('board.no_boards'), ENT_QUOTES, 'UTF-8') ?></p>
+    <div class="boards-empty">
+        <div class="boards-empty-icon" aria-hidden="true"></div>
+        <?php if ($isAdmin): ?>
+            <h2 class="boards-empty-heading"><?= htmlspecialchars($lang->get('board.empty_admin'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <p class="boards-empty-desc text-secondary"><?= htmlspecialchars($lang->get('board.empty_admin_desc'), ENT_QUOTES, 'UTF-8') ?></p>
+            <button type="button" class="btn btn-primary" id="btn-empty-create-board" aria-haspopup="dialog">
+                <?= htmlspecialchars($lang->get('board.create'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+        <?php elseif ($currentUser['role'] === 'member'): ?>
+            <h2 class="boards-empty-heading"><?= htmlspecialchars($lang->get('board.empty_member'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <p class="boards-empty-desc text-secondary"><?= htmlspecialchars($lang->get('board.empty_member_desc'), ENT_QUOTES, 'UTF-8') ?></p>
+            <button type="button" class="btn btn-primary" id="btn-empty-create-board" aria-haspopup="dialog">
+                <?= htmlspecialchars($lang->get('board.create'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+        <?php else: ?>
+            <h2 class="boards-empty-heading"><?= htmlspecialchars($lang->get('board.empty_viewer'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <p class="boards-empty-desc text-secondary"><?= htmlspecialchars($lang->get('board.empty_viewer_desc'), ENT_QUOTES, 'UTF-8') ?></p>
+        <?php endif; ?>
+    </div>
     <?php else: ?>
     <div class="boards-grid" role="list" aria-label="<?= htmlspecialchars($lang->get('board.boards'), ENT_QUOTES, 'UTF-8') ?>">
         <?php foreach ($boards as $board): ?>
@@ -78,7 +175,7 @@ require ROOT_DIR . '/include/templates/header.php';
             <?php if ($canCreate): ?>
             <button type="button"
                 class="btn btn-ghost board-card-edit"
-                aria-label="<?= htmlspecialchars($lang->get('board.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
+                aria-label="<?= htmlspecialchars($lang->get('action.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
                 aria-haspopup="dialog"
                 data-board-id="<?= (int) $board['id'] ?>"
                 data-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>"

@@ -131,6 +131,25 @@
         openBtn.addEventListener('click', openCreateModal);
     }
 
+    // Empty-state create button also opens the create modal.
+    // lastOpener is overridden after the call because openCreateModal() sets it to openBtn.
+    var emptyCreateBtn = document.getElementById('btn-empty-create-board');
+    if (emptyCreateBtn) {
+        emptyCreateBtn.addEventListener('click', function () {
+            openCreateModal();
+            lastOpener = emptyCreateBtn;
+        });
+    }
+
+    // Checklist step 3 links with ?create=1 — open the create modal on page load
+    if (new URL(window.location.href).searchParams.get('create') === '1') {
+        // Strip the param from the URL to avoid reopening on refresh
+        var cleanUrl = new URL(window.location.href);
+        cleanUrl.searchParams.delete('create');
+        history.replaceState(null, '', cleanUrl.toString());
+        openCreateModal();
+    }
+
     // Open edit modal via any Edit button on the board cards
     var editBtns = document.querySelectorAll('.board-card-edit');
     for (var i = 0; i < editBtns.length; i++) {
