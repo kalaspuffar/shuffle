@@ -48,9 +48,9 @@
     // Track which element triggered the modal, so focus can return on close
     var lastOpener = null;
 
-    function openCreateModal() {
+    function openCreateModal(opener) {
         editingBoardId = null;
-        lastOpener = openBtn;
+        lastOpener = opener || openBtn;
         if (modalTitle) modalTitle.textContent = LANG.create_title || modalTitle.textContent;
         modal.hidden = false;
         document.getElementById('board-title').focus();
@@ -109,8 +109,7 @@
 
     function closeModal() {
         modal.hidden = true;
-        boardForm.reset();
-        uncheckAllOrgs();
+        boardForm.reset(); // reset() already unchecks all checkboxes
         editingBoardId = null;
 
         // Restore modal title to create mode for next open
@@ -131,13 +130,11 @@
         openBtn.addEventListener('click', openCreateModal);
     }
 
-    // Empty-state create button also opens the create modal.
-    // lastOpener is overridden after the call because openCreateModal() sets it to openBtn.
+    // Empty-state create button opens the same modal but returns focus to itself on close
     var emptyCreateBtn = document.getElementById('btn-empty-create-board');
     if (emptyCreateBtn) {
         emptyCreateBtn.addEventListener('click', function () {
-            openCreateModal();
-            lastOpener = emptyCreateBtn;
+            openCreateModal(emptyCreateBtn);
         });
     }
 
@@ -152,8 +149,8 @@
 
     // Open edit modal via any Edit button on the board cards
     var editBtns = document.querySelectorAll('.board-card-edit');
-    for (var i = 0; i < editBtns.length; i++) {
-        editBtns[i].addEventListener('click', function (e) {
+    for (var n = 0; n < editBtns.length; n++) {
+        editBtns[n].addEventListener('click', function (e) {
             openEditModal(e.currentTarget);
         });
     }

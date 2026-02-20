@@ -844,4 +844,280 @@
         });
     }
 
+    /* ===================================================================
+       Assignee Picker
+       =================================================================== */
+
+    var assigneesSection = document.querySelector('.card-assignees-section');
+    var addAssigneeBtn = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
+
+    if (assigneesSection && addAssigneeBtn && CAN_EDIT) {
+        // Initialise picker state from server-rendered data attributes
+        var pickerUsers = [];
+        var assignedIds = [];
+
+        try {
+            pickerUsers = JSON.parse(assigneesSection.dataset.users || '[]');
+        } catch (e) {
+            pickerUsers = [];
+        }
+
+        try {
+            assignedIds = JSON.parse(assigneesSection.dataset.assigned || '[]');
+        } catch (e) {
+            assignedIds = [];
+        }
+
+        var LISTBOX_ID = 'assignee-picker-listbox';
+
+        /** Returns true if the given user ID is in the assigned list */
+        function isAssigned(userId) {
+            return assignedIds.indexOf(userId) !== -1;
+        }
+
+        /** Updates the assignee avatar row to reflect the current assignedIds */
+        function refreshAvatarRow() {
+            var avatarRow = assigneesSection.querySelector('.card-assignees-avatars');
+            if (!avatarRow) return;
+
+            avatarRow.innerHTML = '';
+            pickerUsers.forEach(function (user) {
+                if (!isAssigned(user.id)) return;
+                var span = document.createElement('span');
+                span.className = 'card-assignee-avatar';
+                span.title = user.name;
+                span.textContent = (user.name || '?').charAt(0).toUpperCase();
+                avatarRow.appendChild(span);
+            });
+        }
+
+        /** Closes the picker panel and restores focus to the trigger button */
+        function closePicker() {
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (panel) panel.remove();
+            addAssigneeBtn.setAttribute('aria-expanded', 'false');
+            addAssigneeBtn.focus();
+            document.removeEventListener('click', outsideClickHandler, true);
+        }
+
+        /** Document-level capture listener that closes the picker on outside clicks.
+         *  Registered in a setTimeout so the triggering click doesn't immediately close the panel. */
+        function outsideClickHandler(e) {
+            if (!assigneesSection.contains(e.target)) {
+                closePicker();
+            }
+        }
+
+        /** Builds and inserts the picker panel with a combobox search input and filterable listbox */
+        function openPicker() {
+            // Remove any existing panel first
+            var existing = assigneesSection.querySelector('.assignee-picker');
+            if (existing) existing.remove();
+
+            var panel = document.createElement('div');
+            panel.className = 'assignee-picker';
+
+            // Combobox input — typing filters the listbox options in real time
+            var searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.className = 'assignee-picker-search';
+            searchInput.setAttribute('role', 'combobox');
+            searchInput.setAttribute('aria-autocomplete', 'list');
+            searchInput.setAttribute('aria-controls', LISTBOX_ID);
+            searchInput.setAttribute('aria-expanded', 'true');
+            searchInput.setAttribute('aria-label', LANG.assignee_filter_placeholder || 'Filter users');
+            searchInput.setAttribute('placeholder', LANG.assignee_filter_placeholder || 'Filter users…');
+            searchInput.setAttribute('autocomplete', 'off');
+            panel.appendChild(searchInput);
+
+            // Listbox container — linked to the combobox via aria-controls
+            var listbox = document.createElement('div');
+            listbox.setAttribute('id', LISTBOX_ID);
+            listbox.setAttribute('role', 'listbox');
+            listbox.setAttribute('aria-label', LANG.assignee_picker_label || 'Assign users to this card');
+            listbox.setAttribute('aria-multiselectable', 'true');
+
+            if (pickerUsers.length === 0) {
+                var emptyMsg = document.createElement('p');
+                emptyMsg.className = 'assignee-picker-empty';
+                emptyMsg.textContent = LANG.assignee_no_users || 'No users available';
+                listbox.appendChild(emptyMsg);
+            }
+
+            pickerUsers.forEach(function (user) {
+                var selected = isAssigned(user.id);
+                var option = document.createElement('div');
+                option.className = 'assignee-picker-option' + (selected ? ' assignee-picker-option--selected' : '');
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                option.setAttribute('tabindex', '-1');
+                option.dataset.userId = user.id;
+
+                var avatarSpan = document.createElement('span');
+                avatarSpan.className = 'assignee-picker-avatar';
+                avatarSpan.setAttribute('aria-hidden', 'true');
+                avatarSpan.textContent = (user.name || '?').charAt(0).toUpperCase();
+
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'assignee-picker-name';
+                nameSpan.textContent = user.name;
+
+                option.appendChild(avatarSpan);
+                option.appendChild(nameSpan);
+                listbox.appendChild(option);
+            });
+
+            panel.appendChild(listbox);
+            assigneesSection.appendChild(panel);
+            addAssigneeBtn.setAttribute('aria-expanded', 'true');
+
+            // Focus the search input so users can type immediately
+            searchInput.focus();
+
+            // Filter listbox options as the user types
+            searchInput.addEventListener('input', function () {
+                var query = searchInput.value.toLowerCase().trim();
+                var opts = listbox.querySelectorAll('.assignee-picker-option');
+                opts.forEach(function (opt) {
+                    var nameEl = opt.querySelector('.assignee-picker-name');
+                    var name = nameEl ? nameEl.textContent.toLowerCase() : '';
+                    if (query === '' || name.indexOf(query) !== -1) {
+                        opt.removeAttribute('hidden');
+                    } else {
+                        opt.setAttribute('hidden', '');
+                    }
+                });
+            });
+
+            // Register outside-click handler — setTimeout prevents the triggering click closing it immediately
+            setTimeout(function () {
+                document.addEventListener('click', outsideClickHandler, true);
+            }, 0);
+        }
+
+        // Open or close the picker when the trigger button is clicked
+        addAssigneeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (panel) {
+                closePicker();
+            } else {
+                openPicker();
+            }
+        });
+
+        // Keyboard navigation for the picker (Escape, arrows, Home/End, Enter/Space)
+        assigneesSection.addEventListener('keydown', function (e) {
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (!panel) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closePicker();
+                return;
+            }
+
+            var listbox = panel.querySelector('[role="listbox"]');
+            var options = Array.prototype.slice.call(
+                listbox ? listbox.querySelectorAll('.assignee-picker-option:not([hidden])') : []
+            );
+            if (!options.length) return;
+
+            var searchInput = panel.querySelector('.assignee-picker-search');
+            var isInSearchInput = (document.activeElement === searchInput);
+            var focused = listbox ? listbox.querySelector('.assignee-picker-option:focus') : null;
+            var currentIndex = focused ? options.indexOf(focused) : -1;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (isInSearchInput) {
+                    // Move focus from the search input down to the first listbox option
+                    options[0].focus();
+                } else {
+                    var nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+                    options[nextIndex].focus();
+                }
+                return;
+            }
+
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (currentIndex === 0) {
+                    // Move focus from the first option back up to the search input
+                    if (searchInput) searchInput.focus();
+                } else if (!isInSearchInput) {
+                    var prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+                    options[prevIndex].focus();
+                }
+                return;
+            }
+
+            if (e.key === 'Home') {
+                e.preventDefault();
+                if (!isInSearchInput) options[0].focus();
+                return;
+            }
+
+            if (e.key === 'End') {
+                e.preventDefault();
+                if (!isInSearchInput) options[options.length - 1].focus();
+                return;
+            }
+
+            // Enter or Space toggles the currently focused option
+            if (e.key === 'Enter' || e.key === ' ') {
+                if (focused) {
+                    e.preventDefault();
+                    toggleUser(focused, parseInt(focused.dataset.userId, 10));
+                }
+            }
+        });
+
+        /** Optimistically toggles a user's assignment and persists the change via API.
+         *  Reverts both local state and the DOM if the request fails. */
+        function toggleUser(optionEl, userId) {
+            var index = assignedIds.indexOf(userId);
+            if (index === -1) {
+                assignedIds.push(userId);
+            } else {
+                assignedIds.splice(index, 1);
+            }
+
+            var nowSelected = isAssigned(userId);
+            optionEl.setAttribute('aria-selected', nowSelected ? 'true' : 'false');
+            if (nowSelected) {
+                optionEl.classList.add('assignee-picker-option--selected');
+            } else {
+                optionEl.classList.remove('assignee-picker-option--selected');
+            }
+
+            // Persist change and update avatar row
+            saveField({ assigned_user_ids: assignedIds }).then(function (result) {
+                if (result.status === 200) {
+                    refreshAvatarRow();
+                } else {
+                    // Revert optimistic local state on API failure
+                    if (nowSelected) {
+                        assignedIds.splice(assignedIds.indexOf(userId), 1);
+                    } else {
+                        assignedIds.push(userId);
+                    }
+                    optionEl.setAttribute('aria-selected', isAssigned(userId) ? 'true' : 'false');
+                    if (isAssigned(userId)) {
+                        optionEl.classList.add('assignee-picker-option--selected');
+                    } else {
+                        optionEl.classList.remove('assignee-picker-option--selected');
+                    }
+                }
+            });
+        }
+
+        // Click on an option row toggles that user's assignment
+        assigneesSection.addEventListener('click', function (e) {
+            var optionEl = e.target.closest('.assignee-picker-option');
+            if (!optionEl) return;
+            toggleUser(optionEl, parseInt(optionEl.dataset.userId, 10));
+        });
+    }
+
 })();
