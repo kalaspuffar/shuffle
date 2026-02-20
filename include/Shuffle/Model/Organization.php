@@ -153,6 +153,23 @@ class Organization
     }
 
     /**
+     * Finds a single user by primary key, regardless of org or status.
+     *
+     * Used for targeted validation before membership changes — avoids
+     * the O(n) full-table scans that pool-based checks require.
+     *
+     * @param int $userId User ID
+     * @return array|null User row or null if not found
+     */
+    public function findUserById(int $userId): ?array
+    {
+        return $this->db->fetch(
+            'SELECT id, organization_id, is_placeholder, status FROM users WHERE id = ?',
+            [$userId]
+        );
+    }
+
+    /**
      * Returns all users belonging to an organization.
      *
      * @param int $id Organization ID
@@ -164,6 +181,60 @@ class Organization
             'SELECT id, username, name, email, role, organization_id, is_placeholder, status, created_at, updated_at
              FROM users WHERE organization_id = ? ORDER BY name ASC',
             [$id]
+        );
+    }
+
+    /**
+     * Returns all active, non-placeholder users not assigned to any organization.
+     *
+     * Used to populate the "add member" dropdown on the org members page.
+     *
+     * @return array Array of user rows
+     */
+    public function getUnassignedUsers(): array
+    {
+        return $this->db->fetchAll(
+            'SELECT id, username, name, email, role, status
+             FROM users
+             WHERE organization_id IS NULL
+               AND is_placeholder = 0
+               AND status = ?
+             ORDER BY name ASC',
+            ['active']
+        );
+    }
+
+    /**
+     * Assigns a user to this organization.
+     *
+     * Sets the user's organization_id to the given org ID.
+     *
+     * @param int $orgId  Organization ID
+     * @param int $userId User ID
+     */
+    public function addMember(int $orgId, int $userId): void
+    {
+        $this->db->execute(
+            'UPDATE users SET organization_id = ?, updated_at = NOW() WHERE id = ?',
+            [$orgId, $userId]
+        );
+    }
+
+    /**
+     * Removes a user from this organization.
+     *
+     * Clears organization_id only when the user currently belongs to this org,
+     * preventing accidental removal from a different organization.
+     *
+     * @param int $orgId  Organization ID
+     * @param int $userId User ID
+     */
+    public function removeMember(int $orgId, int $userId): void
+    {
+        $this->db->execute(
+            'UPDATE users SET organization_id = NULL, updated_at = NOW()
+             WHERE id = ? AND organization_id = ?',
+            [$userId, $orgId]
         );
     }
 }

@@ -130,6 +130,8 @@ $router->post('/organizations', [$orgController, 'create']);
 $router->put('/organizations/{id}', [$orgController, 'update']);
 $router->delete('/organizations/{id}', [$orgController, 'delete']);
 $router->get('/organizations/{id}/members', [$orgController, 'members']);
+$router->post('/organizations/{id}/members', [$orgController, 'addMember']);
+$router->delete('/organizations/{id}/members/{userId}', [$orgController, 'removeMember']);
 
 // Board routes
 $router->get('/boards', [$boardController, 'index']);

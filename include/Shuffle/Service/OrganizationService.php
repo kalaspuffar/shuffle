@@ -144,6 +144,82 @@ class OrganizationService
     }
 
     /**
+     * Returns active non-placeholder users not assigned to any organization.
+     *
+     * @return array Array of user records
+     */
+    public function getUnassignedUsers(): array
+    {
+        return $this->orgModel->getUnassignedUsers();
+    }
+
+    /**
+     * Assigns a user to an organization.
+     *
+     * Uses a targeted single-row lookup to validate the user before assignment,
+     * giving precise error messages for each failure condition (not found,
+     * ineligible, or already assigned to a different org).
+     *
+     * @param int $orgId  Organization ID
+     * @param int $userId User ID
+     * @throws \RuntimeException If org not found, user not found, user ineligible,
+     *                           or user already assigned to a different organization
+     */
+    public function addMember(int $orgId, int $userId): void
+    {
+        $org = $this->orgModel->findById($orgId);
+        if ($org === null) {
+            throw new \RuntimeException('Organization not found');
+        }
+
+        $user = $this->orgModel->findUserById($userId);
+        if ($user === null) {
+            throw new \RuntimeException('User not found');
+        }
+
+        // Already a member of this org — treat as a no-op (idempotent)
+        if ((int) $user['organization_id'] === $orgId) {
+            return;
+        }
+
+        // Belongs to a different org — caller must remove them first
+        if ($user['organization_id'] !== null) {
+            throw new \RuntimeException('User is already assigned to an organization');
+        }
+
+        // Placeholder or inactive users cannot be org members
+        if ($user['is_placeholder'] || $user['status'] !== 'active') {
+            throw new \RuntimeException('User is not eligible for organization membership');
+        }
+
+        $this->orgModel->addMember($orgId, $userId);
+    }
+
+    /**
+     * Removes a user from an organization.
+     *
+     * @param int $orgId  Organization ID
+     * @param int $userId User ID
+     * @throws \RuntimeException If org not found or user is not a member of this org
+     */
+    public function removeMember(int $orgId, int $userId): void
+    {
+        $org = $this->orgModel->findById($orgId);
+        if ($org === null) {
+            throw new \RuntimeException('Organization not found');
+        }
+
+        $currentMembers = $this->orgModel->getMembers($orgId);
+        $memberIds = array_column($currentMembers, 'id');
+
+        if (!in_array($userId, $memberIds, true)) {
+            throw new \RuntimeException('This user is not a member of this organization');
+        }
+
+        $this->orgModel->removeMember($orgId, $userId);
+    }
+
+    /**
      * Validates the organization name field.
      *
      * @param array $data Input data

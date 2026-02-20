@@ -49,6 +49,9 @@ require ROOT_DIR . '/include/templates/header.php';
                     <td><?= (int) $org['member_count'] ?></td>
                     <td><?= htmlspecialchars($org['created_at'], ENT_QUOTES, 'UTF-8') ?></td>
                     <td class="admin-table-actions">
+                        <a href="/admin/org-members.php?id=<?= (int) $org['id'] ?>" class="btn btn-ghost" aria-label="<?= htmlspecialchars($lang->get('org.manage_members'), ENT_QUOTES, 'UTF-8') ?> — <?= htmlspecialchars($org['name'], ENT_QUOTES, 'UTF-8') ?>">
+                            <?= htmlspecialchars($lang->get('org.manage_members'), ENT_QUOTES, 'UTF-8') ?>
+                        </a>
                         <button type="button" class="btn btn-ghost btn-edit-org" data-id="<?= (int) $org['id'] ?>" data-name="<?= htmlspecialchars($org['name'], ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($org['name'], ENT_QUOTES, 'UTF-8') ?>">
                             <?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?>
                         </button>
