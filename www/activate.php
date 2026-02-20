@@ -8,7 +8,8 @@
 
 require_once dirname(__DIR__) . '/include/bootstrap.php';
 
-$token = $_GET['token'] ?? '';
+// Token may arrive via GET (link click) or POST body (form submission)
+$token = $_GET['token'] ?? $_POST['token'] ?? '';
 $error = '';
 $success = false;
 
@@ -23,7 +24,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $error === '') {
     if (!$csrf->validate($submittedToken)) {
         $error = $lang->get('error.csrf_invalid');
     } else {
-        $token = $_POST['token'] ?? '';
         $username = trim($_POST['username'] ?? '');
         $password = $_POST['password'] ?? '';
         $confirmPassword = $_POST['confirm_password'] ?? '';
