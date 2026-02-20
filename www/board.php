@@ -132,13 +132,16 @@ require ROOT_DIR . '/include/templates/header.php';
                             <?php endif; ?>
 
                             <?php if (!empty($card['assigned_users'])): ?>
-                            <span class="card-assignees">
-                                <?php foreach (array_slice($card['assigned_users'], 0, 3) as $user): ?>
-                                <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
-                                <?php endforeach; ?>
-                                <?php if (count($card['assigned_users']) > 3): ?>
-                                <span class="card-assignee-avatar" title="<?= count($card['assigned_users']) - 3 ?> more">+<?= count($card['assigned_users']) - 3 ?></span>
-                                <?php endif; ?>
+                            <?php
+                                $_allAssigneeNames = implode(', ', array_column($card['assigned_users'], 'name'));
+                                $_assigneesLabel   = $lang->get('card.assigned_to', [$_allAssigneeNames]);
+                            ?>
+                            <span class="card-assignees" aria-label="<?= htmlspecialchars($_assigneesLabel, ENT_QUOTES, 'UTF-8') ?>">
+                                <?php
+                                    $_avatarUsers = $card['assigned_users'];
+                                    $_avatarCap   = 3;
+                                    require ROOT_DIR . '/include/templates/assignee-avatar-stack.php';
+                                ?>
                             </span>
                             <?php endif; ?>
                         </div>

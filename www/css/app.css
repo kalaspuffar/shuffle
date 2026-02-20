@@ -1665,6 +1665,16 @@ small,
     margin-left: 0;
 }
 
+/* Overflow badge — inverts the page's base text/bg pair so contrast is guaranteed
+   in both light and dark mode (avoids the ~2.79:1 failure of --color-text-secondary
+   on white in dark mode). */
+.card-assignee-avatar-overflow {
+    background-color: var(--color-text);
+    color: var(--color-bg);
+    cursor: default;
+    font-size: 9px;
+}
+
 /* =============================================
    Assignee Section & Picker
    ============================================= */
@@ -1675,7 +1685,12 @@ small,
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+}
+
+/* Hide avatar row until JS initialises (only applied when canEdit, removed on init) */
+.card-assignees-avatars.js-loading {
+    visibility: hidden;
 }
 
 /* Task 6.4: "Add assignee" trigger — ghost small button with + icon */

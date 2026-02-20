@@ -157,9 +157,11 @@ require ROOT_DIR . '/include/templates/header.php';
                 data-assigned="<?= htmlspecialchars(json_encode($assignedUserIds, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
                 <?php endif; ?>>
                 <span class="card-assignees-avatars card-detail-meta-value">
-                    <?php foreach ($card['assigned_users'] ?? [] as $user): ?>
-                        <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
-                    <?php endforeach; ?>
+                    <?php
+                        $_avatarUsers = $card['assigned_users'] ?? [];
+                        $_avatarCap   = 3;
+                        require ROOT_DIR . '/include/templates/assignee-avatar-stack.php';
+                    ?>
                 </span>
                 <?php if ($canEdit): ?>
                 <button type="button"
@@ -399,6 +401,8 @@ $cardLang = json_encode([
     'assignee_picker_label'     => $lang->get('card.assignee_picker_label'),
     'assignee_filter_placeholder' => $lang->get('card.assignee_filter_placeholder'),
     'assignee_no_users'         => $lang->get('card.assignee_no_users'),
+    'assignee_overflow_singular' => $lang->get('card.assignee_overflow_singular'),
+    'assignee_overflow_plural'   => $lang->get('card.assignee_overflow_plural'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>
