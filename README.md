@@ -52,7 +52,7 @@ See [doc/setup.md](doc/setup.md) for the full installation guide, including web 
    cd shuffle
    ```
 
-2. Copy the example configuration and edit it with your database, S3, and SMTP settings:
+2. Copy the example configuration and edit it with your database and S3 settings:
 
    ```bash
    cp etc/config.example.php etc/config.php
@@ -65,13 +65,9 @@ See [doc/setup.md](doc/setup.md) for the full installation guide, including web 
    mysql -u root -p shuffle < doc/schema.sql
    ```
 
-4. Run the setup script to create the first admin account and default organization:
+4. Point your web server's document root to the `www/` directory and open the site in a browser.
 
-   ```bash
-   php bin/setup.php
-   ```
-
-5. Point your web server's document root to the `www/` directory and open the site in a browser.
+5. Navigate to `/setup.php` to run the browser-based setup wizard. It will guide you through creating the admin account, configuring SMTP, and sending the first invitation.
 
 ## REST API
 
@@ -80,7 +76,7 @@ Shuffle exposes a REST API at `/v1/`. See [doc/api.md](doc/api.md) for the full 
 ## Repository Layout
 
 ```
-bin/                  CLI tools (setup script, Trello import)
+bin/                  CLI tools (Trello import)
 doc/                  Database schema, setup guide, API reference
 etc/                  Configuration files
 include/Shuffle/      Application code (Core, Models, Services, Controllers)
