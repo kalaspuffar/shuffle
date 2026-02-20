@@ -156,12 +156,14 @@ class OrganizationService
     /**
      * Assigns a user to an organization.
      *
-     * Rejects the operation if the user is already a member of a different
-     * organization — the caller must remove them first.
+     * Uses a targeted single-row lookup to validate the user before assignment,
+     * giving precise error messages for each failure condition (not found,
+     * ineligible, or already assigned to a different org).
      *
      * @param int $orgId  Organization ID
      * @param int $userId User ID
-     * @throws \RuntimeException If org or user not found, or user already assigned elsewhere
+     * @throws \RuntimeException If org not found, user not found, user ineligible,
+     *                           or user already assigned to a different organization
      */
     public function addMember(int $orgId, int $userId): void
     {
@@ -170,22 +172,24 @@ class OrganizationService
             throw new \RuntimeException('Organization not found');
         }
 
-        // Fetch the user to check current assignment
-        $users = $this->orgModel->getUnassignedUsers();
-        $userIds = array_column($users, 'id');
+        $user = $this->orgModel->findUserById($userId);
+        if ($user === null) {
+            throw new \RuntimeException('User not found');
+        }
 
-        // Also fetch current members to check if already in this org
-        $currentMembers = $this->orgModel->getMembers($orgId);
-        $memberIds = array_column($currentMembers, 'id');
-
-        if (in_array($userId, $memberIds, true)) {
-            // Already a member of this org — no-op is fine, but be explicit
+        // Already a member of this org — treat as a no-op (idempotent)
+        if ((int) $user['organization_id'] === $orgId) {
             return;
         }
 
-        if (!in_array($userId, $userIds, true)) {
-            // User is not in the unassigned pool, meaning they belong to another org
+        // Belongs to a different org — caller must remove them first
+        if ($user['organization_id'] !== null) {
             throw new \RuntimeException('User is already assigned to an organization');
+        }
+
+        // Placeholder or inactive users cannot be org members
+        if ($user['is_placeholder'] || $user['status'] !== 'active') {
+            throw new \RuntimeException('User is not eligible for organization membership');
         }
 
         $this->orgModel->addMember($orgId, $userId);

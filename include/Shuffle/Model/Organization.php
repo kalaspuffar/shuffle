@@ -153,6 +153,23 @@ class Organization
     }
 
     /**
+     * Finds a single user by primary key, regardless of org or status.
+     *
+     * Used for targeted validation before membership changes — avoids
+     * the O(n) full-table scans that pool-based checks require.
+     *
+     * @param int $userId User ID
+     * @return array|null User row or null if not found
+     */
+    public function findUserById(int $userId): ?array
+    {
+        return $this->db->fetch(
+            'SELECT id, organization_id, is_placeholder, status FROM users WHERE id = ?',
+            [$userId]
+        );
+    }
+
+    /**
      * Returns all users belonging to an organization.
      *
      * @param int $id Organization ID

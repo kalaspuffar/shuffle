@@ -47,7 +47,7 @@ require ROOT_DIR . '/include/templates/header.php';
     </div>
 
     <!-- Flash message area for JS feedback -->
-    <div id="flash-message" class="flash-message" role="alert" aria-live="polite" hidden></div>
+    <div id="flash-message" class="flash-message" role="status" aria-live="polite" aria-atomic="true" hidden></div>
 
     <!-- Current members table -->
     <section aria-labelledby="members-heading">

@@ -1058,7 +1058,6 @@ small,
 
 /* Section headings within admin pages */
 .section-heading {
-    font-size: var(--font-size-base);
     font-weight: var(--font-weight-semibold);
     color: var(--color-text-secondary);
     margin-bottom: var(--space-3);

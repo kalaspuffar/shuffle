@@ -41,22 +41,25 @@
         if (!row) return;
         row.remove();
 
-        const tbody = document.getElementById('members-tbody');
-        if (tbody && tbody.querySelectorAll('tr').length === 0) {
+        const tbody    = document.getElementById('members-tbody');
+        const remaining = tbody ? tbody.querySelectorAll('tr').length : 0;
+
+        if (remaining === 0) {
+            // Replace the table with the "no members" message; no count update needed
             const tableWrap = document.querySelector('.admin-table-wrap');
             if (tableWrap) {
                 const noMsg = document.createElement('p');
-                noMsg.className  = 'text-secondary';
-                noMsg.id         = 'no-members-message';
+                noMsg.className   = 'text-secondary';
+                noMsg.id          = 'no-members-message';
                 noMsg.textContent = i18n.no_members;
                 tableWrap.replaceWith(noMsg);
             }
+            return;
         }
 
         // Update the member count in the section heading
         const heading = document.getElementById('members-heading');
-        if (heading && tbody) {
-            const remaining = tbody.querySelectorAll('tr').length;
+        if (heading) {
             heading.textContent = heading.textContent.replace(/\(\d+\)/, `(${remaining})`);
         }
     }
