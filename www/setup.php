@@ -2,13 +2,14 @@
 /**
  * Shuffle Web Setup Wizard
  *
- * Multi-step first-run wizard (4 steps) that creates the admin account,
- * configures SMTP, and sends a mandatory first invitation. All database
- * writes are deferred to Step 3 and committed atomically only after the
- * invite email is sent successfully.
+ * Multi-step first-run wizard (5 steps) that creates the admin account,
+ * captures application and infrastructure settings, configures SMTP and S3
+ * storage, and commits everything atomically on the final step. All database
+ * writes are deferred to Step 4 and committed as a single transaction only
+ * after all data is collected and validated.
  *
  * Accessible only when no admin user exists. Redirects to /login.php
- * as soon as any admin account is present (except while rendering Step 4).
+ * as soon as any admin account is present (except while rendering Step 5).
  */
 
 require_once dirname(__DIR__) . '/include/bootstrap.php';
@@ -19,9 +20,9 @@ require_once dirname(__DIR__) . '/include/bootstrap.php';
 
 $adminExists = $db->fetch("SELECT id FROM users WHERE role = 'admin' LIMIT 1");
 
-// Allow Step 4 to render even after the admin was just created
+// Allow Step 5 to render even after the admin was just created
 $sessionStep = (int)(($_SESSION['setup'] ?? [])['step'] ?? 0);
-if ($adminExists !== null && $sessionStep !== 4) {
+if ($adminExists !== null && $sessionStep !== 5) {
     header('Location: /login.php');
     exit;
 }
@@ -34,9 +35,9 @@ if (!isset($_SESSION['setup'])) {
     $_SESSION['setup'] = ['step' => 1];
 }
 
-$step       = (int)($_SESSION['setup']['step'] ?? 1);
-$errors     = [];      // Flat list of banner-level errors
-$fieldErrors = [];     // Keyed by field name for aria-describedby association
+$step        = (int)($_SESSION['setup']['step'] ?? 1);
+$errors      = [];      // Flat list of banner-level errors
+$fieldErrors = [];      // Keyed by field name for aria-describedby association
 
 // --------------------------------------------------------------------------
 // Helper: scalar value for a form field — prefers POST on validation fail,
@@ -81,7 +82,10 @@ if ($isPost) {
                 $result = processStep2($lang);
                 break;
             case 3:
-                $result = processStep3($lang, $db, $config);
+                $result = processStep3($lang);
+                break;
+            case 4:
+                $result = processStep4($lang, $db, $config);
                 break;
         }
 
@@ -189,14 +193,73 @@ function processStep1(object $lang): array
 }
 
 /**
- * Validates Step 2 POST data (SMTP configuration).
+ * Validates Step 2 POST data (application settings).
  * Returns a result array — the caller applies session updates and handles the PRG redirect.
- * Session keys intentionally match POST field names so $fieldValue() works symmetrically
- * with Step 1 — no secondary fallback lookup is required in the template.
  *
  * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
  */
 function processStep2(object $lang): array
+{
+    $fieldErrors = [];
+
+    $appName     = trim($_POST['app_name'] ?? '');
+    $appUrl      = trim($_POST['app_url'] ?? '');
+    $appLocale   = trim($_POST['app_locale'] ?? '');
+    $appTimezone = trim($_POST['app_timezone'] ?? '');
+
+    if ($appName === '') {
+        $fieldErrors['app_name'] = $lang->get('setup.err_app_name_required');
+    } elseif (strlen($appName) > 128) {
+        $fieldErrors['app_name'] = $lang->get('setup.err_app_name_too_long');
+    }
+
+    if ($appUrl === '') {
+        $fieldErrors['app_url'] = $lang->get('setup.err_app_url_required');
+    } elseif (strlen($appUrl) > 255) {
+        $fieldErrors['app_url'] = $lang->get('setup.err_app_url_too_long');
+    }
+
+    if ($appLocale === '') {
+        $fieldErrors['app_locale'] = $lang->get('setup.err_app_locale_required');
+    } elseif (strlen($appLocale) > 10) {
+        $fieldErrors['app_locale'] = $lang->get('setup.err_app_locale_too_long');
+    }
+
+    if ($appTimezone === '') {
+        $fieldErrors['app_timezone'] = $lang->get('setup.err_app_timezone_required');
+    } elseif (strlen($appTimezone) > 64) {
+        $fieldErrors['app_timezone'] = $lang->get('setup.err_app_timezone_too_long');
+    }
+
+    if (!empty($fieldErrors)) {
+        return ['ok' => false, 'fieldErrors' => $fieldErrors, 'errors' => []];
+    }
+
+    return [
+        'ok'          => true,
+        'fieldErrors' => [],
+        'errors'      => [],
+        'sessionUpdates' => [
+            'step2' => [
+                'app_name'     => $appName,
+                'app_url'      => $appUrl,
+                'app_locale'   => $appLocale,
+                'app_timezone' => $appTimezone,
+            ],
+            'step' => 3,
+        ],
+    ];
+}
+
+/**
+ * Validates Step 3 POST data (SMTP configuration).
+ * Returns a result array — the caller applies session updates and handles the PRG redirect.
+ * Session keys intentionally match POST field names so $fieldValue() works symmetrically
+ * with other steps — no secondary fallback lookup is required in the template.
+ *
+ * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
+ */
+function processStep3(object $lang): array
 {
     $fieldErrors = [];
     $errors      = [];
@@ -248,13 +311,13 @@ function processStep2(object $lang): array
         return ['ok' => false, 'fieldErrors' => $fieldErrors, 'errors' => $errors];
     }
 
-    // Keys match POST field names so $fieldValue('smtp_host', 'step2') etc. resolve correctly
+    // Keys match POST field names so $fieldValue('smtp_host', 'step3') etc. resolve correctly
     return [
         'ok'          => true,
         'fieldErrors' => [],
         'errors'      => [],
         'sessionUpdates' => [
-            'step2' => [
+            'step3' => [
                 'smtp_host'       => $host,
                 'smtp_port'       => (int)$port,
                 'smtp_encryption' => $encryption,
@@ -263,37 +326,48 @@ function processStep2(object $lang): array
                 'smtp_from_email' => $fromEmail,
                 'smtp_from_name'  => $fromName,
             ],
-            'step' => 3,
+            'step' => 4,
         ],
     ];
 }
 
 /**
- * Validates Step 3 POST data, then (inside a single atomic transaction) creates the
- * organisation, admin user, SMTP settings, and invited member, and sends the invitation
- * email. On success, the display-safe subset of setup data is consolidated into step3 and
- * all plaintext/hashed credentials are wiped from the session immediately.
+ * Validates Step 4 POST data (S3 storage), then inside a single atomic transaction:
+ * creates the organisation, admin user, and persists all settings (app.*, smtp.*, s3.*)
+ * to the settings table. On success, display-safe fields are consolidated into step4 and
+ * all sensitive data is wiped from the session immediately.
  *
  * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
  */
-function processStep3(object $lang, object $db, array $config): array
+function processStep4(object $lang, object $db, array $config): array
 {
     $fieldErrors = [];
 
-    $inviteeEmail = trim($_POST['invitee_email'] ?? '');
-    $inviteeName  = trim($_POST['invitee_name'] ?? '');
+    $endpoint  = trim($_POST['s3_endpoint'] ?? '');
+    $bucket    = trim($_POST['s3_bucket'] ?? '');
+    $accessKey = trim($_POST['s3_access_key'] ?? '');
+    $secretKey = $_POST['s3_secret_key'] ?? '';
+    $region    = trim($_POST['s3_region'] ?? '');
+    $pathStyle = isset($_POST['s3_path_style']);
 
-    $adminEmail = $_SESSION['setup']['step1']['email'] ?? '';
+    if ($endpoint === '') {
+        $fieldErrors['s3_endpoint'] = $lang->get('setup.err_s3_endpoint_required');
+    }
 
-    // Validate invitee email
-    if ($inviteeEmail === '') {
-        $fieldErrors['invitee_email'] = $lang->get('setup.err_invite_email_required');
-    } elseif (strlen($inviteeEmail) > 255) {
-        $fieldErrors['invitee_email'] = $lang->get('setup.err_invite_email_too_long');
-    } elseif (!filter_var($inviteeEmail, FILTER_VALIDATE_EMAIL)) {
-        $fieldErrors['invitee_email'] = $lang->get('setup.err_invite_email_invalid');
-    } elseif (strtolower($inviteeEmail) === strtolower($adminEmail)) {
-        $fieldErrors['invitee_email'] = $lang->get('setup.err_invite_email_same_as_admin');
+    if ($bucket === '') {
+        $fieldErrors['s3_bucket'] = $lang->get('setup.err_s3_bucket_required');
+    }
+
+    if ($accessKey === '') {
+        $fieldErrors['s3_access_key'] = $lang->get('setup.err_s3_access_key_required');
+    }
+
+    if ($secretKey === '') {
+        $fieldErrors['s3_secret_key'] = $lang->get('setup.err_s3_secret_key_required');
+    }
+
+    if ($region === '') {
+        $fieldErrors['s3_region'] = $lang->get('setup.err_s3_region_required');
     }
 
     if (!empty($fieldErrors)) {
@@ -302,9 +376,7 @@ function processStep3(object $lang, object $db, array $config): array
 
     $step1 = $_SESSION['setup']['step1'];
     $step2 = $_SESSION['setup']['step2'];
-
-    // Use invitee email as display name if none given
-    $displayName = $inviteeName !== '' ? $inviteeName : $inviteeEmail;
+    $step3 = $_SESSION['setup']['step3'];
 
     try {
         $db->beginTransaction();
@@ -313,7 +385,7 @@ function processStep3(object $lang, object $db, array $config): array
         $db->execute('INSERT INTO organizations (name) VALUES (?)', [$step1['org_name']]);
         $orgId = (int)$db->lastInsertId();
 
-        // 2. Create admin user — use the Argon2id hash stored in processStep1();
+        // 2. Create admin user — use the Argon2id hash stored by processStep1();
         //    plaintext password was never written to the session.
         $db->execute(
             'INSERT INTO users (username, password_hash, name, email, role, organization_id, status)
@@ -321,17 +393,28 @@ function processStep3(object $lang, object $db, array $config): array
             [$step1['username'], $step1['password_hash'], $step1['fullname'], $step1['email'], 'admin', $orgId, 'active']
         );
 
-        // 3. Persist SMTP settings to the settings table
-        $smtpKeys = [
-            'smtp.host'       => $step2['smtp_host'],
-            'smtp.port'       => (string)$step2['smtp_port'],
-            'smtp.encryption' => $step2['smtp_encryption'],
-            'smtp.username'   => $step2['smtp_username'],
-            'smtp.password'   => $step2['smtp_password'],
-            'smtp.from_email' => $step2['smtp_from_email'],
-            'smtp.from_name'  => $step2['smtp_from_name'],
+        // 3–5. Persist app, SMTP, and S3 settings atomically
+        $allSettings = [
+            'app.name'        => $step2['app_name'],
+            'app.url'         => $step2['app_url'],
+            'app.locale'      => $step2['app_locale'],
+            'app.timezone'    => $step2['app_timezone'],
+            'smtp.host'       => $step3['smtp_host'],
+            'smtp.port'       => (string)$step3['smtp_port'],
+            'smtp.encryption' => $step3['smtp_encryption'],
+            'smtp.username'   => $step3['smtp_username'],
+            'smtp.password'   => $step3['smtp_password'],
+            'smtp.from_email' => $step3['smtp_from_email'],
+            'smtp.from_name'  => $step3['smtp_from_name'],
+            's3.endpoint'     => $endpoint,
+            's3.bucket'       => $bucket,
+            's3.access_key'   => $accessKey,
+            's3.secret_key'   => $secretKey,
+            's3.region'       => $region,
+            's3.path_style'   => $pathStyle ? '1' : '0',
         ];
-        foreach ($smtpKeys as $key => $value) {
+
+        foreach ($allSettings as $key => $value) {
             $db->execute(
                 'INSERT INTO `settings` (`key`, `value`) VALUES (?, ?)
                  ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)',
@@ -339,78 +422,29 @@ function processStep3(object $lang, object $db, array $config): array
             );
         }
 
-        // 4. Create invited user (inactive, with a 72-hour activation token)
-        $inviteToken = bin2hex(random_bytes(16));
-        $expiresAt   = date('Y-m-d H:i:s', time() + (72 * 3600));
-        $db->execute(
-            'INSERT INTO users (username, password_hash, name, email, role, organization_id, status, invite_token, invite_token_expires_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            ['', '', $displayName, $inviteeEmail, 'member', $orgId, 'inactive', $inviteToken, $expiresAt]
-        );
-
-        // 5. Send the invitation email — using the newly configured SMTP settings
-        $mailer = new Shuffle\Core\Mailer([
-            'host'       => $step2['smtp_host'],
-            'port'       => (int)$step2['smtp_port'],
-            'encryption' => $step2['smtp_encryption'],
-            'username'   => $step2['smtp_username'],
-            'password'   => $step2['smtp_password'],
-            'from_email' => $step2['smtp_from_email'],
-            'from_name'  => $step2['smtp_from_name'],
-        ]);
-
-        $appUrl      = $config['app']['url'] ?? 'http://localhost';
-        $activateUrl = rtrim($appUrl, '/') . '/activate.php?token=' . urlencode($inviteToken);
-
-        $escapedName = htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8');
-        $escapedUrl  = htmlspecialchars($activateUrl, ENT_QUOTES, 'UTF-8');
-
-        $htmlBody = <<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"></head>
-<body>
-<p>{$lang->get('invite.greeting', [$escapedName])}</p>
-<p>{$lang->get('invite.body')}</p>
-<p><a href="{$escapedUrl}">{$escapedUrl}</a></p>
-<p>{$lang->get('invite.expiry')}</p>
-</body>
-</html>
-HTML;
-        $textBody = $lang->get('invite.greeting', [$displayName]) . "\n\n"
-            . $lang->get('invite.body') . "\n\n"
-            . $activateUrl . "\n\n"
-            . $lang->get('invite.expiry');
-
-        $mailer->send($inviteeEmail, $lang->get('invite.subject'), $htmlBody, $textBody);
-
         // All operations succeeded — commit the transaction
         $db->commit();
 
-        // Consolidate display-safe values into step3, then wipe step1 and step2 so that
-        // the Argon2id hash and SMTP password do not linger in the session beyond this point.
+        // Consolidate display-safe values into step4, then wipe step1, step2, and step3 so
+        // that the Argon2id hash and SMTP/S3 credentials do not linger in the session.
         return [
             'ok'          => true,
             'fieldErrors' => [],
             'errors'      => [],
             'sessionUpdates' => [
-                'step3' => [
-                    'invitee_email'   => $inviteeEmail,
-                    'invitee_name'    => $displayName,
-                    // Move display-only fields here so step1/step2 can be wiped immediately
+                'step4' => [
                     'org_name'        => $step1['org_name'],
                     'admin_username'  => $step1['username'],
-                    'smtp_from_email' => $step2['smtp_from_email'],
+                    'app_url'         => $step2['app_url'],
+                    'smtp_from_email' => $step3['smtp_from_email'],
                 ],
                 'step1' => [],  // Wipe — Argon2id hash no longer needed
-                'step2' => [],  // Wipe — SMTP password no longer needed
-                'step'  => 4,
+                'step2' => [],  // Wipe — app settings no longer needed in session
+                'step3' => [],  // Wipe — SMTP password no longer needed
+                'step'  => 5,
             ],
         ];
 
-    } catch (\RuntimeException $e) {
-        $db->rollBack();
-        return ['ok' => false, 'fieldErrors' => [], 'errors' => [$lang->get('setup.err_invite_send_failed', [$e->getMessage()])]];
     } catch (\Exception $e) {
         $db->rollBack();
         return ['ok' => false, 'fieldErrors' => [], 'errors' => [$lang->get('setup.err_transaction_failed')]];
@@ -491,13 +525,14 @@ function renderFieldError(string $name): void
 
 $appName    = t('app.name');
 $csrfToken  = h($csrf->getToken());
-$totalSteps = 4;
+$totalSteps = 5;
 
 $stepLabels = [
     1 => $lang->get('setup.step_label_admin'),
-    2 => $lang->get('setup.step_label_smtp'),
-    3 => $lang->get('setup.step_label_invite'),
-    4 => $lang->get('setup.step_label_complete'),
+    2 => $lang->get('setup.step_label_app_settings'),
+    3 => $lang->get('setup.step_label_smtp'),
+    4 => $lang->get('setup.step_label_storage'),
+    5 => $lang->get('setup.step_label_complete'),
 ];
 ?>
 <!DOCTYPE html>
@@ -687,12 +722,113 @@ $stepLabels = [
             </div>
 
             <!-- =========================================================
-                 STEP 2 — SMTP Configuration
+                 STEP 2 — App Settings
                  ========================================================= -->
             <?php elseif ($step === 2): ?>
             <div class="wizard-step-content">
                 <h2 class="wizard-step-heading"><?= t('setup.step2_heading') ?></h2>
                 <p class="wizard-step-description"><?= t('setup.step2_description') ?></p>
+
+                <form method="post" action="/setup.php" novalidate>
+                    <input type="hidden" name="_csrf" value="<?= $csrfToken ?>">
+
+                    <div class="form-group">
+                        <label for="app_name" class="form-label"><?= t('setup.app_name') ?></label>
+                        <input
+                            type="text"
+                            id="app_name"
+                            name="app_name"
+                            class="form-input<?= invalidClass('app_name') ?>"
+                            placeholder="<?= t('setup.app_name_placeholder') ?>"
+                            value="<?= h($fieldValue('app_name', 'step2') ?: 'Shuffle') ?>"
+                            maxlength="128"
+                            required
+                            aria-required="true"
+                            autofocus
+                            <?= ariaDescribedBy('app_name') ?>
+                        >
+                        <?php renderFieldError('app_name'); ?>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_url" class="form-label"><?= t('setup.app_url') ?></label>
+                        <input
+                            type="url"
+                            id="app_url"
+                            name="app_url"
+                            class="form-input<?= invalidClass('app_url') ?>"
+                            placeholder="<?= t('setup.app_url_placeholder') ?>"
+                            value="<?= h($fieldValue('app_url', 'step2')) ?>"
+                            maxlength="255"
+                            autocomplete="off"
+                            spellcheck="false"
+                            required
+                            aria-required="true"
+                            <?= ariaDescribedBy('app_url') ?>
+                        >
+                        <?php renderFieldError('app_url'); ?>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_locale" class="form-label"><?= t('setup.app_locale') ?></label>
+                        <input
+                            type="text"
+                            id="app_locale"
+                            name="app_locale"
+                            class="form-input<?= invalidClass('app_locale') ?>"
+                            placeholder="<?= t('setup.app_locale_placeholder') ?>"
+                            value="<?= h($fieldValue('app_locale', 'step2') ?: 'en') ?>"
+                            maxlength="10"
+                            autocomplete="off"
+                            autocapitalize="none"
+                            spellcheck="false"
+                            required
+                            aria-required="true"
+                            aria-describedby="app_locale-help<?= fieldErrorId('app_locale') !== '' ? ' app_locale-error' : '' ?>"
+                        >
+                        <p id="app_locale-help" class="form-hint"><?= t('setup.app_locale_hint') ?></p>
+                        <?php renderFieldError('app_locale'); ?>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="app_timezone" class="form-label"><?= t('setup.app_timezone') ?></label>
+                        <input
+                            type="text"
+                            id="app_timezone"
+                            name="app_timezone"
+                            class="form-input<?= invalidClass('app_timezone') ?>"
+                            placeholder="<?= t('setup.app_timezone_placeholder') ?>"
+                            value="<?= h($fieldValue('app_timezone', 'step2') ?: 'UTC') ?>"
+                            maxlength="64"
+                            autocomplete="off"
+                            autocapitalize="none"
+                            spellcheck="false"
+                            required
+                            aria-required="true"
+                            aria-describedby="app_timezone-help<?= fieldErrorId('app_timezone') !== '' ? ' app_timezone-error' : '' ?>"
+                        >
+                        <p id="app_timezone-help" class="form-hint"><?= t('setup.app_timezone_hint') ?></p>
+                        <?php renderFieldError('app_timezone'); ?>
+                    </div>
+
+                    <div class="wizard-actions">
+                        <button type="submit" name="action" value="back" class="btn btn-ghost">
+                            <?= t('setup.btn_back') ?>
+                        </button>
+                        <button type="submit" name="action" value="next" class="btn btn-primary">
+                            <?= t('setup.btn_next') ?>
+                        </button>
+                    </div>
+                </form>
+            </div>
+
+            <!-- =========================================================
+                 STEP 3 — SMTP Configuration
+                 ========================================================= -->
+            <?php elseif ($step === 3): ?>
+            <div class="wizard-step-content">
+                <h2 class="wizard-step-heading"><?= t('setup.step3_heading') ?></h2>
+                <p class="wizard-step-description"><?= t('setup.step3_description') ?></p>
 
                 <form method="post" action="/setup.php" novalidate>
                     <input type="hidden" name="_csrf" value="<?= $csrfToken ?>">
@@ -708,7 +844,7 @@ $stepLabels = [
                                 name="smtp_host"
                                 class="form-input<?= invalidClass('smtp_host') ?>"
                                 placeholder="<?= t('setup.smtp_host_placeholder') ?>"
-                                value="<?= h($fieldValue('smtp_host', 'step2')) ?>"
+                                value="<?= h($fieldValue('smtp_host', 'step3')) ?>"
                                 autocomplete="off"
                                 spellcheck="false"
                                 required
@@ -725,7 +861,7 @@ $stepLabels = [
                                 id="smtp_port"
                                 name="smtp_port"
                                 class="form-input<?= invalidClass('smtp_port') ?>"
-                                value="<?= h($fieldValue('smtp_port', 'step2') ?: '587') ?>"
+                                value="<?= h($fieldValue('smtp_port', 'step3') ?: '587') ?>"
                                 min="1"
                                 max="65535"
                                 required
@@ -741,7 +877,7 @@ $stepLabels = [
                         <?php
                         $currentEncryption = $isPost
                             ? ($_POST['smtp_encryption'] ?? 'tls')
-                            : ($_SESSION['setup']['step2']['smtp_encryption'] ?? 'tls');
+                            : ($_SESSION['setup']['step3']['smtp_encryption'] ?? 'tls');
                         ?>
                         <select
                             id="smtp_encryption"
@@ -767,7 +903,7 @@ $stepLabels = [
                                 name="smtp_username"
                                 class="form-input"
                                 placeholder="<?= t('setup.smtp_username_placeholder') ?>"
-                                value="<?= h($fieldValue('smtp_username', 'step2')) ?>"
+                                value="<?= h($fieldValue('smtp_username', 'step3')) ?>"
                                 autocomplete="off"
                                 autocapitalize="none"
                                 spellcheck="false"
@@ -794,7 +930,7 @@ $stepLabels = [
                             name="smtp_from_email"
                             class="form-input<?= invalidClass('smtp_from_email') ?>"
                             placeholder="<?= t('setup.smtp_from_email_placeholder') ?>"
-                            value="<?= h($fieldValue('smtp_from_email', 'step2')) ?>"
+                            value="<?= h($fieldValue('smtp_from_email', 'step3')) ?>"
                             autocomplete="off"
                             required
                             aria-required="true"
@@ -811,7 +947,7 @@ $stepLabels = [
                             name="smtp_from_name"
                             class="form-input<?= invalidClass('smtp_from_name') ?>"
                             placeholder="<?= t('setup.smtp_from_name_placeholder') ?>"
-                            value="<?= h($fieldValue('smtp_from_name', 'step2')) ?>"
+                            value="<?= h($fieldValue('smtp_from_name', 'step3')) ?>"
                             autocomplete="off"
                             required
                             aria-required="true"
@@ -855,47 +991,122 @@ $stepLabels = [
             </div>
 
             <!-- =========================================================
-                 STEP 3 — Invite First Member
+                 STEP 4 — S3 Storage
                  ========================================================= -->
-            <?php elseif ($step === 3): ?>
+            <?php elseif ($step === 4): ?>
             <div class="wizard-step-content">
-                <h2 class="wizard-step-heading"><?= t('setup.step3_heading') ?></h2>
-                <p class="wizard-step-description"><?= t('setup.step3_description') ?></p>
+                <h2 class="wizard-step-heading"><?= t('setup.step4_heading') ?></h2>
+                <p class="wizard-step-description"><?= t('setup.step4_description') ?></p>
 
                 <form method="post" action="/setup.php" novalidate>
                     <input type="hidden" name="_csrf" value="<?= $csrfToken ?>">
 
                     <div class="form-group">
-                        <label for="invitee_email" class="form-label"><?= t('setup.invite_email') ?></label>
+                        <label for="s3_endpoint" class="form-label"><?= t('setup.s3_endpoint') ?></label>
                         <input
-                            type="email"
-                            id="invitee_email"
-                            name="invitee_email"
-                            class="form-input<?= invalidClass('invitee_email') ?>"
-                            placeholder="<?= t('setup.invite_email_placeholder') ?>"
-                            value="<?= h($isPost ? trim($_POST['invitee_email'] ?? '') : '') ?>"
-                            maxlength="255"
-                            autocomplete="email"
+                            type="url"
+                            id="s3_endpoint"
+                            name="s3_endpoint"
+                            class="form-input<?= invalidClass('s3_endpoint') ?>"
+                            placeholder="<?= t('setup.s3_endpoint_placeholder') ?>"
+                            value="<?= h($fieldValue('s3_endpoint', 'step4')) ?>"
+                            autocomplete="off"
+                            spellcheck="false"
                             required
                             aria-required="true"
-                            autofocus
-                            <?= ariaDescribedBy('invitee_email') ?>
+                            <?= ariaDescribedBy('s3_endpoint') ?>
                         >
-                        <?php renderFieldError('invitee_email'); ?>
+                        <?php renderFieldError('s3_endpoint'); ?>
                     </div>
 
                     <div class="form-group">
-                        <label for="invitee_name" class="form-label"><?= t('setup.invite_name') ?></label>
+                        <label for="s3_bucket" class="form-label"><?= t('setup.s3_bucket') ?></label>
                         <input
                             type="text"
-                            id="invitee_name"
-                            name="invitee_name"
-                            class="form-input"
-                            placeholder="<?= t('setup.invite_name_placeholder') ?>"
-                            value="<?= h($isPost ? trim($_POST['invitee_name'] ?? '') : '') ?>"
-                            maxlength="128"
-                            autocomplete="name"
+                            id="s3_bucket"
+                            name="s3_bucket"
+                            class="form-input<?= invalidClass('s3_bucket') ?>"
+                            placeholder="<?= t('setup.s3_bucket_placeholder') ?>"
+                            value="<?= h($fieldValue('s3_bucket', 'step4')) ?>"
+                            autocomplete="off"
+                            spellcheck="false"
+                            required
+                            aria-required="true"
+                            <?= ariaDescribedBy('s3_bucket') ?>
                         >
+                        <?php renderFieldError('s3_bucket'); ?>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group form-group--grow">
+                            <label for="s3_access_key" class="form-label"><?= t('setup.s3_access_key') ?></label>
+                            <input
+                                type="text"
+                                id="s3_access_key"
+                                name="s3_access_key"
+                                class="form-input<?= invalidClass('s3_access_key') ?>"
+                                placeholder="<?= t('setup.s3_access_key_placeholder') ?>"
+                                value="<?= h($fieldValue('s3_access_key', 'step4')) ?>"
+                                autocomplete="off"
+                                autocapitalize="none"
+                                spellcheck="false"
+                                required
+                                aria-required="true"
+                                <?= ariaDescribedBy('s3_access_key') ?>
+                            >
+                            <?php renderFieldError('s3_access_key'); ?>
+                        </div>
+
+                        <div class="form-group form-group--grow">
+                            <label for="s3_secret_key" class="form-label"><?= t('setup.s3_secret_key') ?></label>
+                            <input
+                                type="password"
+                                id="s3_secret_key"
+                                name="s3_secret_key"
+                                class="form-input<?= invalidClass('s3_secret_key') ?>"
+                                placeholder="<?= t('setup.s3_secret_key_placeholder') ?>"
+                                autocomplete="new-password"
+                                required
+                                aria-required="true"
+                                <?= ariaDescribedBy('s3_secret_key') ?>
+                            >
+                            <?php renderFieldError('s3_secret_key'); ?>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="s3_region" class="form-label"><?= t('setup.s3_region') ?></label>
+                        <input
+                            type="text"
+                            id="s3_region"
+                            name="s3_region"
+                            class="form-input<?= invalidClass('s3_region') ?>"
+                            placeholder="<?= t('setup.s3_region_placeholder') ?>"
+                            value="<?= h($fieldValue('s3_region', 'step4') ?: 'us-east-1') ?>"
+                            autocomplete="off"
+                            autocapitalize="none"
+                            spellcheck="false"
+                            required
+                            aria-required="true"
+                            <?= ariaDescribedBy('s3_region') ?>
+                        >
+                        <?php renderFieldError('s3_region'); ?>
+                    </div>
+
+                    <div class="form-group">
+                        <div class="form-checkbox">
+                            <input
+                                type="checkbox"
+                                id="s3_path_style"
+                                name="s3_path_style"
+                                class="form-checkbox-input"
+                                <?= (!$isPost && ($_SESSION['setup']['step4']['s3_path_style'] ?? false)) || ($isPost && isset($_POST['s3_path_style'])) ? 'checked' : '' ?>
+                            >
+                            <label for="s3_path_style" class="form-checkbox-label">
+                                <?= t('setup.s3_path_style') ?>
+                            </label>
+                        </div>
+                        <p class="form-hint"><?= t('setup.s3_path_style_hint') ?></p>
                     </div>
 
                     <div class="wizard-actions">
@@ -910,29 +1121,29 @@ $stepLabels = [
             </div>
 
             <!-- =========================================================
-                 STEP 4 — Confirmation
+                 STEP 5 — Confirmation
                  ========================================================= -->
-            <?php elseif ($step === 4): ?>
+            <?php elseif ($step === 5): ?>
             <div class="wizard-step-content">
-                <h2 class="wizard-step-heading"><?= t('setup.step4_heading') ?></h2>
-                <p class="wizard-step-description"><?= t('setup.step4_description') ?></p>
+                <h2 class="wizard-step-heading"><?= t('setup.step5_heading') ?></h2>
+                <p class="wizard-step-description"><?= t('setup.step5_description') ?></p>
 
                 <dl class="setup-summary">
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_org_name') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step3']['org_name'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step4']['org_name'] ?? '') ?></dd>
                     </div>
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_admin_username') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step3']['admin_username'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step4']['admin_username'] ?? '') ?></dd>
+                    </div>
+                    <div class="setup-summary-row">
+                        <dt><?= t('setup.confirm_app_url') ?></dt>
+                        <dd><?= h($_SESSION['setup']['step4']['app_url'] ?? '') ?></dd>
                     </div>
                     <div class="setup-summary-row">
                         <dt><?= t('setup.confirm_smtp_from') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step3']['smtp_from_email'] ?? '') ?></dd>
-                    </div>
-                    <div class="setup-summary-row">
-                        <dt><?= t('setup.confirm_invite_sent_to') ?></dt>
-                        <dd><?= h($_SESSION['setup']['step3']['invitee_email'] ?? '') ?></dd>
+                        <dd><?= h($_SESSION['setup']['step4']['smtp_from_email'] ?? '') ?></dd>
                     </div>
                 </dl>
 
@@ -942,7 +1153,7 @@ $stepLabels = [
             </div>
             <?php
             // Belt-and-suspenders: destroy the setup session namespace as soon as the
-            // confirmation screen has rendered. This closes the step-4 security exception
+            // confirmation screen has rendered. This closes the step-5 security exception
             // window immediately rather than leaving it open for up to 24 hours.
             unset($_SESSION['setup']);
             ?>
@@ -951,7 +1162,7 @@ $stepLabels = [
         </div><!-- /.setup-card -->
     </main>
 
-    <?php if ($step === 2): ?>
+    <?php if ($step === 3): ?>
     <script src="/js/setup.js"></script>
     <?php endif; ?>
 </body>

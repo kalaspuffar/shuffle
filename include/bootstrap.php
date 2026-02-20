@@ -29,6 +29,39 @@ date_default_timezone_set($config['app']['timezone'] ?? 'UTC');
 // 4. Initialize Database singleton
 $db = new Shuffle\Core\Database($config['db']);
 
+// 4a. Merge settings table values into $config, overriding any config.php defaults.
+//     Dotted keys are expanded into nested arrays (e.g. 'smtp.host' → $config['smtp']['host']).
+//     Type coercions are applied for fields that must not remain strings.
+try {
+    $dbSettings = $db->fetchAll("SELECT `key`, `value` FROM `settings`");
+    foreach ($dbSettings as $row) {
+        $parts = explode('.', $row['key'], 2);
+        if (count($parts) === 2) {
+            [$section, $name] = $parts;
+            $value = $row['value'];
+
+            // Apply type coercions for known numeric/boolean fields
+            if ($row['key'] === 'smtp.port' || $row['key'] === 'polling.interval' || $row['key'] === 'upload.chunk_size') {
+                $value = (int)$value;
+            } elseif ($row['key'] === 's3.path_style') {
+                // Stored as '1' (true) or '0' (false) in the database
+                $value = ($value === '1');
+            }
+
+            $config[$section][$name] = $value;
+        }
+    }
+
+    // Re-apply timezone if app.timezone was loaded from the DB, overriding the
+    // config.php value that was set earlier in bootstrap before DB was available.
+    if (isset($config['app']['timezone'])) {
+        date_default_timezone_set($config['app']['timezone']);
+    }
+} catch (\Exception $e) {
+    // Settings table may not exist on a fresh install before setup runs.
+    // Bootstrap continues with config.php values only.
+}
+
 // 5. Initialize and start custom session handler
 $session = new Shuffle\Core\Session($db, $config['session']);
 $session->start();
