@@ -25,7 +25,7 @@ $response = new Shuffle\Core\Response();
 $method = $request->getMethod();
 $path = $request->getPath();
 
-$csrfExemptPaths = ['/auth/login', '/users/activate'];
+$csrfExemptPaths = ['/auth/login', '/users/activate', '/setup/test-smtp'];
 $requiresCsrf = in_array($method, ['POST', 'PUT', 'DELETE', 'PATCH'], true);
 
 if ($requiresCsrf) {
@@ -45,8 +45,23 @@ $authController = new Shuffle\Controller\AuthController($auth, $csrf);
 
 $userModel   = new Shuffle\Model\User($db);
 $userService = new Shuffle\Service\UserService($userModel);
-$mailer      = new Shuffle\Core\Mailer($config['smtp'] ?? []);
-$appUrl      = $config['app']['url'] ?? 'http://localhost';
+
+// Resolve SMTP config: database settings take precedence over config.php
+$smtpRows = $db->fetchAll(
+    "SELECT `key`, `value` FROM `settings` WHERE `key` LIKE 'smtp.%'"
+);
+if (!empty($smtpRows)) {
+    $smtpConfig = [];
+    foreach ($smtpRows as $row) {
+        // Strip the 'smtp.' prefix to produce array keys like 'host', 'port', etc.
+        $smtpConfig[substr($row['key'], 5)] = $row['value'];
+    }
+} else {
+    $smtpConfig = $config['smtp'] ?? [];
+}
+
+$mailer = new Shuffle\Core\Mailer($smtpConfig);
+$appUrl = $config['app']['url'] ?? 'http://localhost';
 $userController = new Shuffle\Controller\UserController($auth, $userService, $mailer, $appUrl);
 
 $orgModel      = new Shuffle\Model\Organization($db);
@@ -101,6 +116,9 @@ $attachmentController = new Shuffle\Controller\AttachmentController($auth, $atta
 // Search system
 $searchService    = new Shuffle\Service\SearchService($db);
 $searchController = new Shuffle\Controller\SearchController($auth, $searchService);
+
+// Setup wizard (unauthenticated; guarded by admin-existence check inside controller)
+$setupController = new Shuffle\Controller\SetupController($db);
 
 // Wire services into CardService for full card loading
 $cardService->setCommentService($commentService);
@@ -182,6 +200,9 @@ $router->delete('/notifications/{id}', [$notificationController, 'delete']);
 
 // Search routes
 $router->get('/search', [$searchController, 'search']);
+
+// Setup routes (unauthenticated, guarded internally)
+$router->post('/setup/test-smtp', [$setupController, 'testSmtp']);
 
 // Attachment routes
 $router->post('/cards/{cardId}/attachments', [$attachmentController, 'create']);

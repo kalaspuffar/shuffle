@@ -256,6 +256,15 @@ CREATE TABLE IF NOT EXISTS `card_labels` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------
+-- settings (application key/value configuration store)
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `settings` (
+    `key`   VARCHAR(64) NOT NULL,
+    `value` TEXT        NOT NULL,
+    PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------
 -- sessions (MySQL-backed session storage)
 -- -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `sessions` (

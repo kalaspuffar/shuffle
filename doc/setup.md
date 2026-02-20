@@ -19,7 +19,7 @@ PHP extensions required: `pdo_mysql`, `mbstring`, `json`, `openssl`, `filter`
 ```bash
 git clone https://github.com/your-org/shuffle.git /var/www/shuffle
 cd /var/www/shuffle
-chmod +x bin/setup.php bin/trello-import.php
+chmod +x bin/trello-import.php
 ```
 
 ---
@@ -56,7 +56,6 @@ Edit `/var/www/shuffle/etc/config.php`:
 ```php
 return [
     'app' => [
-        'name'     => 'Shuffle',               // Application name shown in UI
         'url'      => 'https://boards.example.com',
         'locale'   => 'en',
         'timezone' => 'UTC',
@@ -77,15 +76,8 @@ return [
         'region'     => 'us-east-1',
         'path_style' => true,   // true for MinIO; false for AWS virtual-hosted style
     ],
-    'smtp' => [
-        'host'       => 'smtp.example.com',
-        'port'       => 587,
-        'encryption' => 'tls',           // 'tls', 'ssl', or '' for none
-        'username'   => 'noreply@example.com',
-        'password'   => 'smtp-password',
-        'from_email' => 'noreply@boards.example.com',
-        'from_name'  => 'Shuffle',
-    ],
+    // SMTP is configured via the web wizard at /setup.php (see Section 7 below).
+    // You do not need an smtp block here for a standard installation.
     'session' => [
         'lifetime'    => 86400,     // Session lifetime in seconds (24h)
         'cookie_name' => 'shuffle_session',
@@ -229,26 +221,82 @@ server {
 ```bash
 chown -R www-data:www-data /var/www/shuffle
 chmod 640 /var/www/shuffle/etc/config.php
-chmod -R 750 /var/www/shuffle/bin
+chmod -R 750 /var/www/shuffle/bin/trello-import.php
 ```
 
 ---
 
-## 7. First Admin Account
+## 7. First Admin Account — Web Setup Wizard
 
-Run the interactive setup script to create the initial administrator account and default organization:
+On a fresh installation (no admin user in the database), Shuffle redirects all requests to the setup wizard. Open your browser and navigate to:
 
-```bash
-php /var/www/shuffle/bin/setup.php
+```
+https://boards.example.com/setup.php
 ```
 
-You will be prompted for:
-- **Username** (3–64 chars, letters/numbers/dots/hyphens/underscores)
-- **Full name**
-- **Email address**
-- **Password** (minimum 8 characters)
+The wizard walks you through four steps:
 
-The script creates the default organization (named after `config['app']['name']`) and the admin user in a single transaction.
+| Step | What happens |
+|------|--------------|
+| **1 — Admin Account** | Enter your organisation name, admin username, full name, email, and password. |
+| **2 — SMTP Configuration** | Enter your SMTP server details. Click **Test Connection** to verify the settings before continuing. |
+| **3 — Invite First Member** | Enter a colleague's email address. Shuffle sends the invitation to confirm the full email pipeline. |
+| **4 — Complete** | A summary of what was created. Click **Go to Login** to sign in. |
+
+> **Note:** All database writes are deferred until Step 3. If the invitation email fails to send, nothing is committed and you can correct the SMTP settings and retry.
+
+Once setup completes, `/setup.php` is automatically locked: any visit redirects to `/login.php`.
+
+---
+
+### 7a. Headless / Automated Deployment
+
+For deployments where a browser session is not possible (e.g. CI/CD pipelines, Docker entrypoints), you can seed the database directly instead of using the wizard.
+
+**Required SQL** (run after importing the schema):
+
+```sql
+-- Create the organisation
+INSERT INTO organizations (name) VALUES ('Acme Corp');
+SET @org_id = LAST_INSERT_ID();
+
+-- Create the admin user (replace values as needed)
+INSERT INTO users (username, password_hash, name, email, role, organization_id, status)
+VALUES (
+    'admin',
+    -- Generate with: php -r "echo password_hash('your-password', PASSWORD_ARGON2ID);"
+    '$argon2id$v=19$...',
+    'Admin User',
+    'admin@example.com',
+    'admin',
+    @org_id,
+    'active'
+);
+
+-- Seed SMTP settings (replaces the web wizard SMTP step)
+INSERT INTO settings (`key`, `value`) VALUES
+    ('smtp.host',       'smtp.example.com'),
+    ('smtp.port',       '587'),
+    ('smtp.encryption', 'tls'),
+    ('smtp.username',   'noreply@example.com'),
+    ('smtp.password',   'smtp-password'),
+    ('smtp.from_email', 'noreply@boards.example.com'),
+    ('smtp.from_name',  'Shuffle');
+```
+
+Alternatively, you can add an `smtp` array to `etc/config.php` as a fallback (used only when no `smtp.*` rows exist in the `settings` table):
+
+```php
+'smtp' => [
+    'host'       => 'smtp.example.com',
+    'port'       => 587,
+    'encryption' => 'tls',
+    'username'   => 'noreply@example.com',
+    'password'   => 'smtp-password',
+    'from_email' => 'noreply@boards.example.com',
+    'from_name'  => 'Shuffle',
+],
+```
 
 ---
 

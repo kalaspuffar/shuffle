@@ -7,7 +7,6 @@
  */
 return [
     'app' => [
-        'name'     => 'Shuffle',
         'url'      => 'https://shuffle.example.com',
         'locale'   => 'en',
         'timezone' => 'UTC',
@@ -28,15 +27,25 @@ return [
         'region'     => 'us-east-1',
         'path_style' => true,
     ],
-    'smtp' => [
-        'host'       => '127.0.0.1',
-        'port'       => 587,
-        'encryption' => 'tls',
-        'username'   => '',
-        'password'   => '',
-        'from_email' => 'noreply@shuffle.example.com',
-        'from_name'  => 'Shuffle',
-    ],
+    // SMTP is configured via the web setup wizard at /setup.php and stored in the
+    // database `settings` table. You do not need an `smtp` block here for a
+    // standard installation — run the wizard on first visit instead.
+    //
+    // For automated / headless deployments that cannot use the wizard, you may
+    // add an `smtp` array here as a fallback. It is used only when no `smtp.*`
+    // rows exist in the `settings` table, so it will be ignored on any instance
+    // that has already been configured via the wizard.
+    //
+    // 'smtp' => [
+    //     'host'       => 'smtp.example.com',
+    //     'port'       => 587,
+    //     'encryption' => 'tls',   // 'tls', 'ssl', or 'none'
+    //     'username'   => '',
+    //     'password'   => '',
+    //     'from_email' => 'noreply@shuffle.example.com',
+    //     'from_name'  => 'Shuffle',
+    // ],
+
     'session' => [
         'lifetime'    => 86400,     // 24 hours
         'cookie_name' => 'shuffle_session',

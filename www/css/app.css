@@ -3162,3 +3162,343 @@ small,
     color: var(--color-text-secondary);
     margin-bottom: 0;
 }
+
+/* =============================================
+   Setup Wizard
+   ============================================= */
+
+/* ------ Form utilities used by the wizard ------ */
+
+.form-hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-secondary);
+    margin-top: var(--space-1);
+    margin-bottom: 0;
+}
+
+.form-field-error {
+    font-size: var(--font-size-xs);
+    color: var(--color-error);
+    margin-top: var(--space-1);
+    margin-bottom: 0;
+}
+
+/* Side-by-side form group row (e.g. host + port) */
+.form-row {
+    display: flex;
+    gap: var(--space-4);
+    align-items: flex-start;
+}
+
+.form-group--grow {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* Compact fixed-width column for port / short inputs */
+.form-group--port {
+    flex: 0 0 100px;
+}
+
+/* ------ Page layout ------ */
+
+.setup-page {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 100vh;
+    padding: var(--space-8) var(--space-4);
+    box-sizing: border-box;
+}
+
+.setup-container {
+    width: 100%;
+    max-width: 600px;
+}
+
+.setup-card {
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-xl);
+    padding: var(--space-8);
+    box-shadow: var(--shadow-elevated);
+}
+
+.setup-card-header {
+    text-align: center;
+    margin-bottom: var(--space-6);
+}
+
+.setup-title {
+    font-size: var(--font-size-xl);
+    font-weight: var(--font-weight-bold);
+    color: var(--color-text);
+    margin: 0;
+}
+
+/* ------ Step indicator ------ */
+
+.wizard-steps {
+    margin-bottom: var(--space-8);
+}
+
+.wizard-steps-list {
+    display: flex;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    position: relative;
+}
+
+/* Connector line between steps */
+.wizard-steps-list::before {
+    content: '';
+    position: absolute;
+    top: 16px; /* centre of the 32 px circles */
+    left: 16px;
+    right: 16px;
+    height: 2px;
+    background-color: var(--color-border);
+    z-index: 0;
+}
+
+.wizard-step {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    position: relative;
+    z-index: 1;
+}
+
+.wizard-step-circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-semibold);
+    border: 2px solid transparent;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.wizard-step-label {
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-medium);
+    text-align: center;
+    line-height: var(--line-height-tight);
+}
+
+/* Upcoming step */
+.step--upcoming .wizard-step-circle {
+    background-color: var(--color-elevated);
+    border-color: var(--color-border);
+    color: var(--color-text-disabled);
+}
+
+.step--upcoming .wizard-step-label {
+    color: var(--color-text-disabled);
+}
+
+/* Active (current) step */
+.step--active .wizard-step-circle {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-text-on-primary);
+}
+
+.step--active .wizard-step-label {
+    color: var(--color-primary-text);
+    font-weight: var(--font-weight-semibold);
+}
+
+/* Completed step */
+.step--completed .wizard-step-circle {
+    background-color: var(--color-success-subtle);
+    border-color: var(--color-success);
+    color: var(--color-success);
+}
+
+.step--completed .wizard-step-label {
+    color: var(--color-success);
+}
+
+/* Connector segment before a completed step */
+.step--completed + .wizard-step::before,
+.step--active + .wizard-step::before {
+    content: '';
+    position: absolute;
+    top: 16px;
+    left: calc(-50% + 16px);
+    right: 50%;
+    height: 2px;
+    background-color: var(--color-success);
+    z-index: 0;
+}
+
+/* ------ Step content ------ */
+
+.wizard-step-content {
+    /* No extra styling needed — inherits card padding */
+}
+
+.wizard-step-heading {
+    font-size: var(--font-size-lg);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text);
+    margin-top: 0;
+    margin-bottom: var(--space-2);
+}
+
+.wizard-step-description {
+    font-size: var(--font-size-sm);
+    color: var(--color-text-secondary);
+    margin-bottom: var(--space-6);
+    margin-top: 0;
+}
+
+/* ------ Navigation button row ------ */
+
+.wizard-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+    padding-top: var(--space-5);
+    border-top: 1px solid var(--color-border-subtle);
+}
+
+.wizard-actions--center {
+    justify-content: center;
+    border-top: none;
+    padding-top: var(--space-2);
+}
+
+/* ------ SMTP test section ------ */
+
+.smtp-test-section {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background-color: var(--color-elevated);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius-md);
+    margin-bottom: var(--space-5);
+    flex-wrap: wrap;
+}
+
+.smtp-test-result {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    line-height: var(--line-height-body);
+    flex: 1 1 200px;
+    min-width: 0;
+    word-break: break-word;
+}
+
+/* Test result states */
+.smtp-test-result--success {
+    color: var(--color-success);
+}
+
+.smtp-test-result--success::before {
+    content: '✓ ';
+}
+
+.smtp-test-result--error {
+    color: var(--color-error);
+}
+
+.smtp-test-result--error::before {
+    content: '✕ ';
+}
+
+/* ------ Confirmation summary (Step 4) ------ */
+
+.setup-summary {
+    background-color: var(--color-elevated);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--border-radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-6);
+}
+
+.setup-summary-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-4);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.setup-summary-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.setup-summary-row:first-child {
+    padding-top: 0;
+}
+
+.setup-summary-row dt {
+    font-size: var(--font-size-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--color-text-secondary);
+}
+
+.setup-summary-row dd {
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    margin: 0;
+    word-break: break-word;
+}
+
+/* ------ Responsive: mobile single-column ------ */
+
+@media (max-width: 600px) {
+    .setup-page {
+        padding: var(--space-4) var(--space-3);
+        align-items: flex-start;
+    }
+
+    .setup-card {
+        padding: var(--space-6) var(--space-5);
+    }
+
+    /* Stack form rows vertically on narrow screens */
+    .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .form-group--port {
+        flex: 1 1 auto;
+    }
+
+    /* Step labels: scale down on narrow screens rather than hiding entirely,
+       so sighted users still have text context beyond the numbered circles. */
+    .wizard-step-label {
+        font-size: 0.6rem;
+        white-space: normal;
+        text-align: center;
+        max-width: 3.5rem;
+    }
+
+    .wizard-actions {
+        flex-wrap: wrap;
+    }
+
+    .wizard-actions .btn {
+        flex: 1 1 auto;
+    }
+
+    .setup-summary-row {
+        grid-template-columns: 1fr;
+        gap: var(--space-1);
+    }
+}
