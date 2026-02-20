@@ -86,7 +86,11 @@ function formatFileSize(int $bytes): string
     return round($bytes / 1073741824, 1) . ' GB';
 }
 
-// Load all active, non-placeholder users for the assignee picker (admin/member only)
+// Load all active, non-placeholder users for the assignee picker (admin/member only).
+// MVP note: the full active-user list is embedded in the page HTML. For organisations
+// with hundreds of members this inflates page size. A future improvement should replace
+// this with a lazy-loaded /v1/users?search= endpoint rather than serialising all users
+// on every card page load.
 $pickerUsers = [];
 if ($canEdit) {
     $userModel = new Shuffle\Model\User($db);
@@ -150,7 +154,7 @@ require ROOT_DIR . '/include/templates/header.php';
             <div class="card-assignees-section"
                 <?php if ($canEdit): ?>
                 data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
-                data-assigned="<?= htmlspecialchars(json_encode($assignedUserIds, JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>"
+                data-assigned="<?= htmlspecialchars(json_encode($assignedUserIds, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
                 <?php endif; ?>>
                 <span class="card-assignees-avatars card-detail-meta-value">
                     <?php foreach ($card['assigned_users'] ?? [] as $user): ?>
@@ -162,6 +166,7 @@ require ROOT_DIR . '/include/templates/header.php';
                     class="btn btn-ghost btn-sm btn-add-assignee"
                     aria-expanded="false"
                     aria-haspopup="listbox"
+                    aria-controls="assignee-picker-listbox"
                     aria-label="<?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>">
                     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                         <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
@@ -392,6 +397,8 @@ $cardLang = json_encode([
     'attachment_download'       => $lang->get('attachment.download'),
     'add_assignee'              => $lang->get('card.add_assignee'),
     'assignee_picker_label'     => $lang->get('card.assignee_picker_label'),
+    'assignee_filter_placeholder' => $lang->get('card.assignee_filter_placeholder'),
+    'assignee_no_users'         => $lang->get('card.assignee_no_users'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>

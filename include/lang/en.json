@@ -66,6 +66,8 @@
     "card.assign": "Assign",
     "card.add_assignee": "Add assignee",
     "card.assignee_picker_label": "Assign users to this card",
+    "card.assignee_filter_placeholder": "Filter users…",
+    "card.assignee_no_users": "No users available",
     "card.archived": "Archived",
     "card.archive_success": "Card archived successfully.",
     "card.restore": "Restore",

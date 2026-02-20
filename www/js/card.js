@@ -852,7 +852,7 @@
     var addAssigneeBtn = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
 
     if (assigneesSection && addAssigneeBtn && CAN_EDIT) {
-        // Task 3.1: Read data attributes to initialise local state
+        // Initialise picker state from server-rendered data attributes
         var pickerUsers = [];
         var assignedIds = [];
 
@@ -867,6 +867,8 @@
         } catch (e) {
             assignedIds = [];
         }
+
+        var LISTBOX_ID = 'assignee-picker-listbox';
 
         /** Returns true if the given user ID is in the assigned list */
         function isAssigned(userId) {
@@ -898,14 +900,15 @@
             document.removeEventListener('click', outsideClickHandler, true);
         }
 
-        /** Document-level capture listener for outside-click close (Task 3.4) */
+        /** Document-level capture listener that closes the picker on outside clicks.
+         *  Registered in a setTimeout so the triggering click doesn't immediately close the panel. */
         function outsideClickHandler(e) {
             if (!assigneesSection.contains(e.target)) {
                 closePicker();
             }
         }
 
-        /** Builds and inserts the picker panel (Task 3.2 & 3.3) */
+        /** Builds and inserts the picker panel with a combobox search input and filterable listbox */
         function openPicker() {
             // Remove any existing panel first
             var existing = assigneesSection.querySelector('.assignee-picker');
@@ -913,9 +916,33 @@
 
             var panel = document.createElement('div');
             panel.className = 'assignee-picker';
-            panel.setAttribute('role', 'listbox');
-            panel.setAttribute('aria-label', LANG.assignee_picker_label || 'Assign users to this card');
-            panel.setAttribute('aria-multiselectable', 'true');
+
+            // Combobox input — typing filters the listbox options in real time
+            var searchInput = document.createElement('input');
+            searchInput.type = 'text';
+            searchInput.className = 'assignee-picker-search';
+            searchInput.setAttribute('role', 'combobox');
+            searchInput.setAttribute('aria-autocomplete', 'list');
+            searchInput.setAttribute('aria-controls', LISTBOX_ID);
+            searchInput.setAttribute('aria-expanded', 'true');
+            searchInput.setAttribute('aria-label', LANG.assignee_filter_placeholder || 'Filter users');
+            searchInput.setAttribute('placeholder', LANG.assignee_filter_placeholder || 'Filter users…');
+            searchInput.setAttribute('autocomplete', 'off');
+            panel.appendChild(searchInput);
+
+            // Listbox container — linked to the combobox via aria-controls
+            var listbox = document.createElement('div');
+            listbox.setAttribute('id', LISTBOX_ID);
+            listbox.setAttribute('role', 'listbox');
+            listbox.setAttribute('aria-label', LANG.assignee_picker_label || 'Assign users to this card');
+            listbox.setAttribute('aria-multiselectable', 'true');
+
+            if (pickerUsers.length === 0) {
+                var emptyMsg = document.createElement('p');
+                emptyMsg.className = 'assignee-picker-empty';
+                emptyMsg.textContent = LANG.assignee_no_users || 'No users available';
+                listbox.appendChild(emptyMsg);
+            }
 
             pickerUsers.forEach(function (user) {
                 var selected = isAssigned(user.id);
@@ -937,24 +964,38 @@
 
                 option.appendChild(avatarSpan);
                 option.appendChild(nameSpan);
-                panel.appendChild(option);
+                listbox.appendChild(option);
             });
 
+            panel.appendChild(listbox);
             assigneesSection.appendChild(panel);
             addAssigneeBtn.setAttribute('aria-expanded', 'true');
 
-            // Focus the first option
-            var firstOption = panel.querySelector('.assignee-picker-option');
-            if (firstOption) firstOption.focus();
+            // Focus the search input so users can type immediately
+            searchInput.focus();
 
-            // Register outside-click handler (Task 3.4)
-            // Use setTimeout so the current click doesn't immediately close it
+            // Filter listbox options as the user types
+            searchInput.addEventListener('input', function () {
+                var query = searchInput.value.toLowerCase().trim();
+                var opts = listbox.querySelectorAll('.assignee-picker-option');
+                opts.forEach(function (opt) {
+                    var nameEl = opt.querySelector('.assignee-picker-name');
+                    var name = nameEl ? nameEl.textContent.toLowerCase() : '';
+                    if (query === '' || name.indexOf(query) !== -1) {
+                        opt.removeAttribute('hidden');
+                    } else {
+                        opt.setAttribute('hidden', '');
+                    }
+                });
+            });
+
+            // Register outside-click handler — setTimeout prevents the triggering click closing it immediately
             setTimeout(function () {
                 document.addEventListener('click', outsideClickHandler, true);
             }, 0);
         }
 
-        // Task 3.2: Open picker on trigger button click
+        // Open or close the picker when the trigger button is clicked
         addAssigneeBtn.addEventListener('click', function (e) {
             e.stopPropagation();
             var panel = assigneesSection.querySelector('.assignee-picker');
@@ -965,7 +1006,7 @@
             }
         });
 
-        // Task 3.4: Escape key closes the picker
+        // Keyboard navigation for the picker (Escape, arrows, Home/End, Enter/Space)
         assigneesSection.addEventListener('keydown', function (e) {
             var panel = assigneesSection.querySelector('.assignee-picker');
             if (!panel) return;
@@ -976,41 +1017,54 @@
                 return;
             }
 
-            // Tasks 5.1 & 5.2: Arrow key navigation
-            var options = Array.prototype.slice.call(panel.querySelectorAll('.assignee-picker-option'));
+            var listbox = panel.querySelector('[role="listbox"]');
+            var options = Array.prototype.slice.call(
+                listbox ? listbox.querySelectorAll('.assignee-picker-option:not([hidden])') : []
+            );
             if (!options.length) return;
 
-            var focused = panel.querySelector('.assignee-picker-option:focus');
+            var searchInput = panel.querySelector('.assignee-picker-search');
+            var isInSearchInput = (document.activeElement === searchInput);
+            var focused = listbox ? listbox.querySelector('.assignee-picker-option:focus') : null;
             var currentIndex = focused ? options.indexOf(focused) : -1;
 
             if (e.key === 'ArrowDown') {
                 e.preventDefault();
-                var nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
-                options[nextIndex].focus();
+                if (isInSearchInput) {
+                    // Move focus from the search input down to the first listbox option
+                    options[0].focus();
+                } else {
+                    var nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+                    options[nextIndex].focus();
+                }
                 return;
             }
 
             if (e.key === 'ArrowUp') {
                 e.preventDefault();
-                var prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
-                options[prevIndex].focus();
+                if (currentIndex === 0) {
+                    // Move focus from the first option back up to the search input
+                    if (searchInput) searchInput.focus();
+                } else if (!isInSearchInput) {
+                    var prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+                    options[prevIndex].focus();
+                }
                 return;
             }
 
-            // Task 5.2: Home / End navigation
             if (e.key === 'Home') {
                 e.preventDefault();
-                options[0].focus();
+                if (!isInSearchInput) options[0].focus();
                 return;
             }
 
             if (e.key === 'End') {
                 e.preventDefault();
-                options[options.length - 1].focus();
+                if (!isInSearchInput) options[options.length - 1].focus();
                 return;
             }
 
-            // Task 4.1: Enter or Space to toggle focused option
+            // Enter or Space toggles the currently focused option
             if (e.key === 'Enter' || e.key === ' ') {
                 if (focused) {
                     e.preventDefault();
@@ -1019,7 +1073,8 @@
             }
         });
 
-        /** Toggles a user option's selected state and persists the change (Tasks 4.1–4.3) */
+        /** Optimistically toggles a user's assignment and persists the change via API.
+         *  Reverts both local state and the DOM if the request fails. */
         function toggleUser(optionEl, userId) {
             var index = assignedIds.indexOf(userId);
             if (index === -1) {
@@ -1036,13 +1091,12 @@
                 optionEl.classList.remove('assignee-picker-option--selected');
             }
 
-            // Task 4.2: Persist via PUT /v1/cards/{id}
+            // Persist change and update avatar row
             saveField({ assigned_user_ids: assignedIds }).then(function (result) {
                 if (result.status === 200) {
-                    // Task 4.3: Update avatar row without page reload
                     refreshAvatarRow();
                 } else {
-                    // Revert local state on failure
+                    // Revert optimistic local state on API failure
                     if (nowSelected) {
                         assignedIds.splice(assignedIds.indexOf(userId), 1);
                     } else {
@@ -1058,7 +1112,7 @@
             });
         }
 
-        // Task 4.1: Click to toggle
+        // Click on an option row toggles that user's assignment
         assigneesSection.addEventListener('click', function (e) {
             var optionEl = e.target.closest('.assignee-picker-option');
             if (!optionEl) return;
