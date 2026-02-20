@@ -1665,10 +1665,12 @@ small,
     margin-left: 0;
 }
 
-/* Overflow badge — same dimensions as a regular avatar, secondary background */
+/* Overflow badge — inverts the page's base text/bg pair so contrast is guaranteed
+   in both light and dark mode (avoids the ~2.79:1 failure of --color-text-secondary
+   on white in dark mode). */
 .card-assignee-avatar-overflow {
-    background-color: var(--color-text-secondary);
-    color: var(--color-text-on-primary);
+    background-color: var(--color-text);
+    color: var(--color-bg);
     cursor: default;
     font-size: 9px;
 }

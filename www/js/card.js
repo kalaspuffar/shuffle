@@ -869,13 +869,16 @@
         visible.forEach(function (user) {
             var span = document.createElement('span');
             span.className = 'card-assignee-avatar';
+            span.setAttribute('role', 'img');
+            span.setAttribute('aria-label', user.name || '?');
             span.title = user.name;
             span.textContent = (user.name || '?').charAt(0).toUpperCase();
             containerEl.appendChild(span);
         });
 
         if (hidden.length > 0) {
-            var overflowLabel = (LANG.assignee_overflow || '{0} more assignees').replace('{0}', hidden.length);
+            var overflowKey = hidden.length === 1 ? 'assignee_overflow_singular' : 'assignee_overflow_plural';
+            var overflowLabel = (LANG[overflowKey] || '{0} more assignees').replace('{0}', hidden.length);
             var badge = document.createElement('span');
             badge.className = 'card-assignee-avatar card-assignee-avatar-overflow';
             badge.setAttribute('aria-label', overflowLabel);
@@ -929,12 +932,15 @@
             renderAssigneeAvatars(avatarRow, assignedUsers);
         }
 
-        // Replace the PHP-rendered avatar list with the capped JS-rendered stack,
-        // then reveal it by removing the js-loading guard class.
+        // Hide the PHP-rendered row now that JS is running, re-render it with
+        // the capped stack, then reveal it.  Adding the class here (rather than
+        // server-side) means the PHP row stays visible if JS never reaches this
+        // point (e.g. an earlier syntax error or extension conflict).
         (function initAvatarStack() {
             var avatarRow = assigneesSection.querySelector('.card-assignees-avatars');
             if (!avatarRow) return;
 
+            avatarRow.classList.add('js-loading');
             var assignedUsers = pickerUsers.filter(function (u) { return isAssigned(u.id); });
             renderAssigneeAvatars(avatarRow, assignedUsers);
             avatarRow.classList.remove('js-loading');

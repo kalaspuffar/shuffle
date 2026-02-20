@@ -3995,7 +3995,7 @@ Rounded square, three sizes. Initials fallback when no image uploaded:
 }
 ```
 
-**Avatar stack** (card assignees): Overlapping, right-to-left, with `-6px` margin-left. If > 3 assignees, show first 2 + "+N" count circle.
+**Avatar stack** (card assignees): Overlapping, right-to-left, with `-6px` margin-left. If > 3 assignees, show first 3 + "+N" count circle.
 
 **Initials color generation:** Hash the user's display name to select from 8 preset background colors: `#6D28D9` (purple), `#2563EB` (blue), `#0891B2` (teal), `#16A34A` (green), `#CA8A04` (amber), `#DC2626` (red), `#9333EA` (violet), `#4F46E5` (indigo). These are chosen to meet AA contrast on white text.
 
