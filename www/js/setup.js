@@ -29,7 +29,7 @@
     var testedInput = document.getElementById('smtp-tested');
     var resultRegion = document.getElementById('smtp-test-result');
 
-    // Guard: only run on the page that has these elements (Step 2)
+    // Guard: only run on the page that has these elements (Step 3)
     if (!testBtn || !nextBtn || !testedInput || !resultRegion) {
         return;
     }
