@@ -70,6 +70,61 @@ class SetupController
     }
 
     /**
+     * POST /v1/setup/test-s3
+     *
+     * Accepts S3 settings as JSON, issues a ListObjectsV2 request against the
+     * configured endpoint and bucket, and returns the result. No objects are
+     * created or modified — the request is read-only.
+     *
+     * Returns 403 if any admin user already exists.
+     * Returns {"ok": true} on success.
+     * Returns {"ok": false, "error": "..."} on failure.
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     */
+    public function testS3(Request $request, Response $response): void
+    {
+        // Guard: endpoint is only usable before any admin account exists
+        $adminExists = $this->db->fetch(
+            "SELECT id FROM users WHERE role = 'admin' LIMIT 1"
+        );
+        if ($adminExists !== null) {
+            $response->error('Forbidden', 403);
+            return;
+        }
+
+        $data = $request->getBody();
+
+        $endpoint  = trim($data['endpoint'] ?? '');
+        $bucket    = trim($data['bucket'] ?? '');
+        $accessKey = trim($data['access_key'] ?? '');
+        $secretKey = $data['secret_key'] ?? '';
+        $region    = trim($data['region'] ?? 'us-east-1');
+        $pathStyle = (bool) ($data['path_style'] ?? true);
+
+        if ($endpoint === '') {
+            $response->json(['ok' => false, 'error' => 'S3 endpoint is required']);
+            return;
+        }
+
+        try {
+            $s3 = new \Shuffle\Core\S3Client([
+                'endpoint'   => $endpoint,
+                'bucket'     => $bucket,
+                'access_key' => $accessKey,
+                'secret_key' => $secretKey,
+                'region'     => $region,
+                'path_style' => $pathStyle,
+            ]);
+            $s3->testConnection();
+            $response->json(['ok' => true]);
+        } catch (\RuntimeException $e) {
+            $response->json(['ok' => false, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
      * Attempts a TCP connection, STARTTLS/SSL negotiation, and AUTH LOGIN
      * handshake against the given SMTP server. No email is sent.
      *

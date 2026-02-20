@@ -2345,7 +2345,7 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 4. Run `mysql shuffle < doc/schema.sql`
 5. Configure the web server (Apache or Nginx) pointing DocumentRoot to `www/`
 6. Set file permissions
-7. Access the application and log in with the initial admin account (created by a setup script: `php bin/setup.php`)
+7. Navigate to `https://your-domain/setup.php` and complete the web setup wizard to create the initial admin account and configure application settings.
 
 ---
 
@@ -2475,13 +2475,13 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 - `etc/config.example.php` template
 - `include/bootstrap.php`
 - MySQL schema DDL (`doc/schema.sql`)
-- `bin/setup.php` — creates initial admin user
+- `www/setup.php` — web setup wizard that creates the initial admin user, configures application settings (app name/URL/locale/timezone), SMTP, and S3 storage in a single atomic transaction
 
 **Acceptance criteria:**
 - Autoloader resolves all `Shuffle\` classes
 - Database wrapper connects and executes parameterized queries
 - Session persists across requests in MySQL
-- Setup script creates a working admin account
+- Web setup wizard (`www/setup.php`) creates a working admin account, configures app settings, SMTP, and S3 in a single atomic transaction
 
 ### Phase 2: Authentication and User Management
 

@@ -85,7 +85,7 @@ if ($isPost) {
                 $result = processStep3($lang);
                 break;
             case 4:
-                $result = processStep4($lang, $db, $config);
+                $result = processStep4($lang, $db);
                 break;
         }
 
@@ -217,18 +217,26 @@ function processStep2(object $lang): array
         $fieldErrors['app_url'] = $lang->get('setup.err_app_url_required');
     } elseif (strlen($appUrl) > 255) {
         $fieldErrors['app_url'] = $lang->get('setup.err_app_url_too_long');
+    } elseif (!filter_var($appUrl, FILTER_VALIDATE_URL)) {
+        $fieldErrors['app_url'] = $lang->get('setup.err_app_url_invalid');
+    } elseif (!str_starts_with($appUrl, 'https://') && !str_starts_with($appUrl, 'http://')) {
+        $fieldErrors['app_url'] = $lang->get('setup.err_app_url_invalid');
     }
 
     if ($appLocale === '') {
         $fieldErrors['app_locale'] = $lang->get('setup.err_app_locale_required');
     } elseif (strlen($appLocale) > 10) {
         $fieldErrors['app_locale'] = $lang->get('setup.err_app_locale_too_long');
+    } elseif (!preg_match('/^[a-z]{2}(-[A-Z]{2})?$/', $appLocale)) {
+        $fieldErrors['app_locale'] = $lang->get('setup.err_app_locale_invalid');
     }
 
     if ($appTimezone === '') {
         $fieldErrors['app_timezone'] = $lang->get('setup.err_app_timezone_required');
     } elseif (strlen($appTimezone) > 64) {
         $fieldErrors['app_timezone'] = $lang->get('setup.err_app_timezone_too_long');
+    } elseif (!in_array($appTimezone, \DateTimeZone::listIdentifiers(), true)) {
+        $fieldErrors['app_timezone'] = $lang->get('setup.err_app_timezone_invalid');
     }
 
     if (!empty($fieldErrors)) {
@@ -339,7 +347,7 @@ function processStep3(object $lang): array
  *
  * @return array{ok: bool, fieldErrors: array, errors: array, sessionUpdates?: array}
  */
-function processStep4(object $lang, object $db, array $config): array
+function processStep4(object $lang, object $db): array
 {
     $fieldErrors = [];
 
@@ -352,6 +360,8 @@ function processStep4(object $lang, object $db, array $config): array
 
     if ($endpoint === '') {
         $fieldErrors['s3_endpoint'] = $lang->get('setup.err_s3_endpoint_required');
+    } elseif (!filter_var($endpoint, FILTER_VALIDATE_URL)) {
+        $fieldErrors['s3_endpoint'] = $lang->get('setup.err_s3_endpoint_invalid');
     }
 
     if ($bucket === '') {
@@ -378,6 +388,10 @@ function processStep4(object $lang, object $db, array $config): array
     $step2 = $_SESSION['setup']['step2'];
     $step3 = $_SESSION['setup']['step3'];
 
+    // SMTP password is transferred via a one-time hidden POST field (not the session)
+    // to limit how long it persists in server-side session storage.
+    $smtpPassword = $_POST['smtp_password_transfer'] ?? '';
+
     try {
         $db->beginTransaction();
 
@@ -403,7 +417,7 @@ function processStep4(object $lang, object $db, array $config): array
             'smtp.port'       => (string)$step3['smtp_port'],
             'smtp.encryption' => $step3['smtp_encryption'],
             'smtp.username'   => $step3['smtp_username'],
-            'smtp.password'   => $step3['smtp_password'],
+            'smtp.password'   => $smtpPassword,
             'smtp.from_email' => $step3['smtp_from_email'],
             'smtp.from_name'  => $step3['smtp_from_name'],
             's3.endpoint'     => $endpoint,
@@ -504,6 +518,25 @@ function ariaDescribedBy(string $name): string
 {
     $id = fieldErrorId($name);
     return $id !== '' ? ' aria-describedby="' . $id . '"' : '';
+}
+
+/**
+ * Returns the `aria-describedby` attribute string (with leading space) that
+ * always includes the hint element ID and appends the error element ID when
+ * a field error is present. Use this for fields that have both a persistent
+ * hint and a conditional error message.
+ *
+ * @param string $name   Field name (used to look up any error ID)
+ * @param string $hintId The ID of the permanent hint paragraph
+ */
+function ariaDescribedByWithHint(string $name, string $hintId): string
+{
+    $parts = [$hintId];
+    $errorId = fieldErrorId($name);
+    if ($errorId !== '') {
+        $parts[] = $errorId;
+    }
+    return ' aria-describedby="' . implode(' ', $parts) . '"';
 }
 
 /** Returns `is-invalid` CSS class when a field has an error, or empty string. */
@@ -640,7 +673,7 @@ $stepLabels = [
                             spellcheck="false"
                             required
                             aria-required="true"
-                            aria-describedby="username-help<?= fieldErrorId('username') !== '' ? ' username-error' : '' ?>"
+                            <?= ariaDescribedByWithHint('username', 'username-help') ?>
                         >
                         <p id="username-help" class="form-hint"><?= t('setup.username_help') ?></p>
                         <?php renderFieldError('username'); ?>
@@ -692,7 +725,7 @@ $stepLabels = [
                             autocomplete="new-password"
                             required
                             aria-required="true"
-                            aria-describedby="password-help<?= fieldErrorId('password') !== '' ? ' password-error' : '' ?>"
+                            <?= ariaDescribedByWithHint('password', 'password-help') ?>
                         >
                         <p id="password-help" class="form-hint"><?= t('setup.password_help') ?></p>
                         <?php renderFieldError('password'); ?>
@@ -784,7 +817,7 @@ $stepLabels = [
                             spellcheck="false"
                             required
                             aria-required="true"
-                            aria-describedby="app_locale-help<?= fieldErrorId('app_locale') !== '' ? ' app_locale-error' : '' ?>"
+                            <?= ariaDescribedByWithHint('app_locale', 'app_locale-help') ?>
                         >
                         <p id="app_locale-help" class="form-hint"><?= t('setup.app_locale_hint') ?></p>
                         <?php renderFieldError('app_locale'); ?>
@@ -805,7 +838,7 @@ $stepLabels = [
                             spellcheck="false"
                             required
                             aria-required="true"
-                            aria-describedby="app_timezone-help<?= fieldErrorId('app_timezone') !== '' ? ' app_timezone-error' : '' ?>"
+                            <?= ariaDescribedByWithHint('app_timezone', 'app_timezone-help') ?>
                         >
                         <p id="app_timezone-help" class="form-hint"><?= t('setup.app_timezone_hint') ?></p>
                         <?php renderFieldError('app_timezone'); ?>
@@ -958,10 +991,11 @@ $stepLabels = [
 
                     <!-- SMTP test section -->
                     <div class="smtp-test-section">
-                        <!-- Label is "Test Connection" rather than the spec's "Send Test Email"
-                             because the endpoint performs a TCP + AUTH handshake only — no
-                             email is actually sent. The more accurate label was chosen
-                             deliberately; the delta spec should be updated to match. -->
+                        <!-- Intentional: "Test Connection" is used here instead of
+                             SPECIFICATION.md §3.10's "Send Test Email" because the
+                             endpoint performs a TCP + AUTH handshake only — no email
+                             is actually sent. SPECIFICATION.md §3.10 should be updated
+                             to reflect this distinction. -->
                         <button
                             type="button"
                             id="smtp-test-btn"
@@ -1000,6 +1034,18 @@ $stepLabels = [
 
                 <form method="post" action="/setup.php" novalidate>
                     <input type="hidden" name="_csrf" value="<?= $csrfToken ?>">
+                    <?php
+                    // One-time SMTP password transfer: move the password out of the session
+                    // and into this hidden POST field to reduce its persistence in server-side
+                    // storage. On re-render after a failed POST, re-echo the POSTed value.
+                    if ($isPost) {
+                        $smtpPasswordTransfer = $_POST['smtp_password_transfer'] ?? '';
+                    } else {
+                        $smtpPasswordTransfer = $_SESSION['setup']['step3']['smtp_password'] ?? '';
+                        unset($_SESSION['setup']['step3']['smtp_password']);
+                    }
+                    ?>
+                    <input type="hidden" name="smtp_password_transfer" value="<?= h($smtpPasswordTransfer) ?>">
 
                     <div class="form-group">
                         <label for="s3_endpoint" class="form-label"><?= t('setup.s3_endpoint') ?></label>
@@ -1009,7 +1055,7 @@ $stepLabels = [
                             name="s3_endpoint"
                             class="form-input<?= invalidClass('s3_endpoint') ?>"
                             placeholder="<?= t('setup.s3_endpoint_placeholder') ?>"
-                            value="<?= h($fieldValue('s3_endpoint', 'step4')) ?>"
+                            value="<?= h($fieldValue('s3_endpoint', 'step4_s3')) ?>"
                             autocomplete="off"
                             spellcheck="false"
                             required
@@ -1027,7 +1073,7 @@ $stepLabels = [
                             name="s3_bucket"
                             class="form-input<?= invalidClass('s3_bucket') ?>"
                             placeholder="<?= t('setup.s3_bucket_placeholder') ?>"
-                            value="<?= h($fieldValue('s3_bucket', 'step4')) ?>"
+                            value="<?= h($fieldValue('s3_bucket', 'step4_s3')) ?>"
                             autocomplete="off"
                             spellcheck="false"
                             required
@@ -1046,7 +1092,7 @@ $stepLabels = [
                                 name="s3_access_key"
                                 class="form-input<?= invalidClass('s3_access_key') ?>"
                                 placeholder="<?= t('setup.s3_access_key_placeholder') ?>"
-                                value="<?= h($fieldValue('s3_access_key', 'step4')) ?>"
+                                value="<?= h($fieldValue('s3_access_key', 'step4_s3')) ?>"
                                 autocomplete="off"
                                 autocapitalize="none"
                                 spellcheck="false"
@@ -1082,7 +1128,7 @@ $stepLabels = [
                             name="s3_region"
                             class="form-input<?= invalidClass('s3_region') ?>"
                             placeholder="<?= t('setup.s3_region_placeholder') ?>"
-                            value="<?= h($fieldValue('s3_region', 'step4') ?: 'us-east-1') ?>"
+                            value="<?= h($fieldValue('s3_region', 'step4_s3') ?: 'us-east-1') ?>"
                             autocomplete="off"
                             autocapitalize="none"
                             spellcheck="false"
@@ -1100,13 +1146,28 @@ $stepLabels = [
                                 id="s3_path_style"
                                 name="s3_path_style"
                                 class="form-checkbox-input"
-                                <?= (!$isPost && ($_SESSION['setup']['step4']['s3_path_style'] ?? false)) || ($isPost && isset($_POST['s3_path_style'])) ? 'checked' : '' ?>
+                                <?= (!$isPost && ($_SESSION['setup']['step4_s3']['s3_path_style'] ?? false)) || ($isPost && isset($_POST['s3_path_style'])) ? 'checked' : '' ?>
                             >
                             <label for="s3_path_style" class="form-checkbox-label">
                                 <?= t('setup.s3_path_style') ?>
                             </label>
                         </div>
                         <p class="form-hint"><?= t('setup.s3_path_style_hint') ?></p>
+                    </div>
+
+                    <!-- S3 test section (optional — does not block Finish) -->
+                    <div class="smtp-test-section">
+                        <button
+                            type="button"
+                            id="s3-test-btn"
+                            class="btn btn-secondary"
+                            data-label-testing="<?= t('setup.s3_test_testing') ?>"
+                            data-msg-success="<?= t('setup.s3_test_success') ?>"
+                            data-msg-failed-prefix="<?= t('setup.s3_test_failed_prefix') ?>"
+                        ><?= t('setup.s3_test_button') ?></button>
+
+                        <!-- Test result shown inline; aria-live announces to screen readers -->
+                        <div id="s3-test-result" aria-live="polite" aria-atomic="true" class="smtp-test-result"></div>
                     </div>
 
                     <div class="wizard-actions">
@@ -1162,7 +1223,7 @@ $stepLabels = [
         </div><!-- /.setup-card -->
     </main>
 
-    <?php if ($step === 3): ?>
+    <?php if ($step === 3 || $step === 4): ?>
     <script src="/js/setup.js"></script>
     <?php endif; ?>
 </body>

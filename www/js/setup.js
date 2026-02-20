@@ -1,16 +1,20 @@
 /**
- * Setup Wizard — SMTP Connection Test
+ * Setup Wizard — SMTP and S3 Connection Tests
  *
- * Handles the async SMTP connection test on Step 2 of the setup wizard.
+ * Handles async connection tests on Step 3 (SMTP) and Step 4 (S3).
  * All user-visible strings are read from data attributes on page elements
  * so no English is hardcoded in this file.
  *
- * Behaviour:
+ * SMTP behaviour (Step 3):
  * - On page load: disables the Next button until a passing test is recorded.
  * - On "Test Connection" click: POSTs form values to /v1/setup/test-smtp.
  * - On success: unlocks Next, updates the aria-live region and inline indicator.
  * - On failure: keeps Next locked, shows the server error message.
  * - If any SMTP field changes after a passing test: reverts to locked state.
+ *
+ * S3 behaviour (Step 4):
+ * - On "Test Connection" click: POSTs form values to /v1/setup/test-s3.
+ * - Shows success or failure inline. Does not block the Finish button.
  */
 
 (function () {
@@ -170,6 +174,89 @@
 
     /** Returns the trimmed value of an input by ID, or empty string if not found */
     function getFieldValue(id) {
+        var el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+    }
+
+}());
+
+// =============================================================================
+// Step 4 — S3 Connection Test (optional; does not block the Finish button)
+// =============================================================================
+
+(function () {
+    'use strict';
+
+    var s3TestBtn    = document.getElementById('s3-test-btn');
+    var s3ResultRegion = document.getElementById('s3-test-result');
+
+    // Guard: only run on the page that has these elements (Step 4)
+    if (!s3TestBtn || !s3ResultRegion) {
+        return;
+    }
+
+    // Strings from data attributes — no hardcoded English
+    var labelTesting    = s3TestBtn.getAttribute('data-label-testing')    || '';
+    var msgSuccess      = s3TestBtn.getAttribute('data-msg-success')       || '';
+    var msgFailedPrefix = s3TestBtn.getAttribute('data-msg-failed-prefix') || '';
+    var originalLabel   = s3TestBtn.textContent;
+
+    s3TestBtn.addEventListener('click', function () {
+        var s3Data = {
+            endpoint:   getS3FieldValue('s3_endpoint'),
+            bucket:     getS3FieldValue('s3_bucket'),
+            access_key: getS3FieldValue('s3_access_key'),
+            secret_key: getS3FieldValue('s3_secret_key'),
+            region:     getS3FieldValue('s3_region'),
+            path_style: !!document.getElementById('s3_path_style').checked
+        };
+
+        s3TestBtn.disabled = true;
+        s3TestBtn.textContent = labelTesting;
+        clearS3Result();
+
+        fetch('/v1/setup/test-s3', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(s3Data)
+        })
+        .then(function (response) { return response.json(); })
+        .then(function (result) {
+            if (result.ok) {
+                showS3Result('smtp-test-result--success', msgSuccess);
+            } else {
+                var message = msgFailedPrefix ? (msgFailedPrefix + ' ' + (result.error || '')) : (result.error || '');
+                showS3Result('smtp-test-result--error', message);
+            }
+        })
+        .catch(function (err) {
+            var message = msgFailedPrefix ? (msgFailedPrefix + ' ' + (err.message || '')) : (err.message || '');
+            showS3Result('smtp-test-result--error', message);
+        })
+        .finally(function () {
+            s3TestBtn.disabled = false;
+            s3TestBtn.textContent = originalLabel;
+        });
+    });
+
+    /**
+     * Sets the result region class and text. Clears then sets with a small
+     * delay so screen readers announce the update even when text is unchanged.
+     */
+    function showS3Result(modifierClass, message) {
+        s3ResultRegion.className = 'smtp-test-result ' + modifierClass;
+        s3ResultRegion.textContent = '';
+        setTimeout(function () {
+            s3ResultRegion.textContent = message;
+        }, 50);
+    }
+
+    function clearS3Result() {
+        s3ResultRegion.className = 'smtp-test-result';
+        s3ResultRegion.textContent = '';
+    }
+
+    function getS3FieldValue(id) {
         var el = document.getElementById(id);
         return el ? el.value.trim() : '';
     }
