@@ -44,6 +44,7 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
         <nav class="header-nav" aria-label="<?= htmlspecialchars($lang->get('nav.main'), ENT_QUOTES, 'UTF-8') ?>">
             <a href="/boards.php" class="header-nav-link"<?= (isset($currentPage) && $currentPage === 'boards') ? ' aria-current="page"' : '' ?>><?= htmlspecialchars($lang->get('board.boards'), ENT_QUOTES, 'UTF-8') ?></a>
             <?php if ($currentUser['role'] === 'admin'): ?>
+            <a href="/admin/users.php" class="header-nav-link"<?= (isset($currentPage) && $currentPage === 'admin.users') ? ' aria-current="page"' : '' ?>><?= htmlspecialchars($lang->get('admin.users'), ENT_QUOTES, 'UTF-8') ?></a>
             <a href="/admin/organizations.php" class="header-nav-link"<?= (isset($currentPage) && $currentPage === 'admin.organizations') ? ' aria-current="page"' : '' ?>><?= htmlspecialchars($lang->get('admin.organizations'), ENT_QUOTES, 'UTF-8') ?></a>
             <?php endif; ?>
         </nav>
