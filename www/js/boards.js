@@ -58,6 +58,10 @@
 
     function openEditModal(btn) {
         editingBoardId = parseInt(btn.dataset.boardId, 10);
+        if (isNaN(editingBoardId)) {
+            console.error('board-card-edit: missing or invalid data-board-id');
+            return;
+        }
         lastOpener = btn;
 
         // Pre-populate form fields from data attributes
@@ -163,6 +167,10 @@
         e.preventDefault();
 
         var title = document.getElementById('board-title').value.trim();
+        if (!title) {
+            document.getElementById('board-title').focus();
+            return;
+        }
         var description = document.getElementById('board-description').value.trim();
         var visibility = visibilitySelect ? visibilitySelect.value : 'private';
 

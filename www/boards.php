@@ -75,15 +75,17 @@ require ROOT_DIR . '/include/templates/header.php';
                     <?php endif; ?>
                 </div>
             </a>
-            <?php if ($isAdmin): ?>
+            <?php if ($canCreate): ?>
             <button type="button"
-                class="btn btn-ghost btn-sm board-card-edit"
+                class="btn btn-ghost board-card-edit"
                 aria-label="<?= htmlspecialchars($lang->get('board.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
+                aria-haspopup="dialog"
                 data-board-id="<?= (int) $board['id'] ?>"
                 data-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>"
                 data-board-description="<?= htmlspecialchars($board['description'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 data-board-visibility="<?= htmlspecialchars($board['visibility'], ENT_QUOTES, 'UTF-8') ?>"
                 data-board-organizations="<?= htmlspecialchars(json_encode($board['organizations'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>">
+                <?php // $board['organizations'] is always an array — Board::findAccessible() batch-loads it from board_organizations ?>
                 <?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?>
             </button>
             <?php endif; ?>
@@ -143,7 +145,7 @@ require ROOT_DIR . '/include/templates/header.php';
 // Pass i18n strings to external JS via data attribute (CSP-compliant)
 $boardsLang = json_encode([
     'create_success'    => $lang->get('board.create_success'),
-    'edit_success'      => $lang->get('board.edit_success'),
+    'edit_success'      => $lang->get('board.update_success'),
     'create_title'      => $lang->get('board.create'),
     'edit_title'        => $lang->get('board.edit_title'),
     'error_bad_request' => $lang->get('error.bad_request'),

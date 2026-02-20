@@ -34,7 +34,6 @@
     "board.create_success": "Board created successfully.",
     "board.edit": "Edit Board",
     "board.edit_title": "Edit Board",
-    "board.edit_success": "Board updated successfully.",
     "board.update_success": "Board updated successfully.",
     "board.archive_success": "Board archived successfully.",
     "board.restore_success": "Board restored successfully.",
