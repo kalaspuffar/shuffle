@@ -1,4 +1,4 @@
 .claude
 .serena
-etc/config.php
-openspec/changes
+/etc/config.php
+/openspec
