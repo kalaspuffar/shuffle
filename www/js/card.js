@@ -844,4 +844,226 @@
         });
     }
 
+    /* ===================================================================
+       Assignee Picker
+       =================================================================== */
+
+    var assigneesSection = document.querySelector('.card-assignees-section');
+    var addAssigneeBtn = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
+
+    if (assigneesSection && addAssigneeBtn && CAN_EDIT) {
+        // Task 3.1: Read data attributes to initialise local state
+        var pickerUsers = [];
+        var assignedIds = [];
+
+        try {
+            pickerUsers = JSON.parse(assigneesSection.dataset.users || '[]');
+        } catch (e) {
+            pickerUsers = [];
+        }
+
+        try {
+            assignedIds = JSON.parse(assigneesSection.dataset.assigned || '[]');
+        } catch (e) {
+            assignedIds = [];
+        }
+
+        /** Returns true if the given user ID is in the assigned list */
+        function isAssigned(userId) {
+            return assignedIds.indexOf(userId) !== -1;
+        }
+
+        /** Updates the assignee avatar row to reflect the current assignedIds */
+        function refreshAvatarRow() {
+            var avatarRow = assigneesSection.querySelector('.card-assignees-avatars');
+            if (!avatarRow) return;
+
+            avatarRow.innerHTML = '';
+            pickerUsers.forEach(function (user) {
+                if (!isAssigned(user.id)) return;
+                var span = document.createElement('span');
+                span.className = 'card-assignee-avatar';
+                span.title = user.name;
+                span.textContent = (user.name || '?').charAt(0).toUpperCase();
+                avatarRow.appendChild(span);
+            });
+        }
+
+        /** Closes the picker panel and restores focus to the trigger button */
+        function closePicker() {
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (panel) panel.remove();
+            addAssigneeBtn.setAttribute('aria-expanded', 'false');
+            addAssigneeBtn.focus();
+            document.removeEventListener('click', outsideClickHandler, true);
+        }
+
+        /** Document-level capture listener for outside-click close (Task 3.4) */
+        function outsideClickHandler(e) {
+            if (!assigneesSection.contains(e.target)) {
+                closePicker();
+            }
+        }
+
+        /** Builds and inserts the picker panel (Task 3.2 & 3.3) */
+        function openPicker() {
+            // Remove any existing panel first
+            var existing = assigneesSection.querySelector('.assignee-picker');
+            if (existing) existing.remove();
+
+            var panel = document.createElement('div');
+            panel.className = 'assignee-picker';
+            panel.setAttribute('role', 'listbox');
+            panel.setAttribute('aria-label', LANG.assignee_picker_label || 'Assign users to this card');
+            panel.setAttribute('aria-multiselectable', 'true');
+
+            pickerUsers.forEach(function (user) {
+                var selected = isAssigned(user.id);
+                var option = document.createElement('div');
+                option.className = 'assignee-picker-option' + (selected ? ' assignee-picker-option--selected' : '');
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', selected ? 'true' : 'false');
+                option.setAttribute('tabindex', '-1');
+                option.dataset.userId = user.id;
+
+                var avatarSpan = document.createElement('span');
+                avatarSpan.className = 'assignee-picker-avatar';
+                avatarSpan.setAttribute('aria-hidden', 'true');
+                avatarSpan.textContent = (user.name || '?').charAt(0).toUpperCase();
+
+                var nameSpan = document.createElement('span');
+                nameSpan.className = 'assignee-picker-name';
+                nameSpan.textContent = user.name;
+
+                option.appendChild(avatarSpan);
+                option.appendChild(nameSpan);
+                panel.appendChild(option);
+            });
+
+            assigneesSection.appendChild(panel);
+            addAssigneeBtn.setAttribute('aria-expanded', 'true');
+
+            // Focus the first option
+            var firstOption = panel.querySelector('.assignee-picker-option');
+            if (firstOption) firstOption.focus();
+
+            // Register outside-click handler (Task 3.4)
+            // Use setTimeout so the current click doesn't immediately close it
+            setTimeout(function () {
+                document.addEventListener('click', outsideClickHandler, true);
+            }, 0);
+        }
+
+        // Task 3.2: Open picker on trigger button click
+        addAssigneeBtn.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (panel) {
+                closePicker();
+            } else {
+                openPicker();
+            }
+        });
+
+        // Task 3.4: Escape key closes the picker
+        assigneesSection.addEventListener('keydown', function (e) {
+            var panel = assigneesSection.querySelector('.assignee-picker');
+            if (!panel) return;
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closePicker();
+                return;
+            }
+
+            // Tasks 5.1 & 5.2: Arrow key navigation
+            var options = Array.prototype.slice.call(panel.querySelectorAll('.assignee-picker-option'));
+            if (!options.length) return;
+
+            var focused = panel.querySelector('.assignee-picker-option:focus');
+            var currentIndex = focused ? options.indexOf(focused) : -1;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                var nextIndex = currentIndex < options.length - 1 ? currentIndex + 1 : 0;
+                options[nextIndex].focus();
+                return;
+            }
+
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                var prevIndex = currentIndex > 0 ? currentIndex - 1 : options.length - 1;
+                options[prevIndex].focus();
+                return;
+            }
+
+            // Task 5.2: Home / End navigation
+            if (e.key === 'Home') {
+                e.preventDefault();
+                options[0].focus();
+                return;
+            }
+
+            if (e.key === 'End') {
+                e.preventDefault();
+                options[options.length - 1].focus();
+                return;
+            }
+
+            // Task 4.1: Enter or Space to toggle focused option
+            if (e.key === 'Enter' || e.key === ' ') {
+                if (focused) {
+                    e.preventDefault();
+                    toggleUser(focused, parseInt(focused.dataset.userId, 10));
+                }
+            }
+        });
+
+        /** Toggles a user option's selected state and persists the change (Tasks 4.1–4.3) */
+        function toggleUser(optionEl, userId) {
+            var index = assignedIds.indexOf(userId);
+            if (index === -1) {
+                assignedIds.push(userId);
+            } else {
+                assignedIds.splice(index, 1);
+            }
+
+            var nowSelected = isAssigned(userId);
+            optionEl.setAttribute('aria-selected', nowSelected ? 'true' : 'false');
+            if (nowSelected) {
+                optionEl.classList.add('assignee-picker-option--selected');
+            } else {
+                optionEl.classList.remove('assignee-picker-option--selected');
+            }
+
+            // Task 4.2: Persist via PUT /v1/cards/{id}
+            saveField({ assigned_user_ids: assignedIds }).then(function (result) {
+                if (result.status === 200) {
+                    // Task 4.3: Update avatar row without page reload
+                    refreshAvatarRow();
+                } else {
+                    // Revert local state on failure
+                    if (nowSelected) {
+                        assignedIds.splice(assignedIds.indexOf(userId), 1);
+                    } else {
+                        assignedIds.push(userId);
+                    }
+                    optionEl.setAttribute('aria-selected', isAssigned(userId) ? 'true' : 'false');
+                    if (isAssigned(userId)) {
+                        optionEl.classList.add('assignee-picker-option--selected');
+                    } else {
+                        optionEl.classList.remove('assignee-picker-option--selected');
+                    }
+                }
+            });
+        }
+
+        // Task 4.1: Click to toggle
+        assigneesSection.addEventListener('click', function (e) {
+            var optionEl = e.target.closest('.assignee-picker-option');
+            if (!optionEl) return;
+            toggleUser(optionEl, parseInt(optionEl.dataset.userId, 10));
+        });
+    }
+
 })();

@@ -1665,6 +1665,118 @@ small,
     margin-left: 0;
 }
 
+/* =============================================
+   Assignee Section & Picker
+   ============================================= */
+
+/* Task 6.4: Container holds avatars + trigger in a flex row */
+.card-assignees-section {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+/* Task 6.4: "Add assignee" trigger — ghost small button with + icon */
+.btn-add-assignee {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    color: var(--color-text-secondary);
+}
+
+.btn-add-assignee:hover:not(:disabled) {
+    color: var(--color-text);
+}
+
+/* Task 6.1: Picker panel */
+.assignee-picker {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    min-width: 200px;
+    max-height: 240px;
+    overflow-y: auto;
+    background-color: var(--color-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-elevated);
+    z-index: var(--z-dropdown);
+    padding: var(--space-1) 0;
+}
+
+/* Task 6.2: Each user option row */
+.assignee-picker-option {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 36px;
+    padding: 0 var(--space-3);
+    cursor: pointer;
+    outline: none;
+    position: relative;
+}
+
+.assignee-picker-option:hover,
+.assignee-picker-option:focus {
+    background-color: var(--color-hover-overlay);
+}
+
+/* Task 6.2: Avatar initial inside picker */
+.assignee-picker-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background-color: var(--color-primary);
+    color: var(--color-text-on-primary);
+    border-radius: var(--border-radius-full);
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    flex-shrink: 0;
+}
+
+/* Task 6.2: Name label in picker */
+.assignee-picker-name {
+    font-size: var(--font-size-sm);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Task 6.3: Selected state — highlighted background + checkmark */
+.assignee-picker-option--selected {
+    background-color: var(--color-primary-subtle);
+}
+
+.assignee-picker-option--selected:hover,
+.assignee-picker-option--selected:focus {
+    background-color: var(--color-primary-subtle);
+    filter: brightness(0.95);
+}
+
+/* Task 6.3: Checkmark indicator via pseudo-element */
+.assignee-picker-option::after {
+    content: '';
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.assignee-picker-option--selected::after {
+    content: '✓';
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
 /* Drop indicator line */
 .drop-indicator {
     height: 2px;

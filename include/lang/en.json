@@ -64,6 +64,8 @@
     "card.description": "Description",
     "card.due_date": "Due Date",
     "card.assign": "Assign",
+    "card.add_assignee": "Add assignee",
+    "card.assignee_picker_label": "Assign users to this card",
     "card.archived": "Archived",
     "card.archive_success": "Card archived successfully.",
     "card.restore": "Restore",

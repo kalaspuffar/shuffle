@@ -86,6 +86,24 @@ function formatFileSize(int $bytes): string
     return round($bytes / 1073741824, 1) . ' GB';
 }
 
+// Load all active, non-placeholder users for the assignee picker (admin/member only)
+$pickerUsers = [];
+if ($canEdit) {
+    $userModel = new Shuffle\Model\User($db);
+    $allActiveUsers = $userModel->findAll(['status' => 'active']);
+    foreach ($allActiveUsers as $u) {
+        if (!(bool) $u['is_placeholder']) {
+            $pickerUsers[] = ['id' => (int) $u['id'], 'name' => $u['name']];
+        }
+    }
+}
+
+// Extract currently assigned user IDs for the picker initial state
+$assignedUserIds = array_map(
+    fn($u) => (int) $u['id'],
+    $card['assigned_users'] ?? []
+);
+
 $pageTitle = $card['title'];
 $currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
@@ -127,16 +145,32 @@ require ROOT_DIR . '/include/templates/header.php';
         </div>
         <?php endif; ?>
 
-        <?php if (!empty($card['assigned_users'])): ?>
         <div class="card-detail-meta-item">
             <span class="card-detail-meta-label"><?= htmlspecialchars($lang->get('card.assign'), ENT_QUOTES, 'UTF-8') ?></span>
-            <span class="card-detail-meta-value">
-                <?php foreach ($card['assigned_users'] as $user): ?>
-                    <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
-                <?php endforeach; ?>
-            </span>
+            <div class="card-assignees-section"
+                <?php if ($canEdit): ?>
+                data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
+                data-assigned="<?= htmlspecialchars(json_encode($assignedUserIds, JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>"
+                <?php endif; ?>>
+                <span class="card-assignees-avatars card-detail-meta-value">
+                    <?php foreach ($card['assigned_users'] ?? [] as $user): ?>
+                        <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
+                    <?php endforeach; ?>
+                </span>
+                <?php if ($canEdit): ?>
+                <button type="button"
+                    class="btn btn-ghost btn-sm btn-add-assignee"
+                    aria-expanded="false"
+                    aria-haspopup="listbox"
+                    aria-label="<?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>">
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                    <?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>
+                </button>
+                <?php endif; ?>
+            </div>
         </div>
-        <?php endif; ?>
     </div>
 
     <div class="card-detail-section">
@@ -356,6 +390,8 @@ $cardLang = json_encode([
     'attachment_upload_error'   => $lang->get('attachment.upload_error'),
     'attachment_empty'          => $lang->get('attachment.empty'),
     'attachment_download'       => $lang->get('attachment.download'),
+    'add_assignee'              => $lang->get('card.add_assignee'),
+    'assignee_picker_label'     => $lang->get('card.assignee_picker_label'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>
