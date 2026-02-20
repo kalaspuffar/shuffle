@@ -156,10 +156,21 @@ require ROOT_DIR . '/include/templates/header.php';
                 data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
                 data-assigned="<?= htmlspecialchars(json_encode($assignedUserIds, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>"
                 <?php endif; ?>>
-                <span class="card-assignees-avatars card-detail-meta-value">
-                    <?php foreach ($card['assigned_users'] ?? [] as $user): ?>
+                <span class="card-assignees-avatars card-detail-meta-value<?= $canEdit ? ' js-loading' : '' ?>">
+                    <?php foreach (array_slice($card['assigned_users'] ?? [], 0, 3) as $user): ?>
                         <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
                     <?php endforeach; ?>
+                    <?php if (count($card['assigned_users'] ?? []) > 3): ?>
+                    <?php
+                        $cardOverflowUsers = array_slice($card['assigned_users'], 3);
+                        $cardOverflowCount = count($cardOverflowUsers);
+                        $cardOverflowLabel = $lang->get('card.assignee_overflow', [$cardOverflowCount]);
+                        $cardOverflowNames = implode(', ', array_column($cardOverflowUsers, 'name'));
+                    ?>
+                    <span class="card-assignee-avatar card-assignee-avatar-overflow"
+                        aria-label="<?= htmlspecialchars($cardOverflowLabel, ENT_QUOTES, 'UTF-8') ?>"
+                        title="<?= htmlspecialchars($cardOverflowNames, ENT_QUOTES, 'UTF-8') ?>">+<?= $cardOverflowCount ?></span>
+                    <?php endif; ?>
                 </span>
                 <?php if ($canEdit): ?>
                 <button type="button"
@@ -399,6 +410,7 @@ $cardLang = json_encode([
     'assignee_picker_label'     => $lang->get('card.assignee_picker_label'),
     'assignee_filter_placeholder' => $lang->get('card.assignee_filter_placeholder'),
     'assignee_no_users'         => $lang->get('card.assignee_no_users'),
+    'assignee_overflow'         => $lang->get('card.assignee_overflow'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>

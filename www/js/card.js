@@ -845,6 +845,47 @@
     }
 
     /* ===================================================================
+       Assignee Avatar Stack
+       =================================================================== */
+
+    /**
+     * Renders the assignee avatar stack into containerEl.
+     *
+     * Shows up to `cap` avatars as an overlapping stack, then appends a
+     * `+N` overflow badge for any extras. The badge uses aria-label and
+     * title to communicate the hidden count and names to assistive tech.
+     *
+     * @param {HTMLElement}                    containerEl - Avatar row container
+     * @param {Array<{id:number,name:string}>} users       - Assigned users in order
+     * @param {number}                         [cap=3]     - Max visible avatars
+     */
+    function renderAssigneeAvatars(containerEl, users, cap) {
+        if (cap === undefined) { cap = 3; }
+        containerEl.innerHTML = '';
+
+        var visible = users.slice(0, cap);
+        var hidden  = users.slice(cap);
+
+        visible.forEach(function (user) {
+            var span = document.createElement('span');
+            span.className = 'card-assignee-avatar';
+            span.title = user.name;
+            span.textContent = (user.name || '?').charAt(0).toUpperCase();
+            containerEl.appendChild(span);
+        });
+
+        if (hidden.length > 0) {
+            var overflowLabel = (LANG.assignee_overflow || '{0} more assignees').replace('{0}', hidden.length);
+            var badge = document.createElement('span');
+            badge.className = 'card-assignee-avatar card-assignee-avatar-overflow';
+            badge.setAttribute('aria-label', overflowLabel);
+            badge.title = hidden.map(function (u) { return u.name; }).join(', ');
+            badge.textContent = '+' + hidden.length;
+            containerEl.appendChild(badge);
+        }
+    }
+
+    /* ===================================================================
        Assignee Picker
        =================================================================== */
 
@@ -875,21 +916,29 @@
             return assignedIds.indexOf(userId) !== -1;
         }
 
-        /** Updates the assignee avatar row to reflect the current assignedIds */
+        /**
+         * Re-renders the avatar stack to reflect the current assignedIds.
+         * Delegates to renderAssigneeAvatars so the capped-stack + overflow
+         * badge logic is applied consistently.
+         */
         function refreshAvatarRow() {
             var avatarRow = assigneesSection.querySelector('.card-assignees-avatars');
             if (!avatarRow) return;
 
-            avatarRow.innerHTML = '';
-            pickerUsers.forEach(function (user) {
-                if (!isAssigned(user.id)) return;
-                var span = document.createElement('span');
-                span.className = 'card-assignee-avatar';
-                span.title = user.name;
-                span.textContent = (user.name || '?').charAt(0).toUpperCase();
-                avatarRow.appendChild(span);
-            });
+            var assignedUsers = pickerUsers.filter(function (u) { return isAssigned(u.id); });
+            renderAssigneeAvatars(avatarRow, assignedUsers);
         }
+
+        // Replace the PHP-rendered avatar list with the capped JS-rendered stack,
+        // then reveal it by removing the js-loading guard class.
+        (function initAvatarStack() {
+            var avatarRow = assigneesSection.querySelector('.card-assignees-avatars');
+            if (!avatarRow) return;
+
+            var assignedUsers = pickerUsers.filter(function (u) { return isAssigned(u.id); });
+            renderAssigneeAvatars(avatarRow, assignedUsers);
+            avatarRow.classList.remove('js-loading');
+        }());
 
         /** Closes the picker panel and restores focus to the trigger button */
         function closePicker() {

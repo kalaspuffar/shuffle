@@ -137,7 +137,15 @@ require ROOT_DIR . '/include/templates/header.php';
                                 <span class="card-assignee-avatar" title="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars(mb_strtoupper(mb_substr($user['name'], 0, 1)), ENT_QUOTES, 'UTF-8') ?></span>
                                 <?php endforeach; ?>
                                 <?php if (count($card['assigned_users']) > 3): ?>
-                                <span class="card-assignee-avatar" title="<?= count($card['assigned_users']) - 3 ?> more">+<?= count($card['assigned_users']) - 3 ?></span>
+                                <?php
+                                    $overflowUsers = array_slice($card['assigned_users'], 3);
+                                    $overflowCount = count($overflowUsers);
+                                    $overflowLabel = $lang->get('card.assignee_overflow', [$overflowCount]);
+                                    $overflowNames = implode(', ', array_column($overflowUsers, 'name'));
+                                ?>
+                                <span class="card-assignee-avatar card-assignee-avatar-overflow"
+                                    aria-label="<?= htmlspecialchars($overflowLabel, ENT_QUOTES, 'UTF-8') ?>"
+                                    title="<?= htmlspecialchars($overflowNames, ENT_QUOTES, 'UTF-8') ?>">+<?= $overflowCount ?></span>
                                 <?php endif; ?>
                             </span>
                             <?php endif; ?>
