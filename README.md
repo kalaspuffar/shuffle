@@ -6,17 +6,19 @@ Shuffle is a Trello alternative you run on your own server. It gives you configu
 
 ## Project Status
 
-**Shuffle is in early development.** The foundation layer (Phase 1) is implemented:
+Shuffle is **functional and self-hostable**. Core features are implemented:
 
-- Database schema and connection handling
-- Session management and autoloader
-- Internationalization support
-- Configuration system
-- CLI setup script for initial admin account
+- Authentication, invite-only registration, and account activation
+- Boards, lanes, and drag-and-drop card management
+- Cards with Markdown descriptions, comments, checklists, assignments, and due dates
+- File attachments stored in S3-compatible object storage
+- Full-text search across cards
+- Notifications
+- Admin panel for user and organization management
+- REST API (v1) for external integrations and mobile clients
+- Trello board import via CLI
 
-Core features — authentication, boards, cards, the REST API — are not yet built. The project has complete [requirements](REQUIREMENTS.md) and a detailed [technical specification](SPECIFICATION.md) guiding implementation.
-
-**This is not ready for use.** Contributions and feedback on the design are welcome.
+The project has complete [requirements](REQUIREMENTS.md) and a detailed [technical specification](SPECIFICATION.md) guiding ongoing development. Contributions and feedback are welcome.
 
 ## Tech Stack
 
@@ -24,20 +26,22 @@ Core features — authentication, boards, cards, the REST API — are not yet bu
 |-----------|------------|
 | Backend | PHP 8.4 (no framework, no Composer) |
 | Frontend | Vanilla HTML, CSS, JavaScript (server-rendered) |
-| Database | MySQL (InnoDB, utf8mb4) |
+| Database | MySQL 8.0+ or MariaDB 10.6+ |
 | File Storage | S3-compatible (tested with MinIO) |
 | Markdown | Parsedown (bundled, MIT license) |
 | Target OS | Debian Trixie (13) |
 
 ## Getting Started
 
+See [doc/setup.md](doc/setup.md) for the full installation guide, including web server configuration and MinIO setup.
+
 ### Prerequisites
 
-- PHP 8.4 with `pdo_mysql` and `mbstring` extensions
-- MySQL 8.0+
+- PHP 8.4 with extensions: `pdo_mysql`, `mbstring`, `json`, `openssl`, `filter`
+- MySQL 8.0+ or MariaDB 10.6+
 - An S3-compatible object store (e.g., [MinIO](https://min.io))
 - An SMTP server for email invitations
-- Apache or Nginx
+- Apache 2.4+ or Nginx 1.24+
 
 ### Install
 
@@ -69,15 +73,20 @@ Core features — authentication, boards, cards, the REST API — are not yet bu
 
 5. Point your web server's document root to the `www/` directory and open the site in a browser.
 
+## REST API
+
+Shuffle exposes a REST API at `/v1/`. See [doc/api.md](doc/api.md) for the full reference.
+
 ## Repository Layout
 
 ```
+bin/                  CLI tools (setup script, Trello import)
+doc/                  Database schema, setup guide, API reference
 etc/                  Configuration files
-bin/                  CLI tools (setup script)
-doc/                  Database schema
 include/Shuffle/      Application code (Core, Models, Services, Controllers)
-include/vendor/       Bundled third-party libraries (Parsedown)
 include/lang/         Translation files
+include/templates/    Shared HTML templates
+include/vendor/       Bundled third-party libraries (Parsedown)
 www/                  Web root (server-rendered pages, static assets, API)
 personas/             Role-specific prompts used during development
 REQUIREMENTS.md       Functional and non-functional requirements
@@ -117,7 +126,7 @@ Open a [GitHub issue](https://github.com/kalaspuffar/shuffle/issues) with:
 - **Minimal dependencies** — no package managers, no build steps
 - **Accessible** — WCAG 2.1 AA compliance, Lighthouse score >= 95%
 - **Invite-only** — admins control who joins; no self-registration
-- **Importable** — CLI tool for migrating from Trello (planned)
+- **Importable** — CLI tool for migrating from Trello (`bin/trello-import.php`)
 
 ## License
 
