@@ -44,6 +44,19 @@ if ($board === null) {
 $canEdit = in_array($currentUser['role'], ['admin', 'member'], true);
 $pageTitle = $board['title'];
 $currentPage = 'boards';
+
+// Active, non-placeholder users for the card-edit modal's assignee picker (member/admin only)
+$pickerUsers = [];
+if ($canEdit) {
+    $userModel = new Shuffle\Model\User($db);
+    $allActiveUsers = $userModel->findAll(['status' => 'active']);
+    foreach ($allActiveUsers as $u) {
+        if (!(bool) $u['is_placeholder']) {
+            $pickerUsers[] = ['id' => (int) $u['id'], 'name' => $u['name']];
+        }
+    }
+}
+
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
@@ -84,7 +97,7 @@ require ROOT_DIR . '/include/templates/header.php';
                     || !empty($card['assigned_users']);
                 $cardMetaId = $hasMeta ? 'card-meta-' . (int) $card['id'] : null;
                 ?>
-                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0"<?= $cardMetaId ? ' aria-describedby="' . $cardMetaId . '"' : '' ?>>
+                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" data-assigned="<?= htmlspecialchars(json_encode(array_map(fn($u) => (int) $u['id'], $card['assigned_users'] ?? []), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0"<?= $cardMetaId ? ' aria-describedby="' . $cardMetaId . '"' : '' ?>>
                     <a href="/card.php?id=<?= (int) $card['id'] ?>" class="card-link">
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($hasMeta): ?>
@@ -184,6 +197,49 @@ require ROOT_DIR . '/include/templates/header.php';
     <div id="board-announcer" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 </div>
 
+<?php if ($canEdit): ?>
+<!-- Card Edit Modal -->
+<div class="modal-overlay" id="card-modal-overlay" hidden>
+    <div class="modal modal--card" role="dialog" aria-labelledby="card-modal-title" aria-modal="true" id="card-modal">
+        <div class="modal-header">
+            <h2 id="card-modal-title"><?= htmlspecialchars($lang->get('card.modal_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <form id="card-modal-form" novalidate>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="card-modal-title-input" class="form-label"><?= htmlspecialchars($lang->get('card.title'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="text" id="card-modal-title-input" class="form-input" maxlength="255" required aria-required="true" aria-label="<?= htmlspecialchars($lang->get('card.title'), ENT_QUOTES, 'UTF-8') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="card-modal-due-date" class="form-label"><?= htmlspecialchars($lang->get('card.due_date'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="date" id="card-modal-due-date" class="form-input" aria-label="<?= htmlspecialchars($lang->get('card.due_date'), ENT_QUOTES, 'UTF-8') ?>">
+                </div>
+                <div class="form-group">
+                    <label for="card-modal-description" class="form-label"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <textarea id="card-modal-description" class="form-textarea" rows="6" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                </div>
+                <div class="form-group card-assignees-section" id="card-modal-assignees-section" data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" data-assigned="[]">
+                    <label class="form-label"><?= htmlspecialchars($lang->get('card.assign'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <div class="card-assignees-avatars"></div>
+                    <button type="button" class="btn btn-ghost btn-sm btn-add-assignee" aria-expanded="false" aria-haspopup="listbox" aria-controls="assignee-picker-listbox" aria-label="<?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>">
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                            <path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        <?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer card-modal-footer">
+                <a href="#" class="btn btn-secondary card-modal-full-details" target="_blank" rel="noopener" aria-label="<?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?></a>
+                <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+                <button type="submit" class="btn btn-primary" id="card-modal-save"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+            </div>
+        </form>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php
 $boardLang = json_encode([
     'lane_create_success'  => $lang->get('lane.create_success'),
@@ -206,6 +262,20 @@ $boardLang = json_encode([
     'card_move_to_lane'    => $lang->get('card.move_to_lane'),
     'card_archive_confirm' => $lang->get('action.confirm'),
     'card_archive_success' => $lang->get('card.archive_success'),
+    'card_modal_title'     => $lang->get('card.modal_title'),
+    'card_title'           => $lang->get('card.title'),
+    'card_due_date'        => $lang->get('card.due_date'),
+    'card_description'     => $lang->get('card.description'),
+    'card_assign'          => $lang->get('card.assign'),
+    'card_add_assignee'    => $lang->get('card.add_assignee'),
+    'card_full_details'    => $lang->get('card.full_details'),
+    'card_no_assignees'    => $lang->get('card.no_assignees'),
+    'card_assignee_picker_label' => $lang->get('card.assignee_picker_label'),
+    'card_assignee_filter_placeholder' => $lang->get('card.assignee_filter_placeholder'),
+    'card_assignee_no_users' => $lang->get('card.assignee_no_users'),
+    'card_assignee_overflow_singular' => $lang->get('card.assignee_overflow_singular'),
+    'card_assignee_overflow_plural' => $lang->get('card.assignee_overflow_plural'),
+    'card_update_success'  => $lang->get('card.update_success'),
     'announce_card_moved'  => $lang->get('announce.card_moved'),
     'announce_card_picked_up' => $lang->get('announce.card_picked_up'),
     'announce_card_dropped' => $lang->get('announce.card_dropped'),

@@ -1170,6 +1170,51 @@ small,
     padding: var(--space-1) var(--space-2);
 }
 
+/* Card edit modal — larger than the default small modal */
+.modal--card {
+    max-width: var(--modal-width-lg);
+}
+
+/* Footer layout: "Full details" on the left, action buttons on the right */
+.card-modal-footer {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.card-modal-footer .modal-close,
+.card-modal-footer #card-modal-save {
+    margin-left: var(--space-2);
+}
+
+/* Assignee row inside the modal */
+#card-modal-assignees-section {
+    position: relative;
+}
+
+#card-modal-assignees-section .card-assignees-avatars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    min-height: 28px;
+    align-items: center;
+}
+
+#card-modal-assignees-section .btn-add-assignee {
+    margin-top: var(--space-2);
+}
+
+/* Picker panel inside the modal follows the same absolute pattern but is
+   constrained to the modal width. */
+#card-modal-assignees-section .assignee-picker {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    min-width: 0;
+    z-index: var(--z-modal);
+}
+
 /* =============================================
    16. Checkbox Group
    ============================================= */
