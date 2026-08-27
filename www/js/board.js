@@ -1046,6 +1046,7 @@
                     cardModalDueDate.value = card.due_date || '';
                     cardModalDescription.value = card.description || '';
                     renderModalAvatars();
+                    renderModalComments(card.comments || []);
 
                     if (cardModalFullDetails) {
                         cardModalFullDetails.href = '/card.php?id=' + cardId;
@@ -1276,6 +1277,125 @@
             Array.prototype.forEach.call(cardModal.querySelectorAll('.modal-close'), function (btn) {
                 btn.addEventListener('click', closeCardModal);
             });
+
+            /* --- Comments in the modal (quick path: open card → drop a comment → close) --- */
+            var modalCommentEmpty = document.getElementById('modal-comment-empty');
+            var modalCommentList = document.getElementById('modal-comment-list');
+            var modalCommentForm = document.getElementById('modal-comment-form');
+            var modalCommentInput = document.getElementById('modal-comment-input');
+            var modalCommentAdd = document.getElementById('modal-comment-add');
+            cardModalState.commentBusy = false;
+
+            function renderModalComments(comments) {
+                if (!modalCommentList || !modalCommentEmpty) return;
+                modalCommentList.textContent = '';
+                if (!comments || !comments.length) {
+                    modalCommentEmpty.hidden = false;
+                    return;
+                }
+                modalCommentEmpty.hidden = true;
+                Array.prototype.forEach.call(comments, function (c) {
+                    var name = c.user_name || 'Unknown';
+                    var initial = String(name).charAt(0).toUpperCase();
+                    var row = document.createElement('div');
+                    row.className = 'comment';
+                    row.setAttribute('data-comment-id', String(c.id));
+
+                    var header = document.createElement('div');
+                    header.className = 'comment-header';
+                    var avatar = document.createElement('span');
+                    avatar.className = 'comment-avatar';
+                    avatar.title = name;
+                    avatar.textContent = initial;
+                    var author = document.createElement('span');
+                    author.className = 'comment-author';
+                    author.textContent = name;
+                    var time = document.createElement('time');
+                    time.className = 'comment-date';
+                    time.dateTime = c.created_at || '';
+                    time.textContent = timeAgo(c.created_at);
+                    header.appendChild(avatar);
+                    header.appendChild(author);
+                    header.appendChild(time);
+
+                    var body = document.createElement('div');
+                    body.className = 'comment-body markdown-body';
+                    if (c.body_html) {
+                        body.innerHTML = c.body_html; // server-rendered Markdown, trusted pipeline
+                    } else {
+                        body.textContent = c.body || '';
+                    }
+
+                    row.appendChild(header);
+                    row.appendChild(body);
+                    modalCommentList.appendChild(row);
+                });
+                // Newest last: keep the newest in view when the list is long
+                var last = modalCommentList.lastElementChild;
+                if (last) last.scrollIntoView({ block: 'nearest' });
+            }
+
+            function timeAgo(iso) {
+                if (!iso) return '';
+                var d = new Date(iso);
+                if (isNaN(d.getTime())) return iso;
+                var secs = Math.floor((Date.now() - d.getTime()) / 1000);
+                var mins = Math.floor(secs / 60);
+                var hours = Math.floor(mins / 60);
+                var days = Math.floor(hours / 24);
+                if (secs < 60) return 'just now';
+                if (mins < 60) return mins + 'm ago';
+                if (hours < 24) return hours + 'h ago';
+                if (days < 7) return days + 'd ago';
+                return d.toLocaleDateString();
+            }
+
+            function submitModalComment() {
+                if (cardModalState.commentBusy) return;
+                var body = (modalCommentInput.value || '').trim();
+                if (!body) {
+                    modalCommentInput.focus();
+                    return;
+                }
+                cardModalState.commentBusy = true;
+                var prevLabel = modalCommentAdd.textContent;
+                modalCommentAdd.disabled = true;
+                Shuffle.api('/v1/cards/' + cardModalState.cardId + '/comments', {
+                    method: 'POST',
+                    body: { body: body }
+                }).then(function (res) {
+                    cardModalState.commentBusy = false;
+                    modalCommentAdd.disabled = false;
+                    modalCommentAdd.textContent = prevLabel;
+                    if (res.status === 201 && res.data && res.data.comment) {
+                        modalCommentInput.value = '';
+                        var list = modalCommentList;
+                        list.textContent = '';
+                        // Re-fetch to render with the server's canonical body_html + order
+                        Shuffle.api('/v1/cards/' + cardModalState.cardId, { method: 'GET' }).then(function (res2) {
+                            renderModalComments(res2.data && res2.data.card ? res2.data.card.comments : [res.data.comment]);
+                            ShakeFlash(LANG.comment_create_success || 'Comment added', 'success');
+                        });
+                    } else {
+                        var msg = (res.data && res.data.error) || LANG.error_bad_request || 'Error';
+                        ShakeFlash(msg, 'error');
+                    }
+                });
+            }
+
+            if (modalCommentForm) {
+                modalCommentForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    submitModalComment();
+                });
+                modalCommentInput.addEventListener('keydown', function (e) {
+                    // Ctrl/Cmd+Enter = send (plain Enter still inserts a newline)
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        submitModalComment();
+                    }
+                });
+            }
 
             /* --- Prevent form default (we save via API) --- */
             cardModalForm.addEventListener('submit', function (e) { e.preventDefault(); saveCardModal(); });

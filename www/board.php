@@ -230,12 +230,21 @@ require ROOT_DIR . '/include/templates/header.php';
                     </button>
                 </div>
             </div>
-            <div class="modal-footer card-modal-footer">
-                <a href="#" class="btn btn-secondary card-modal-full-details" target="_blank" rel="noopener" aria-label="<?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?></a>
-                <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
-                <button type="submit" class="btn btn-primary" id="card-modal-save"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
-            </div>
         </form>
+        <div class="form-group modal-comment-section">
+            <label for="modal-comment-input" class="form-label"><?= htmlspecialchars($lang->get('comment.comments'), ENT_QUOTES, 'UTF-8') ?></label>
+            <div id="modal-comment-empty" class="text-secondary" hidden></div>
+            <div id="modal-comment-list"></div>
+            <form id="modal-comment-form" class="modal-comment-form" novalidate>
+                <textarea id="modal-comment-input" class="form-textarea" rows="2" placeholder="<?= htmlspecialchars($lang->get('comment.body_placeholder'), ENT_QUOTES, 'UTF-8') ?>" aria-label="<?= htmlspecialchars($lang->get('comment.body_placeholder'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                <button type="submit" class="btn btn-primary btn-sm" id="modal-comment-add"><?= htmlspecialchars($lang->get('comment.add'), ENT_QUOTES, 'UTF-8') ?></button>
+            </form>
+        </div>
+        <div class="modal-footer card-modal-footer">
+            <a href="#" class="btn btn-secondary card-modal-full-details" target="_blank" rel="noopener" aria-label="<?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?>"><?= htmlspecialchars($lang->get('card.full_details'), ENT_QUOTES, 'UTF-8') ?></a>
+            <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="submit" class="btn btn-primary" id="card-modal-save" form="card-modal-form"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -289,6 +298,7 @@ $boardLang = json_encode([
     'action_delete'        => $lang->get('action.delete'),
     'action_archive'       => $lang->get('action.archive'),
     'error_bad_request'    => $lang->get('error.bad_request'),
+    'comment_create_success' => $lang->get('comment.create_success'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>"></script>

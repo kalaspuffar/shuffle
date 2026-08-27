@@ -1173,6 +1173,41 @@ small,
 /* Card edit modal — larger than the default small modal */
 .modal--card {
     max-width: var(--modal-width-lg);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Comments section lives between the card form and the footer (outside the form) */
+.modal--card > .modal-comment-section {
+    padding: 0 var(--space-5) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+#modal-comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-height: 220px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    background: var(--color-bg-subtle, rgba(127, 127, 127, 0.06));
+}
+
+#modal-comment-empty {
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border-subtle);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.modal-comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
 }
 
 /* Footer layout: "Full details" on the left, action buttons on the right */
