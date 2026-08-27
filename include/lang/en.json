@@ -88,6 +88,9 @@
     "card.move_up": "Move Up",
     "card.move_down": "Move Down",
     "card.card_options": "Card options",
+    "card.modal_title": "Edit Card",
+    "card.full_details": "View full details",
+    "card.no_assignees": "No assignees",
     "card.due_overdue": "Overdue",
     "card.due_soon": "Due soon",
 

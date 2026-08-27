@@ -1,0 +1,15 @@
+# Shuffle — asset cache policy
+#
+# JS/CSS are versioned only by Last-Modified/ETag. Without an explicit
+# Cache-Control, browsers may heuristically cache board.js/app.js for a long
+# time, so deploys silently serve stale code (symptom: "new feature doesn't
+# open" until a hard reload). "no-cache" = revalidate on every request:
+# still fast (304 when unchanged) but always correct.
+#
+# Only affects requests under this DocumentRoot (www/).
+
+<IfModule mod_headers.c>
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, no-cache, must-revalidate"
+    </FilesMatch>
+</IfModule>
