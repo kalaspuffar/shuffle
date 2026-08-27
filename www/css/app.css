@@ -1170,6 +1170,86 @@ small,
     padding: var(--space-1) var(--space-2);
 }
 
+/* Card edit modal — larger than the default small modal */
+.modal--card {
+    max-width: var(--modal-width-lg);
+    display: flex;
+    flex-direction: column;
+}
+
+/* Comments section lives between the card form and the footer (outside the form) */
+.modal--card > .modal-comment-section {
+    padding: 0 var(--space-5) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+#modal-comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    max-height: 220px;
+    overflow-y: auto;
+    padding: var(--space-2);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: 6px;
+    background: var(--color-bg-subtle, rgba(127, 127, 127, 0.06));
+}
+
+#modal-comment-empty {
+    padding: var(--space-2);
+    border: 1px dashed var(--color-border-subtle);
+    border-radius: 6px;
+    text-align: center;
+}
+
+.modal-comment-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* Footer layout: "Full details" on the left, action buttons on the right */
+.card-modal-footer {
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
+.card-modal-footer .modal-close,
+.card-modal-footer #card-modal-save {
+    margin-left: var(--space-2);
+}
+
+/* Assignee row inside the modal */
+#card-modal-assignees-section {
+    position: relative;
+}
+
+#card-modal-assignees-section .card-assignees-avatars {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    min-height: 28px;
+    align-items: center;
+}
+
+#card-modal-assignees-section .btn-add-assignee {
+    margin-top: var(--space-2);
+}
+
+/* Picker panel inside the modal follows the same absolute pattern but is
+   constrained to the modal width. */
+#card-modal-assignees-section .assignee-picker {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    min-width: 0;
+    z-index: var(--z-modal);
+}
+
 /* =============================================
    16. Checkbox Group
    ============================================= */
@@ -1578,6 +1658,14 @@ small,
 
 .card--readonly {
     cursor: default;
+}
+
+/* Persistent selection highlight (keyboard arrows / Ctrl+click) — the
+   "hover border" Daniel expects while driving the space-to-assign flow.
+   Uses the primary color so it's visibly distinct from plain hover. */
+.card--selected {
+    border: 2px solid var(--color-primary);
+    box-shadow: var(--shadow-card);
 }
 
 .card-link {

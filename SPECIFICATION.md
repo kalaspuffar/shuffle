@@ -81,9 +81,9 @@ Shuffle is a self-hosted, open-source Kanban task management system designed as 
                           +---------+---------+
                            /        |         \
                   +-------+    +----+----+    +-------+
-                  | MySQL |    |   S3    |    | SMTP  |
-                  |  DB   |    | (MinIO) |    | Server|
-                  +-------+    +---------+    +-------+
+                  | MySQL |    |    S3    |    | SMTP  |
+                  |  DB   |    |  (Ceph)  |    | Server|
+                  +-------+    +----------+    +-------+
 ```
 
 ### 2.2 Directory Structure
@@ -2223,7 +2223,7 @@ Content-Security-Policy: (see 6.4)
 | PHP | 8.4 with extensions: `pdo_mysql`, `mbstring`, `json`, `openssl`, `curl` |
 | Web server | Apache 2.4 with `mod_rewrite` or Nginx |
 | MySQL | 8.0+ with InnoDB and FULLTEXT support |
-| S3 storage | MinIO or any S3-compatible service |
+| S3 storage | Ceph RGW or any S3-compatible service |
 | SMTP | Any SMTP server (Postfix, external service, etc.) |
 
 ### 7.2 Apache Configuration
@@ -2351,7 +2351,7 @@ The schema DDL (all `CREATE TABLE` statements) is provided as `doc/schema.sql` a
 
 ## 8. Integration Points
 
-### 8.1 S3-Compatible Storage (MinIO)
+### 8.1 S3-Compatible Storage (Ceph RGW reference)
 
 | Aspect | Detail |
 |---|---|

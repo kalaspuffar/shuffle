@@ -13,6 +13,7 @@
     var scriptTag = document.getElementById('board-script');
     var LANG = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
     var CAN_EDIT = scriptTag && scriptTag.dataset.canEdit === '1';
+    var ME = scriptTag ? parseInt(scriptTag.dataset.me, 10) : 0;
 
     var boardPage = document.querySelector('.board-view-page');
     if (!boardPage) return;
@@ -666,6 +667,30 @@
             removeDropTargets();
         });
 
+        /* Resolve the insertion point from cursor geometry, never from
+           e.target hit-testing: the 8px flex gaps and lane padding hit no
+           card element, and the indicator line shifts cards below it.
+           Walk cards in lane order; insert after the last card whose
+           (unshifted) midpoint is above the cursor. */
+        function insertionPoint(laneCards, clientY) {
+            var els = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
+            var idx = 0;
+            for (var i = 0; i < els.length; i++) {
+                var r = els[i].getBoundingClientRect();
+                if (r.height === 0) continue;
+                var midY0 = r.top + r.height / 2;
+                if (dropIndicator) {
+                    var dR = dropIndicator.getBoundingClientRect();
+                    if (dR.top + dR.height <= r.top) {
+                        midY0 -= dR.height + 8; // undo the indicator's layout shift
+                    }
+                }
+                if (clientY >= midY0) idx = i + 1; else break;
+            }
+            var afterEl = idx > 0 ? els[idx - 1] : null;
+            return { index: idx, afterCardId: afterEl ? parseInt(afterEl.dataset.cardId, 10) : null };
+        }
+
         lanesContainer.addEventListener('dragover', function (e) {
             if (!draggedCard) return;
             e.preventDefault();
@@ -678,21 +703,19 @@
             removeDropTargets();
             laneCards.classList.add('drop-target');
 
-            // Show drop indicator
-            var card = e.target.closest('.card');
-            if (card && card !== draggedCard) {
-                var rect = card.getBoundingClientRect();
-                var midY = rect.top + rect.height / 2;
+            // Show drop indicator at the geometry-resolved insertion point
+            // (ghost preview), so it tracks the cursor even over gaps/padding.
+            var point = insertionPoint(laneCards, e.clientY);
+            var allEls = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
 
-                removeDropIndicator();
-                dropIndicator = document.createElement('div');
-                dropIndicator.className = 'drop-indicator';
+            removeDropIndicator();
+            dropIndicator = document.createElement('div');
+            dropIndicator.className = 'drop-indicator';
 
-                if (e.clientY < midY) {
-                    card.parentNode.insertBefore(dropIndicator, card);
-                } else {
-                    card.parentNode.insertBefore(dropIndicator, card.nextSibling);
-                }
+            if (point.index < allEls.length) {
+                laneCards.insertBefore(dropIndicator, allEls[point.index]);
+            } else {
+                laneCards.appendChild(dropIndicator);
             }
         });
 
@@ -713,34 +736,10 @@
             var targetLaneId = parseInt(laneCards.dataset.laneId, 10);
             var cardId = parseInt(draggedCard.dataset.cardId, 10);
 
-            // Determine after_card_id based on drop position
-            var afterCardId = null;
-            var cards = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
-            var dropCard = e.target.closest('.card');
-
-            if (dropCard && dropCard !== draggedCard) {
-                var rect = dropCard.getBoundingClientRect();
-                var midY = rect.top + rect.height / 2;
-
-                if (e.clientY >= midY) {
-                    // Drop after this card
-                    afterCardId = parseInt(dropCard.dataset.cardId, 10);
-                } else {
-                    // Drop before this card — find the card before it
-                    var prevCard = dropCard.previousElementSibling;
-                    while (prevCard && (prevCard.classList.contains('drop-indicator') || prevCard.getAttribute('data-dragging') === 'true')) {
-                        prevCard = prevCard.previousElementSibling;
-                    }
-                    if (prevCard && prevCard.classList.contains('card')) {
-                        afterCardId = parseInt(prevCard.dataset.cardId, 10);
-                    }
-                    // afterCardId = null means move to top
-                }
-            } else if (cards.length > 0) {
-                // Dropped in empty area at end of lane
-                var lastCard = cards[cards.length - 1];
-                afterCardId = parseInt(lastCard.dataset.cardId, 10);
-            }
+            // Position from cursor geometry (see insertionPoint) — immune to
+            // releasing over gaps/padding, the old "always to the bottom" fail.
+            var point = insertionPoint(laneCards, e.clientY);
+            var afterCardId = point.afterCardId;
 
             // Capture current DOM position so we can revert if the API call fails
             var originalParent = draggedCard.parentNode;
@@ -754,10 +753,8 @@
                 : null;
             if (afterCardEl) {
                 laneCards.insertBefore(draggedCard, afterCardEl.nextSibling);
-            } else if (afterCardId === null) {
-                laneCards.insertBefore(draggedCard, laneCards.firstChild);
             } else {
-                laneCards.appendChild(draggedCard);
+                laneCards.insertBefore(draggedCard, laneCards.firstChild);
             }
 
             var cardTitle = draggedCard.querySelector('.card-title').textContent;
@@ -789,6 +786,685 @@
 
             removeDropTargets();
         });
+    }
+
+    /* =============================================
+       Card Edit Modal
+       ============================================= */
+
+    if (CAN_EDIT) {
+        var cardModalOverlay = document.getElementById('card-modal-overlay');
+        var cardModal = document.getElementById('card-modal');
+        var cardModalTitleInput = document.getElementById('card-modal-title-input');
+        var cardModalDueDate = document.getElementById('card-modal-due-date');
+        var cardModalDescription = document.getElementById('card-modal-description');
+        var cardModalForm = document.getElementById('card-modal-form');
+        var cardModalSaveBtn = document.getElementById('card-modal-save');
+        var cardModalSection = document.getElementById('card-modal-assignees-section');
+        var cardModalFullDetails = document.querySelector('.card-modal-full-details');
+
+        if (cardModalOverlay && cardModal) {
+            var cardModalState = {
+                cardId: 0,
+                originalTitle: '',
+                originalDueDate: '',
+                originalDescription: '',
+                originalAssigned: [],
+                assigned: [],
+                pickerUsers: [],
+                opener: null
+            };
+
+            /** Escapes HTML to prevent XSS when building DOM from data */
+            function cmEscape(str) {
+                var div = document.createElement('div');
+                div.textContent = str || '';
+                return div.innerHTML;
+            }
+
+            /** Renders the assignee avatar stack into the modal's stack row */
+            function renderModalAvatars() {
+                var row = cardModalSection.querySelector('.card-assignees-avatars');
+                if (!row) return;
+                row.innerHTML = '';
+                var cap = 5;
+                var slice = cardModalState.assigned;
+                if (slice.length > cap) slice = slice.slice(0, cap);
+                for (var i = 0; i < slice.length; i++) {
+                    var user = null;
+                    for (var j = 0; j < cardModalState.pickerUsers.length; j++) {
+                        if (cardModalState.pickerUsers[j].id === slice[i]) { user = cardModalState.pickerUsers[j]; break; }
+                    }
+                    var name = user ? user.name : '?';
+                    var span = document.createElement('span');
+                    span.className = 'card-assignee-avatar';
+                    span.textContent = name.charAt(0).toUpperCase();
+                    span.setAttribute('role', 'img');
+                    span.setAttribute('aria-label', name);
+                    span.title = name;
+                    row.appendChild(span);
+                }
+                var extra = cardModalState.assigned.length - cap;
+                if (extra > 0) {
+                    var key = extra === 1 ? 'card_assignee_overflow_singular' : 'card_assignee_overflow_plural';
+                    var label = (LANG[key] || '{0} more assignees').replace('{0}', extra);
+                    var badge = document.createElement('span');
+                    badge.className = 'card-assignee-avatar card-assignee-avatar-overflow';
+                    badge.textContent = '+' + extra;
+                    badge.setAttribute('aria-label', label);
+                    badge.title = label;
+                    row.appendChild(badge);
+                }
+                if (cardModalState.assigned.length === 0) {
+                    var empty = document.createElement('span');
+                    empty.className = 'text-secondary';
+                    empty.textContent = LANG.card_no_assignees || 'No assignees';
+                    row.appendChild(empty);
+                }
+            }
+
+            /** Opens the assignee picker panel inside the modal section */
+            function openModalPicker() {
+                closeModalPicker();
+                var existing = cardModalSection.querySelector('.assignee-picker');
+                if (existing) existing.remove();
+
+                var panel = document.createElement('div');
+                panel.className = 'assignee-picker';
+                panel.setAttribute('role', 'presentation');
+
+                var search = document.createElement('input');
+                search.type = 'text';
+                search.className = 'assignee-picker-search';
+                search.placeholder = LANG.card_assignee_filter_placeholder || 'Filter users…';
+                search.setAttribute('aria-label', LANG.card_assignee_filter_placeholder || 'Filter users');
+
+                var listbox = document.createElement('div');
+                listbox.id = 'assignee-picker-listbox';
+                listbox.setAttribute('role', 'listbox');
+                listbox.setAttribute('aria-label', LANG.card_assignee_picker_label || 'Assign users to this card');
+
+                function assignedContains(id) {
+                    return cardModalState.assigned.indexOf(id) !== -1;
+                }
+
+                function renderOptions(filter) {
+                    listbox.innerHTML = '';
+                    var q = (filter || '').toLowerCase();
+                    var shown = 0;
+                    for (var i = 0; i < cardModalState.pickerUsers.length; i++) {
+                        var u = cardModalState.pickerUsers[i];
+                        if (q && u.name.toLowerCase().indexOf(q) === -1) continue;
+                        var opt = document.createElement('div');
+                        opt.className = 'assignee-picker-option' + (assignedContains(u.id) ? ' assignee-picker-option--selected' : '');
+                        opt.setAttribute('role', 'option');
+                        opt.setAttribute('aria-selected', assignedContains(u.id) ? 'true' : 'false');
+                        opt.tabIndex = 0;
+                        opt.dataset.userId = u.id;
+
+                        var av = document.createElement('span');
+                        av.className = 'assignee-picker-avatar';
+                        av.textContent = u.name.charAt(0).toUpperCase();
+                        var nm = document.createElement('span');
+                        nm.className = 'assignee-picker-name';
+                        nm.textContent = u.name;
+                        opt.appendChild(av);
+                        opt.appendChild(nm);
+                        listbox.appendChild(opt);
+                        shown++;
+                    }
+                    if (shown === 0) {
+                        var p = document.createElement('p');
+                        p.className = 'assignee-picker-empty';
+                        p.textContent = LANG.card_assignee_no_users || 'No users available';
+                        listbox.appendChild(p);
+                    }
+                }
+
+                renderOptions('');
+
+                panel.appendChild(search);
+                panel.appendChild(listbox);
+                cardModalSection.appendChild(panel);
+
+                var addBtn = cardModalSection.querySelector('.btn-add-assignee');
+                if (addBtn) addBtn.setAttribute('aria-expanded', 'true');
+                search.focus();
+
+                search.addEventListener('input', function () {
+                    renderOptions(search.value);
+                });
+
+                listbox.addEventListener('click', function (e) {
+                    const opt = e.target.closest('.assignee-picker-option');
+                    if (!opt) return;
+                    toggleModalAssignee(parseInt(opt.dataset.userId, 10));
+                    closeModalPicker(); // modal space is limited; close on select
+                });
+
+                listbox.addEventListener('keydown', function (e) {
+                    var opts = listbox.querySelectorAll('.assignee-picker-option');
+                    var cur = -1;
+                    for (var i = 0; i < opts.length; i++) {
+                        if (opts[i] === document.activeElement) { cur = i; break; }
+                    }
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        if (opts.length) opts[(cur + 1) % opts.length].focus();
+                    } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        if (opts.length) opts[(cur - 1 + opts.length) % opts.length].focus();
+                    } else if (e.key === 'Home') {
+                        e.preventDefault();
+                        if (opts[0]) opts[0].focus();
+                    } else if (e.key === 'End') {
+                        e.preventDefault();
+                        if (opts.length) opts[opts.length - 1].focus();
+                    } else if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        if (document.activeElement.classList.contains('assignee-picker-option')) {
+                            toggleModalAssignee(parseInt(document.activeElement.dataset.userId, 10));
+                        }
+                    } else if (e.key === 'Escape') {
+                        e.stopPropagation();
+                        closeModalPicker();
+                    }
+                });
+
+                // Outside-click close — stored on the section so closeModalPicker
+                // can remove exactly this listener (no leaks across open/close cycles)
+                var outsideHandler = function (e) {
+                    if (cardModalSection && !cardModalSection.contains(e.target)) {
+                        closeModalPicker();
+                    }
+                };
+                cardModalSection._pickerOutsideHandler = outsideHandler;
+                setTimeout(function () {
+                    document.addEventListener('click', outsideHandler, true);
+                }, 0);
+            }
+
+            function closeModalPicker() {
+                if (!cardModalSection) return;
+                var p = cardModalSection.querySelector('.assignee-picker');
+                if (p) p.remove();
+                if (cardModalSection._pickerOutsideHandler) {
+                    document.removeEventListener('click', cardModalSection._pickerOutsideHandler, true);
+                    delete cardModalSection._pickerOutsideHandler;
+                }
+                var addBtn = cardModalSection.querySelector('.btn-add-assignee');
+                if (addBtn) addBtn.setAttribute('aria-expanded', 'false');
+            }
+
+            function toggleModalAssignee(userId) {
+                var idx = cardModalState.assigned.indexOf(userId);
+                if (idx === -1) {
+                    cardModalState.assigned.push(userId);
+                } else {
+                    cardModalState.assigned.splice(idx, 1);
+                }
+                renderModalAvatars();
+                // refresh selection state in an open picker
+                var panel = cardModalSection.querySelector('.assignee-picker');
+                if (panel) {
+                    var opts = panel.querySelectorAll('.assignee-picker-option');
+                    for (var i = 0; i < opts.length; i++) {
+                        var sel = cardModalState.assigned.indexOf(parseInt(opts[i].dataset.userId, 10)) !== -1;
+                        opts[i].classList.toggle('assignee-picker-option--selected', sel);
+                        opts[i].setAttribute('aria-selected', sel ? 'true' : 'false');
+                    }
+                }
+            }
+
+            function openCardModal(cardEl) {
+                if (cardEl.getAttribute('data-dragging') === 'true') return; // safety: never after a drag
+
+                var cardId = parseInt(cardEl.dataset.cardId, 10);
+                if (!cardId) return;
+
+                // Fetch fresh card data (title, description, due_date, assigned users)
+                Shuffle.api('/v1/cards/' + cardId, { method: 'GET' }).then(function (res) {
+                    if (res.status !== 200 || !res.data || !res.data.card) {
+                        var msg = (res.data && res.data.error) || LANG.error_bad_request || 'Error';
+                        Shuffle.showFlash(msg, 'error');
+                        return;
+                    }
+                    var card = res.data.card;
+
+                    cardModalState.cardId = cardId;
+                    cardModalState.opener = cardEl;
+                    cardModalState.originalTitle = card.title || '';
+                    cardModalState.originalDueDate = card.due_date || '';
+                    cardModalState.originalDescription = card.description || '';
+                    cardModalState.assigned = (card.assigned_users || []).map(function (u) { return parseInt(u.id, 10); });
+                    cardModalState.originalAssigned = cardModalState.assigned.slice();
+                    cardModalState.pickerUsers = [];
+                    var usersJson = cardModalSection.dataset.users || '[]';
+                    try { cardModalState.pickerUsers = JSON.parse(usersJson); } catch (e) { cardModalState.pickerUsers = []; }
+
+                    cardModalTitleInput.value = card.title || '';
+                    cardModalDueDate.value = card.due_date || '';
+                    cardModalDescription.value = card.description || '';
+                    renderModalAvatars();
+                    renderModalComments(card.comments || []);
+
+                    if (cardModalFullDetails) {
+                        cardModalFullDetails.href = '/card.php?id=' + cardId;
+                    }
+
+                    closeCardModal(true); // ensure clean state (removes any old picker, keep state intact)
+                    cardModalOverlay.hidden = false;
+                    cardModalSaveBtn.disabled = false;
+                    cardModalTitleInput.focus();
+                });
+            }
+
+            function closeCardModal(quiet) {
+                closeModalPicker();
+                cardModalOverlay.hidden = true;
+                if (!quiet && cardModalState.opener && cardModalState.opener.focus) {
+                    cardModalState.opener.focus();
+                }
+                if (!quiet) {
+                    cardModalState.opener = null;
+                    cardModalState.cardId = 0;
+                }
+            }
+
+            function ShakeFlash(msg, type) {
+                Shuffle.showFlash(msg, type);
+            }
+
+            /**
+             * Quick-flow assign: Space on the selected card toggles MYSELF in or
+             * out of its assignees (optimistic DOM update + PUT to API).
+             * Reads the live assignee list from the card's data-assigned attr,
+             * so it works for any card on the board, no modal required.
+             */
+            function quickAssignSelectedCard(card) {
+                var cardId = parseInt(card.dataset.cardId, 10);
+                if (!cardId || !ME) return;
+
+                var assigned;
+                try { assigned = JSON.parse(card.dataset.assigned || '[]'); }
+                catch (e) { assigned = []; }
+
+                var isAssigned = assigned.indexOf(ME) !== -1;
+                var nextList = isAssigned
+                    ? assigned.filter(function (id) { return id !== ME; })
+                    : assigned.concat([ME]);
+
+                var nextIds = nextList.map(function (id) { return parseInt(id, 10); });
+
+                // Optimistic DOM update of the avatar stack (best effort)
+                updateCardAvatars(card, nextIds);
+
+                Shuffle.api('/v1/cards/' + cardId, {
+                    method: 'PUT',
+                    body: { assigned_user_ids: nextIds }
+                }).then(function (result) {
+                    if (result.status === 200) {
+                        // Keep data-assigned in sync so the state reads correctly
+                        // on the next press
+                        card.dataset.assigned = JSON.stringify(nextIds);
+                        var titleEl = card.querySelector('.card-title');
+                        var title = titleEl ? titleEl.textContent : '';
+                        var msgKey = isAssigned ? 'card_unassigned_self' : 'card_assigned_self';
+                        announce(tmpl(LANG[msgKey] || (isAssigned ? 'Removed yourself from {0}.' : 'Assigned {0} to yourself.'), [title]));
+                    } else {
+                        // Revert the optimistic change
+                        card.dataset.assigned = JSON.stringify(assigned.map(function (id) { return parseInt(id, 10); }));
+                        updateCardAvatars(card, assigned);
+                        var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                        ShakeFlash(msg, 'error');
+                    }
+                });
+            }
+
+            /**
+             * Renders a lightweight avatar row onto the card's meta area so the
+             * optimistic assign/unassign is visible immediately. Rebuilds the
+             * .card-assignees element in the card's meta (keeps other meta items).
+             */
+            function updateCardAvatars(card, userIds) {
+                var meta = card.querySelector('.card-meta');
+                var existing = card.querySelector('.card-assignees');
+                if (existing) existing.remove();
+
+                if (!userIds.length) return;
+
+                // Look up display names from the modal's user roster (available
+                // on the same page) so the optimistic avatar shows an initial,
+                // matching the server-rendered stack exactly.
+                var roster = [];
+                var section = document.getElementById('card-modal-assignees-section');
+                if (section) {
+                    try { roster = JSON.parse(section.dataset.users || '[]'); }
+                    catch (e) { roster = []; }
+                }
+                var nameFor = function (id) {
+                    for (var r = 0; r < roster.length; r++) {
+                        if (roster[r].id === id) return roster[r].name;
+                    }
+                    return null;
+                };
+
+                var wrap = document.createElement('span');
+                wrap.className = 'card-assignees';
+                var cap = 3;
+                var visible = userIds.slice(0, cap);
+                for (var i = 0; i < visible.length; i++) {
+                    var av = document.createElement('span');
+                    av.className = 'card-assignee-avatar';
+                    var name = nameFor(visible[i]);
+                    if (name) {
+                        av.textContent = name.charAt(0).toUpperCase();
+                        av.setAttribute('title', name);
+                        av.setAttribute('aria-label', name);
+                    }
+                    wrap.appendChild(av);
+                }
+                var extra = userIds.length - cap;
+                if (extra > 0) {
+                    var badge = document.createElement('span');
+                    badge.className = 'card-assignee-avatar card-assignee-avatar-overflow';
+                    badge.textContent = '+' + extra;
+                    wrap.appendChild(badge);
+                }
+                // Append to meta so it's the rightmost item
+                if (meta) meta.appendChild(wrap);
+                else {
+                    // No meta block yet — create one inside the card-link
+                    var link = card.querySelector('.card-link');
+                    var newMeta = document.createElement('div');
+                    newMeta.className = 'card-meta';
+                    newMeta.appendChild(wrap);
+                    if (link) link.appendChild(newMeta);
+                    else card.appendChild(newMeta);
+                }
+            }
+
+            /* --- Open triggers: click on card body (not menu button), Enter on focused card --- */
+            lanesContainer.addEventListener('click', function (e) {
+                if (e.target.closest('.context-menu')) return;
+                if (e.target.closest('.card-menu-btn')) return;
+
+                var card = e.target.closest('.card');
+                if (!card) return;
+
+                // Ctrl+click: toggle the selection highlight instead of opening
+                // the modal (quick-flow: hover border → arrows → Space to assign)
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var prevSel = lanesContainer.querySelector('.card--selected');
+                    if (prevSel) prevSel.classList.remove('card--selected');
+                    card.classList.add('card--selected');
+                    card.focus();
+                    announce(tmpl(LANG.card_selected_hint || 'Card selected. Use Up/Down arrows to move, Space to assign to yourself.', []));
+                    return;
+                }
+
+                // Plain click opens the edit modal (keep existing selection)
+                var selected = lanesContainer.querySelector('.card--selected');
+                if (selected) selected.classList.remove('card--selected');
+                e.preventDefault();
+                openCardModal(card);
+            });
+
+            // Selection highlight follows the keyboard focus (tab or click), so
+            // the "hover border" state is persistent and visible while typing
+            // nothing — Daniel's quick-flow anchor.
+            lanesContainer.addEventListener('focusin', function (e) {
+                var card = e.target.closest ? e.target.closest('.card') : null;
+                if (!card) return;
+                var selected = lanesContainer.querySelector('.card--selected');
+                if (selected) selected.classList.remove('card--selected');
+                card.classList.add('card--selected');
+            });
+
+            lanesContainer.addEventListener('keydown', function (e) {
+                if (!e.target.closest) return;
+                var card = e.target.closest('.card');
+                if (!card) return;
+                if (e.target.closest('.card-menu-btn')) return;
+                if (e.target.closest('.context-menu')) return;
+                if (e.altKey) return; // Alt+Arrows are card movement, not opening
+
+                // Arrow keys: move the selection up/down the card list within
+                // the lane (v1: one lane only — lane-boundary handling is a
+                // future spec item; Alt+Arrows already move the card between
+                // lanes, so this stays keyboard-free of lane surprises).
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    var laneCards = card.closest('.lane-cards');
+                    var siblings = laneCards ? laneCards.querySelectorAll('.card') : null;
+                    if (!siblings || !siblings.length) return;
+                    var idx = Array.prototype.indexOf.call(siblings, card);
+                    var nextIdx = (e.key === 'ArrowDown') ? idx + 1 : idx - 1;
+                    if (nextIdx < 0 || nextIdx >= siblings.length) return; // v1: stop at lane end
+                    e.preventDefault();
+                    var nextCard = siblings[nextIdx];
+                    var prevSelected = lanesContainer.querySelector('.card--selected');
+                    if (prevSelected) prevSelected.classList.remove('card--selected');
+                    nextCard.classList.add('card--selected');
+                    nextCard.focus();
+                    nextCard.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    return;
+                }
+
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    openCardModal(card);
+                } else if (e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space') {
+                    // Space on the selected card = assign/unassign MYSELF (quick flow)
+                    e.preventDefault();
+                    e.stopPropagation();
+                    quickAssignSelectedCard(card);
+                }
+            });
+
+            /* --- Close triggers --- */
+            cardModalOverlay.addEventListener('click', function (e) {
+                if (e.target === cardModalOverlay) closeCardModal();
+            });
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && !cardModalOverlay.hidden) {
+                    // If the assignee picker is open, Escape closes it first
+                    if (cardModalSection.querySelector('.assignee-picker')) return;
+                    closeCardModal();
+                }
+            });
+            Array.prototype.forEach.call(cardModal.querySelectorAll('.modal-close'), function (btn) {
+                btn.addEventListener('click', closeCardModal);
+            });
+
+            /* --- Comments in the modal (quick path: open card → drop a comment → close) --- */
+            var modalCommentEmpty = document.getElementById('modal-comment-empty');
+            var modalCommentList = document.getElementById('modal-comment-list');
+            var modalCommentForm = document.getElementById('modal-comment-form');
+            var modalCommentInput = document.getElementById('modal-comment-input');
+            var modalCommentAdd = document.getElementById('modal-comment-add');
+            cardModalState.commentBusy = false;
+
+            function renderModalComments(comments) {
+                if (!modalCommentList || !modalCommentEmpty) return;
+                modalCommentList.textContent = '';
+                if (!comments || !comments.length) {
+                    modalCommentEmpty.hidden = false;
+                    return;
+                }
+                modalCommentEmpty.hidden = true;
+                Array.prototype.forEach.call(comments, function (c) {
+                    var name = c.user_name || 'Unknown';
+                    var initial = String(name).charAt(0).toUpperCase();
+                    var row = document.createElement('div');
+                    row.className = 'comment';
+                    row.setAttribute('data-comment-id', String(c.id));
+
+                    var header = document.createElement('div');
+                    header.className = 'comment-header';
+                    var avatar = document.createElement('span');
+                    avatar.className = 'comment-avatar';
+                    avatar.title = name;
+                    avatar.textContent = initial;
+                    var author = document.createElement('span');
+                    author.className = 'comment-author';
+                    author.textContent = name;
+                    var time = document.createElement('time');
+                    time.className = 'comment-date';
+                    time.dateTime = c.created_at || '';
+                    time.textContent = timeAgo(c.created_at);
+                    header.appendChild(avatar);
+                    header.appendChild(author);
+                    header.appendChild(time);
+
+                    var body = document.createElement('div');
+                    body.className = 'comment-body markdown-body';
+                    if (c.body_html) {
+                        body.innerHTML = c.body_html; // server-rendered Markdown, trusted pipeline
+                    } else {
+                        body.textContent = c.body || '';
+                    }
+
+                    row.appendChild(header);
+                    row.appendChild(body);
+                    modalCommentList.appendChild(row);
+                });
+                // Newest last: keep the newest in view when the list is long
+                var last = modalCommentList.lastElementChild;
+                if (last) last.scrollIntoView({ block: 'nearest' });
+            }
+
+            function timeAgo(iso) {
+                if (!iso) return '';
+                var d = new Date(iso);
+                if (isNaN(d.getTime())) return iso;
+                var secs = Math.floor((Date.now() - d.getTime()) / 1000);
+                var mins = Math.floor(secs / 60);
+                var hours = Math.floor(mins / 60);
+                var days = Math.floor(hours / 24);
+                if (secs < 60) return 'just now';
+                if (mins < 60) return mins + 'm ago';
+                if (hours < 24) return hours + 'h ago';
+                if (days < 7) return days + 'd ago';
+                return d.toLocaleDateString();
+            }
+
+            function submitModalComment() {
+                if (cardModalState.commentBusy) return;
+                var body = (modalCommentInput.value || '').trim();
+                if (!body) {
+                    modalCommentInput.focus();
+                    return;
+                }
+                cardModalState.commentBusy = true;
+                var prevLabel = modalCommentAdd.textContent;
+                modalCommentAdd.disabled = true;
+                Shuffle.api('/v1/cards/' + cardModalState.cardId + '/comments', {
+                    method: 'POST',
+                    body: { body: body }
+                }).then(function (res) {
+                    cardModalState.commentBusy = false;
+                    modalCommentAdd.disabled = false;
+                    modalCommentAdd.textContent = prevLabel;
+                    if (res.status === 201 && res.data && res.data.comment) {
+                        modalCommentInput.value = '';
+                        var list = modalCommentList;
+                        list.textContent = '';
+                        // Re-fetch to render with the server's canonical body_html + order
+                        Shuffle.api('/v1/cards/' + cardModalState.cardId, { method: 'GET' }).then(function (res2) {
+                            renderModalComments(res2.data && res2.data.card ? res2.data.card.comments : [res.data.comment]);
+                            ShakeFlash(LANG.comment_create_success || 'Comment added', 'success');
+                        });
+                    } else {
+                        var msg = (res.data && res.data.error) || LANG.error_bad_request || 'Error';
+                        ShakeFlash(msg, 'error');
+                    }
+                });
+            }
+
+            if (modalCommentForm) {
+                modalCommentForm.addEventListener('submit', function (e) {
+                    e.preventDefault();
+                    submitModalComment();
+                });
+                modalCommentInput.addEventListener('keydown', function (e) {
+                    // Ctrl/Cmd+Enter = send (plain Enter still inserts a newline)
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        submitModalComment();
+                    }
+                });
+            }
+
+            /* --- Prevent form default (we save via API) --- */
+            cardModalForm.addEventListener('submit', function (e) { e.preventDefault(); saveCardModal(); });
+
+            function saveCardModal() {
+                var title = cardModalTitleInput.value.trim();
+                if (!title) {
+                    cardModalTitleInput.focus();
+                    cardModalTitleInput.classList.add('is-invalid');
+                    return;
+                }
+                cardModalTitleInput.classList.remove('is-invalid');
+
+                var dueDate = cardModalDueDate.value || null;
+                var description = cardModalDescription.value;
+                closeModalPicker(); // never save with the picker panel open covering the footer
+
+                // Diff against originals; skip no-ops to avoid needless version bumps
+                var payload = {};
+                if (title !== cardModalState.originalTitle) payload.title = title;
+                if ((dueDate || null) !== (cardModalState.originalDueDate || null)) payload.due_date = dueDate;
+                if (description !== cardModalState.originalDescription) payload.description = description;
+
+                var assignedChanged = cardModalState.assigned.length !== cardModalState.originalAssigned.length
+                    || cardModalState.assigned.some(function (id, i) { return cardModalState.originalAssigned[i] !== id; });
+                if (assignedChanged) payload.assigned_user_ids = cardModalState.assigned.slice();
+
+                if (Object.keys(payload).length === 0) {
+                    closeCardModal();
+                    return;
+                }
+
+                cardModalSaveBtn.disabled = true;
+                Shuffle.api('/v1/cards/' + cardModalState.cardId, {
+                    method: 'PUT',
+                    body: payload
+                }).then(function (result) {
+                    cardModalSaveBtn.disabled = false;
+                    if (result.status === 200) {
+                        ShakeFlash(LANG.card_update_success || 'Card updated', 'success');
+                        closeCardModal(true);
+                        // Standard pattern: reload to sync all inline card meta
+                        // (due date, assignee avatars, comment/checklist counts)
+                        // without a hand-maintained DOM diff. Scroll position is
+                        // preserved across reloads.
+                        setTimeout(function () { window.location.reload(); }, 500);
+                    } else {
+                        var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                        ShakeFlash(msg, 'error');
+                    }
+                });
+            }
+
+            cardModalTitleInput.addEventListener('input', function () {
+                cardModalTitleInput.classList.remove('is-invalid');
+            });
+
+            /* Add-assignee button opens picker */
+            var modalAddAssigneeBtn = cardModalSection.querySelector('.btn-add-assignee');
+            modalAddAssigneeBtn.addEventListener('click', function (e) {
+                e.preventDefault();
+                var panel = cardModalSection.querySelector('.assignee-picker');
+                if (panel) {
+                    closeModalPicker();
+                } else {
+                    openModalPicker();
+                }
+            });
+        }
     }
 
     function removeDropIndicator() {

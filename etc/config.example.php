@@ -52,11 +52,11 @@ return [
     // ],
 
     // 's3' => [
-    //     'endpoint'   => 'http://127.0.0.1:9000',
+    //     'endpoint'   => 'http://localhost:9000',          // any S3-compatible object store (Ceph RGW, MinIO, AWS, …)
     //     'bucket'     => 'shuffle',
     //     'access_key' => '',
     //     'secret_key' => '',
-    //     'region'     => 'us-east-1',
+    //     'region'     => 'us-west-1',
     //     'path_style' => true,
     // ],
 

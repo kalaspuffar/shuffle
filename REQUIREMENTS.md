@@ -483,7 +483,7 @@ A web-based setup wizard displayed on first visit when the application detects n
 |---|---|
 | **Purpose** | File attachment storage |
 | **Protocol** | S3 API (path-based access, no virtual-hosted-style) |
-| **Compatibility** | Must work with MinIO, Garage, or similar self-hosted S3 alternatives |
+| **Compatibility** | Must work with Ceph RGW, MinIO, Garage, or similar self-hosted S3 alternatives |
 | **Authentication** | Access key / secret key |
 | **Configuration** | Endpoint URL, bucket name, access credentials stored in server config |
 
@@ -577,7 +577,7 @@ A web-based setup wizard displayed on first visit when the application detects n
 | **Solo developer bottleneck** — all knowledge in one person | High | Medium | Clean code, good documentation, open-source community potential |
 | **Trello export format changes** — breaking the import tool | Low | Medium | Document supported Trello export version; isolate import code |
 | **Markdown XSS vulnerabilities** — rendering user-supplied Markdown | Medium | High | Use Parsedown (battle-tested, single-file, MIT) with output sanitization |
-| **S3 compatibility issues** — path-based access varies between providers | Low | Medium | Test against MinIO as reference implementation |
+| **S3 compatibility issues** — path-based access varies between providers | Low | Medium | Test against the Ceph RGW bucket as reference implementation |
 | **Performance at scale** — MySQL full-text search and polling under load | Low (initially) | Medium | Acceptable for current scale; architecture allows future replacement |
 | **Stakeholder adoption** — users may resist moving from Trello | Medium | High | Full-featured web UI before pitch; smooth Trello import preserving all data |
 
@@ -638,7 +638,7 @@ All open questions have been resolved during requirements gathering.
 | **Card** | A task or work item that lives within a lane |
 | **Checklist** | A list of sub-tasks within a card that can be individually checked off |
 | **Placeholder user** | A user account created during Trello import, representing a Trello user not yet invited to the system |
-| **S3-compatible storage** | Object storage that implements the Amazon S3 API (e.g., MinIO, Garage) |
+| **S3-compatible storage** | Object storage that implements the Amazon S3 API (e.g., Ceph RGW, MinIO, Garage) |
 | **Polling** | A technique where the client periodically checks the server for updates |
 
 ### B. Priority Legend

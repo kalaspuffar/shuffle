@@ -88,6 +88,12 @@
     "card.move_up": "Move Up",
     "card.move_down": "Move Down",
     "card.card_options": "Card options",
+    "card.modal_title": "Edit Card",
+    "card.full_details": "View full details",
+    "card.no_assignees": "No assignees",
+    "card.selected_hint": "Card selected. Use Up/Down arrows to move, Space to assign to yourself, Enter to edit.",
+    "card.assigned_self": "Assigned {0} to yourself.",
+    "card.unassigned_self": "Removed yourself from {0}.",
     "card.due_overdue": "Overdue",
     "card.due_soon": "Due soon",
 
