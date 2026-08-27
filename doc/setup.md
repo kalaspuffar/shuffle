@@ -7,7 +7,7 @@
 | PHP | 8.4+ |
 | MariaDB / MySQL | 10.6+ / 8.0+ |
 | Web server | Apache 2.4+ or Nginx 1.24+ |
-| S3-compatible storage | MinIO or AWS S3 |
+| S3-compatible storage | Ceph RGW (reference), MinIO, or AWS S3 |
 | SMTP relay | Any compliant server |
 
 PHP extensions required: `pdo_mysql`, `mbstring`, `json`, `openssl`, `filter`
@@ -69,12 +69,12 @@ return [
         'charset'  => 'utf8mb4',
     ],
     's3' => [
-        'endpoint'   => 'http://127.0.0.1:9000',  // MinIO or AWS endpoint
+        'endpoint'   => 'http://localhost:9000',   // any S3-compatible (Ceph RGW / MinIO / AWS)
         'bucket'     => 'shuffle',
         'access_key' => 'your-access-key',
         'secret_key' => 'your-secret-key',
-        'region'     => 'us-east-1',
-        'path_style' => true,   // true for MinIO; false for AWS virtual-hosted style
+        'region'     => 'us-west-1',
+        'path_style' => true,   // true for Ceph/MinIO; false for AWS virtual-hosted style
     ],
     // SMTP is configured via the web wizard at /setup.php (see Section 7 below).
     // You do not need an smtp block here for a standard installation.
@@ -90,9 +90,40 @@ return [
 
 ---
 
-## 4. S3 / MinIO Setup
+## 4. S3 Storage Setup
 
-### Using MinIO (self-hosted)
+Shuffle stores attachments in any S3-compatible object store (Ceph RGW,
+MinIO, Cloudflare R2, AWS S3, …). Point the config at wherever you've
+provisioned a `shuffle` bucket.
+
+### Example: local MinIO or Ceph RGW
+
+1. Create the bucket `shuffle` (if it does not already exist) and an access
+   key + secret key pair scoped to it (Ceph admin console or `radosgw-admin`).
+2. Note these values:
+
+   ```
+   endpoint   : http://localhost:9000
+   bucket     : shuffle
+   region     : us-west-1
+   path_style : true
+   ```
+
+3. Put them (and the key pair) in `etc/config.php` under the `s3` section —
+   see the example below and `etc/config.example.php`.
+
+```php
+'s3' => [
+    'endpoint'   => 'http://localhost:9000',
+    'bucket'     => 'shuffle',
+    'region'     => 'us-west-1',
+    'path_style' => true,
+    'access_key' => 'your-access-key',
+    'secret_key' => 'your-secret-key',
+],
+```
+
+### Using MinIO (alternative self-hosted)
 
 ```bash
 # Download and start MinIO
@@ -103,24 +134,18 @@ MINIO_ROOT_USER=admin MINIO_ROOT_PASSWORD=adminpassword \
   minio server /data/minio --console-address ":9001"
 ```
 
-Create the bucket:
+Create the bucket and an access key pair via the MinIO console
+(`http://127.0.0.1:9001`) or `mc`, then use that endpoint/key pair in config:
 
-```bash
-# Using the MinIO client (mc)
-mc alias set local http://127.0.0.1:9000 admin adminpassword
-mc mb local/shuffle
-mc anonymous set none local/shuffle   # Keep the bucket private
+```php
+'s3' => [
+    'endpoint'   => 'http://127.0.0.1:9000',
+    'bucket'     => 'shuffle',
+    'region'     => 'us-east-1',
+    'path_style' => true,
+    ...
+],
 ```
-
-Create an access key pair via the MinIO console (`http://127.0.0.1:9001`) or with `mc`:
-
-```bash
-mc admin user add local shuffle-user strong-key
-mc admin policy attach local readwrite --user shuffle-user
-mc admin user svcacct add local shuffle-user
-```
-
-Use the generated access key and secret key in `etc/config.php`.
 
 ### Using AWS S3
 
