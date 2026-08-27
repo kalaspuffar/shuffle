@@ -75,6 +75,9 @@ require ROOT_DIR . '/include/templates/header.php';
         <?php foreach ($board['lanes'] as $lane): ?>
         <section class="lane" data-lane-id="<?= (int) $lane['id'] ?>" data-lane-position="<?= (int) $lane['position'] ?>" aria-label="<?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?>">
             <div class="lane-header">
+                <?php if (!empty($lane['icon'])): ?>
+                <span class="lane-icon" aria-hidden="true"><?= htmlspecialchars($lane['icon'], ENT_QUOTES, 'UTF-8') ?></span>
+                <?php endif; ?>
                 <h2 class="lane-title" <?php if ($canEdit): ?>contenteditable="false" tabindex="0" role="button" aria-label="<?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>><?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?></h2>
                 <span class="lane-card-count" aria-label="<?= count($lane['cards']) ?> cards"><?= count($lane['cards']) ?></span>
                 <?php if ($canEdit): ?>
@@ -258,6 +261,8 @@ $boardLang = json_encode([
     'lane_delete_confirm'  => $lang->get('lane.delete_confirm'),
     'lane_title_placeholder' => $lang->get('lane.title_placeholder'),
     'lane_create'          => $lang->get('lane.create'),
+    'lane_icon'            => $lang->get('lane.icon'),
+    'lane_icon_placeholder' => $lang->get('lane.icon_placeholder'),
     'lane_rename'          => $lang->get('lane.rename'),
     'lane_delete'          => $lang->get('lane.delete'),
     'lane_move_left'       => $lang->get('lane.move_left'),

@@ -46,6 +46,8 @@
 
     "lane.create": "Add Lane",
     "lane.title": "Lane Title",
+    "lane.icon": "Lane icon (emoji)",
+    "lane.icon_placeholder": "📥",
     "lane.rename": "Rename Lane",
     "lane.delete": "Delete Lane",
     "lane.delete_confirm": "Are you sure you want to delete this lane?",

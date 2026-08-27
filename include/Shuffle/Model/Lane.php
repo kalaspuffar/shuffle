@@ -16,7 +16,7 @@ class Lane
     /** Gap between positions for new/reordered lanes */
     private const POSITION_GAP = 1000;
 
-    private const SELECT_COLUMNS = 'id, board_id, title, position, created_at, updated_at';
+    private const SELECT_COLUMNS = 'id, board_id, title, icon, position, created_at, updated_at';
 
     /**
      * @param Database $db Database instance
@@ -60,7 +60,7 @@ class Lane
      * Position is calculated as the maximum existing position + POSITION_GAP,
      * or POSITION_GAP if the board has no lanes.
      *
-     * @param array $data Lane data: board_id, title
+     * @param array $data Lane data: board_id, title, icon (optional, nullable)
      * @return int The new lane's ID
      */
     public function create(array $data): int
@@ -75,8 +75,8 @@ class Lane
             : self::POSITION_GAP;
 
         $this->db->execute(
-            'INSERT INTO lanes (board_id, title, position) VALUES (?, ?, ?)',
-            [$data['board_id'], $data['title'], $position]
+            'INSERT INTO lanes (board_id, title, icon, position) VALUES (?, ?, ?, ?)',
+            [$data['board_id'], $data['title'], $data['icon'] ?? null, $position]
         );
 
         return (int) $this->db->lastInsertId();
@@ -93,6 +93,20 @@ class Lane
         $this->db->execute(
             'UPDATE lanes SET title = ?, updated_at = NOW() WHERE id = ?',
             [$title, $id]
+        );
+    }
+
+    /**
+     * Updates a lane's icon (single emoji or null to remove).
+     *
+     * @param int         $id    Lane ID
+     * @param string|null $icon  New icon or null
+     */
+    public function setIcon(int $id, ?string $icon): void
+    {
+        $this->db->execute(
+            'UPDATE lanes SET icon = ?, updated_at = NOW() WHERE id = ?',
+            [$icon, $id]
         );
     }
 

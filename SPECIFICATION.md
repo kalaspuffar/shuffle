@@ -847,6 +847,7 @@ PRIMARY KEY (`board_id`, `organization_id`)
 | `id` | INT UNSIGNED | PRIMARY KEY, AUTO_INCREMENT |
 | `board_id` | INT UNSIGNED | NOT NULL, FK → boards.id ON DELETE CASCADE |
 | `title` | VARCHAR(255) | NOT NULL |
+| `icon` | VARCHAR(16) | NULL (single emoji, LANE-07/08) |
 | `position` | INT UNSIGNED | NOT NULL |
 | `created_at` | DATETIME | NOT NULL, DEFAULT CURRENT_TIMESTAMP |
 | `updated_at` | DATETIME | NOT NULL, DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP |
@@ -1385,6 +1386,24 @@ Lightweight polling endpoint. Returns the board's current version.
 
 If `visibility = "private"`, `organization_ids` is ignored.
 
+The new board is automatically seeded with the standard 11-lane set (LANE-09):
+
+| # | Icon | Lane |
+|---|------|------|
+| 1 | 📥 | Inbox |
+| 2 | 🔖 | Resources |
+| 3 | ⏳ | Backlog |
+| 4 | 🚦 | Up Next |
+| 5 | 🔨 | In Progress |
+| 6 | ⛔ | Blocked |
+| 7 | 👀 | In Review |
+| 8 | 📦 | Waiting for release |
+| 9 | 🧪 | QA |
+| 10 | ✅ | Done |
+| 11 | 🚫 | Won't fix |
+
+They are created in this order (positions 1000, 2000, …) and carry these icons. The caller can rename or delete any of them afterwards via the lane endpoints above.
+
 **Response (201):**
 ```json
 {
@@ -1447,8 +1466,8 @@ Returns lanes for a board, ordered by position.
 ```json
 {
     "lanes": [
-        { "id": 1, "title": "To Do", "position": 1000 },
-        { "id": 2, "title": "In Progress", "position": 2000 }
+        { "id": 1, "title": "To Do", "icon": null, "position": 1000 },
+        { "id": 2, "title": "In Progress", "icon": "🔨", "position": 2000 }
     ]
 }
 ```
@@ -1460,29 +1479,37 @@ Returns lanes for a board, ordered by position.
 **Request:**
 ```json
 {
-    "title": "New Lane"
+    "title": "New Lane",
+    "icon": "📥"
 }
 ```
+
+`icon` is optional (LANE-07/08); when present it must be a single emoji. Omit it or set it to `null`/`""` for no icon.
 
 Position is automatically assigned (appended to the end).
 
 **Response (201):**
 ```json
 {
-    "lane": { "id": 3, "title": "New Lane", "position": 3000 }
+    "lane": { "id": 3, "title": "New Lane", "icon": "📥", "position": 3000 }
 }
 ```
 
 #### `PUT /v1/lanes/{id}`
+
+Renames a lane and/or updates its icon. At least one of `title` or `icon` must be present.
 
 **Required role:** Admin or Member.
 
 **Request:**
 ```json
 {
-    "title": "Renamed Lane"
+    "title": "Renamed Lane",
+    "icon": "🚦"
 }
 ```
+
+`icon` may be set to `null` (or `""`) to remove the icon (LANE-07).
 
 **Response (200):**
 ```json

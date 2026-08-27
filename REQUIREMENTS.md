@@ -254,6 +254,9 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | LANE-04 | Lanes can be deleted by Admins and Members | Must-have |
 | LANE-05 | Lanes can be reordered, but the interaction must require deliberate action (e.g., menu/modal, not casual drag-and-drop) to prevent accidental reordering | Must-have |
 | LANE-06 | Typical usage is 5-20 lanes per board; no hard limit enforced | Must-have |
+| LANE-07 | A lane can have an **optional icon** (a single emoji) in addition to its title. The icon may be set at creation, updated later, or removed (null) | Must-have |
+| LANE-08 | Lane icons are stored and returned by the API as a distinct field (`icon`), independent of the title. The icon must be validated to be a **single emoji** (base pictographic character plus standard modifiers — variation selectors, keycap, ZWJ, skin tone); anything else is rejected with a validation error | Must-have |
+| LANE-09 | Every **newly created board** is seeded with the standard 11-lane set (Inbox, Resources, Backlog, Up Next, In Progress, Blocked, In Review, Waiting for release, QA, Done, Won't fix), each with its canonical icon, in that order | Must-have |
 
 ### 7.6 Cards
 

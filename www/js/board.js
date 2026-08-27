@@ -62,7 +62,10 @@
         var form = document.createElement('div');
         form.className = 'lane-create-form';
         form.innerHTML =
-            '<input type="text" class="form-input" placeholder="' + escapeAttr(LANG.lane_title_placeholder || '') + '" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '" maxlength="255" autofocus>' +
+            '<div class="lane-create-fields">' +
+            '<input type="text" class="form-input lane-create-icon" placeholder="' + escapeAttr(LANG.lane_icon_placeholder || '📥') + '" aria-label="' + escapeAttr(LANG.lane_icon || 'Lane icon (emoji)') + '" maxlength="16">' +
+            '<input type="text" class="form-input lane-create-title" placeholder="' + escapeAttr(LANG.lane_title_placeholder || '') + '" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '" maxlength="255">' +
+            '</div>' +
             '<div class="form-actions">' +
             '<button type="button" class="btn btn-primary btn-sm lane-create-save">' + escapeHtml(LANG.action_save || 'Save') + '</button>' +
             '<button type="button" class="btn btn-secondary btn-sm lane-create-cancel">' + escapeHtml(LANG.action_cancel || 'Cancel') + '</button>' +
@@ -71,33 +74,39 @@
         laneGhost.innerHTML = '';
         laneGhost.appendChild(form);
 
-        var input = form.querySelector('input');
-        input.focus();
+        var titleInput = form.querySelector('.lane-create-title');
+        var iconInput = form.querySelector('.lane-create-icon');
+        titleInput.focus();
+
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                submitLaneCreate(titleInput.value.trim(), iconInput.value.trim());
+            } else if (e.key === 'Escape') {
+                resetLaneGhost();
+            }
+        }
+        titleInput.addEventListener('keydown', handleEnter);
+        iconInput.addEventListener('keydown', handleEnter);
 
         form.querySelector('.lane-create-save').addEventListener('click', function () {
-            submitLaneCreate(input.value.trim());
+            submitLaneCreate(titleInput.value.trim(), iconInput.value.trim());
         });
 
         form.querySelector('.lane-create-cancel').addEventListener('click', function () {
             resetLaneGhost();
         });
-
-        input.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                submitLaneCreate(input.value.trim());
-            } else if (e.key === 'Escape') {
-                resetLaneGhost();
-            }
-        });
     }
 
-    function submitLaneCreate(title) {
+    function submitLaneCreate(title, icon) {
         if (!title) return;
+
+        var body = { title: title };
+        if (icon) body.icon = icon;
 
         Shuffle.api('/v1/boards/' + BOARD_ID + '/lanes', {
             method: 'POST',
-            body: { title: title }
+            body: body
         }).then(function (result) {
             if (result.status === 201) {
                 Shuffle.showFlash(LANG.lane_create_success || 'Lane created', 'success');

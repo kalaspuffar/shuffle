@@ -1431,6 +1431,13 @@ small,
     flex-shrink: 0;
 }
 
+.lane-icon {
+    flex-shrink: 0;
+    margin-right: var(--space-2);
+    font-size: var(--font-size-md);
+    line-height: 1;
+}
+
 .lane-title {
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
@@ -1598,6 +1605,21 @@ small,
 .lane-create-form .form-actions {
     display: flex;
     gap: var(--space-2);
+}
+
+/* Side-by-side icon + title inputs */
+.lane-create-fields {
+    display: flex;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+.lane-create-fields .lane-create-icon {
+    width: 3.5rem;
+    padding-inline: var(--space-2);
+    flex-shrink: 0;
+    text-align: center;
+    font-size: var(--font-size-md);
 }
 
 /* Inline card create form */
