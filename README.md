@@ -27,19 +27,19 @@ The project has complete [requirements](REQUIREMENTS.md) and a detailed [technic
 | Backend | PHP 8.4 (no framework, no Composer) |
 | Frontend | Vanilla HTML, CSS, JavaScript (server-rendered) |
 | Database | MySQL 8.0+ or MariaDB 10.6+ |
-| File Storage | S3-compatible (tested with MinIO) |
+| File Storage | S3-compatible (Ceph RGW, MinIO, or any S3 API) |
 | Markdown | Parsedown (bundled, MIT license) |
 | Target OS | Debian Trixie (13) |
 
 ## Getting Started
 
-See [doc/setup.md](doc/setup.md) for the full installation guide, including web server configuration and MinIO setup.
+See [doc/setup.md](doc/setup.md) for the full installation guide, including web server configuration and S3 storage setup.
 
 ### Prerequisites
 
 - PHP 8.4 with extensions: `pdo_mysql`, `mbstring`, `json`, `openssl`, `filter`
 - MySQL 8.0+ or MariaDB 10.6+
-- An S3-compatible object store (e.g., [MinIO](https://min.io))
+- An S3-compatible object store (Ceph RGW, MinIO, or others)
 - An SMTP server for email invitations
 - Apache 2.4+ or Nginx 1.24+
 
