@@ -270,6 +270,9 @@ $boardLang = json_encode([
     'card_add_assignee'    => $lang->get('card.add_assignee'),
     'card_full_details'    => $lang->get('card.full_details'),
     'card_no_assignees'    => $lang->get('card.no_assignees'),
+    'card_selected_hint'   => $lang->get('card.selected_hint'),
+    'card_assigned_self'   => $lang->get('card.assigned_self'),
+    'card_unassigned_self' => $lang->get('card.unassigned_self'),
     'card_assignee_picker_label' => $lang->get('card.assignee_picker_label'),
     'card_assignee_filter_placeholder' => $lang->get('card.assignee_filter_placeholder'),
     'card_assignee_no_users' => $lang->get('card.assignee_no_users'),
@@ -288,5 +291,5 @@ $boardLang = json_encode([
     'error_bad_request'    => $lang->get('error.bad_request'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
-<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>"></script>
+<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

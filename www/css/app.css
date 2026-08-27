@@ -1625,6 +1625,14 @@ small,
     cursor: default;
 }
 
+/* Persistent selection highlight (keyboard arrows / Ctrl+click) — the
+   "hover border" Daniel expects while driving the space-to-assign flow.
+   Uses the primary color so it's visibly distinct from plain hover. */
+.card--selected {
+    border: 2px solid var(--color-primary);
+    box-shadow: var(--shadow-card);
+}
+
 .card-link {
     display: block;
     text-decoration: none;

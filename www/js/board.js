@@ -13,6 +13,7 @@
     var scriptTag = document.getElementById('board-script');
     var LANG = scriptTag ? JSON.parse(scriptTag.dataset.lang || '{}') : {};
     var CAN_EDIT = scriptTag && scriptTag.dataset.canEdit === '1';
+    var ME = scriptTag ? parseInt(scriptTag.dataset.me, 10) : 0;
 
     var boardPage = document.querySelector('.board-view-page');
     if (!boardPage) return;
@@ -1073,6 +1074,115 @@
                 Shuffle.showFlash(msg, type);
             }
 
+            /**
+             * Quick-flow assign: Space on the selected card toggles MYSELF in or
+             * out of its assignees (optimistic DOM update + PUT to API).
+             * Reads the live assignee list from the card's data-assigned attr,
+             * so it works for any card on the board, no modal required.
+             */
+            function quickAssignSelectedCard(card) {
+                var cardId = parseInt(card.dataset.cardId, 10);
+                if (!cardId || !ME) return;
+
+                var assigned;
+                try { assigned = JSON.parse(card.dataset.assigned || '[]'); }
+                catch (e) { assigned = []; }
+
+                var isAssigned = assigned.indexOf(ME) !== -1;
+                var nextList = isAssigned
+                    ? assigned.filter(function (id) { return id !== ME; })
+                    : assigned.concat([ME]);
+
+                var nextIds = nextList.map(function (id) { return parseInt(id, 10); });
+
+                // Optimistic DOM update of the avatar stack (best effort)
+                updateCardAvatars(card, nextIds);
+
+                Shuffle.api('/v1/cards/' + cardId, {
+                    method: 'PUT',
+                    body: { assigned_user_ids: nextIds }
+                }).then(function (result) {
+                    if (result.status === 200) {
+                        // Keep data-assigned in sync so the state reads correctly
+                        // on the next press
+                        card.dataset.assigned = JSON.stringify(nextIds);
+                        var titleEl = card.querySelector('.card-title');
+                        var title = titleEl ? titleEl.textContent : '';
+                        var msgKey = isAssigned ? 'card_unassigned_self' : 'card_assigned_self';
+                        announce(tmpl(LANG[msgKey] || (isAssigned ? 'Removed yourself from {0}.' : 'Assigned {0} to yourself.'), [title]));
+                    } else {
+                        // Revert the optimistic change
+                        card.dataset.assigned = JSON.stringify(assigned.map(function (id) { return parseInt(id, 10); }));
+                        updateCardAvatars(card, assigned);
+                        var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                        ShakeFlash(msg, 'error');
+                    }
+                });
+            }
+
+            /**
+             * Renders a lightweight avatar row onto the card's meta area so the
+             * optimistic assign/unassign is visible immediately. Rebuilds the
+             * .card-assignees element in the card's meta (keeps other meta items).
+             */
+            function updateCardAvatars(card, userIds) {
+                var meta = card.querySelector('.card-meta');
+                var existing = card.querySelector('.card-assignees');
+                if (existing) existing.remove();
+
+                if (!userIds.length) return;
+
+                // Look up display names from the modal's user roster (available
+                // on the same page) so the optimistic avatar shows an initial,
+                // matching the server-rendered stack exactly.
+                var roster = [];
+                var section = document.getElementById('card-modal-assignees-section');
+                if (section) {
+                    try { roster = JSON.parse(section.dataset.users || '[]'); }
+                    catch (e) { roster = []; }
+                }
+                var nameFor = function (id) {
+                    for (var r = 0; r < roster.length; r++) {
+                        if (roster[r].id === id) return roster[r].name;
+                    }
+                    return null;
+                };
+
+                var wrap = document.createElement('span');
+                wrap.className = 'card-assignees';
+                var cap = 3;
+                var visible = userIds.slice(0, cap);
+                for (var i = 0; i < visible.length; i++) {
+                    var av = document.createElement('span');
+                    av.className = 'card-assignee-avatar';
+                    var name = nameFor(visible[i]);
+                    if (name) {
+                        av.textContent = name.charAt(0).toUpperCase();
+                        av.setAttribute('title', name);
+                        av.setAttribute('aria-label', name);
+                    }
+                    wrap.appendChild(av);
+                }
+                var extra = userIds.length - cap;
+                if (extra > 0) {
+                    var badge = document.createElement('span');
+                    badge.className = 'card-assignee-avatar card-assignee-avatar-overflow';
+                    badge.textContent = '+' + extra;
+                    wrap.appendChild(badge);
+                }
+                // Append to meta so it's the rightmost item
+                if (meta) meta.appendChild(wrap);
+                else {
+                    // No meta block yet — create one inside the card-link
+                    var link = card.querySelector('.card-link');
+                    var newMeta = document.createElement('div');
+                    newMeta.className = 'card-meta';
+                    newMeta.appendChild(wrap);
+                    if (link) link.appendChild(newMeta);
+                    else card.appendChild(newMeta);
+                }
+            }
+
             /* --- Open triggers: click on card body (not menu button), Enter on focused card --- */
             lanesContainer.addEventListener('click', function (e) {
                 if (e.target.closest('.context-menu')) return;
@@ -1081,20 +1191,75 @@
                 var card = e.target.closest('.card');
                 if (!card) return;
 
-                // Suppress the card-link navigation and open the edit modal
+                // Ctrl+click: toggle the selection highlight instead of opening
+                // the modal (quick-flow: hover border → arrows → Space to assign)
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var prevSel = lanesContainer.querySelector('.card--selected');
+                    if (prevSel) prevSel.classList.remove('card--selected');
+                    card.classList.add('card--selected');
+                    card.focus();
+                    announce(tmpl(LANG.card_selected_hint || 'Card selected. Use Up/Down arrows to move, Space to assign to yourself.', []));
+                    return;
+                }
+
+                // Plain click opens the edit modal (keep existing selection)
+                var selected = lanesContainer.querySelector('.card--selected');
+                if (selected) selected.classList.remove('card--selected');
                 e.preventDefault();
                 openCardModal(card);
             });
 
+            // Selection highlight follows the keyboard focus (tab or click), so
+            // the "hover border" state is persistent and visible while typing
+            // nothing — Daniel's quick-flow anchor.
+            lanesContainer.addEventListener('focusin', function (e) {
+                var card = e.target.closest ? e.target.closest('.card') : null;
+                if (!card) return;
+                var selected = lanesContainer.querySelector('.card--selected');
+                if (selected) selected.classList.remove('card--selected');
+                card.classList.add('card--selected');
+            });
+
             lanesContainer.addEventListener('keydown', function (e) {
-                if (e.altKey) return; // Alt+Arrows are card movement, not opening
-                if (e.key !== 'Enter' && e.key !== ' ') return;
-                if (e.target.closest('.card-menu-btn')) return;
-                if (e.target.closest('.context-menu')) return;
+                if (!e.target.closest) return;
                 var card = e.target.closest('.card');
                 if (!card) return;
-                e.preventDefault();
-                openCardModal(card);
+                if (e.target.closest('.card-menu-btn')) return;
+                if (e.target.closest('.context-menu')) return;
+                if (e.altKey) return; // Alt+Arrows are card movement, not opening
+
+                // Arrow keys: move the selection up/down the card list within
+                // the lane (v1: one lane only — lane-boundary handling is a
+                // future spec item; Alt+Arrows already move the card between
+                // lanes, so this stays keyboard-free of lane surprises).
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                    var laneCards = card.closest('.lane-cards');
+                    var siblings = laneCards ? laneCards.querySelectorAll('.card') : null;
+                    if (!siblings || !siblings.length) return;
+                    var idx = Array.prototype.indexOf.call(siblings, card);
+                    var nextIdx = (e.key === 'ArrowDown') ? idx + 1 : idx - 1;
+                    if (nextIdx < 0 || nextIdx >= siblings.length) return; // v1: stop at lane end
+                    e.preventDefault();
+                    var nextCard = siblings[nextIdx];
+                    var prevSelected = lanesContainer.querySelector('.card--selected');
+                    if (prevSelected) prevSelected.classList.remove('card--selected');
+                    nextCard.classList.add('card--selected');
+                    nextCard.focus();
+                    nextCard.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    return;
+                }
+
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    openCardModal(card);
+                } else if (e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space') {
+                    // Space on the selected card = assign/unassign MYSELF (quick flow)
+                    e.preventDefault();
+                    e.stopPropagation();
+                    quickAssignSelectedCard(card);
+                }
             });
 
             /* --- Close triggers --- */
