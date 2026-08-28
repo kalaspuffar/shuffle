@@ -46,6 +46,8 @@
 
     "lane.create": "Add Lane",
     "lane.title": "Lane Title",
+    "lane.icon": "Lane icon (emoji)",
+    "lane.icon_placeholder": "📥",
     "lane.rename": "Rename Lane",
     "lane.delete": "Delete Lane",
     "lane.delete_confirm": "Are you sure you want to delete this lane?",
@@ -58,6 +60,8 @@
     "lane.delete_success": "Lane deleted successfully.",
     "lane.empty": "No cards in this lane.",
     "lane.title_placeholder": "Enter lane title...",
+    "lane.template_custom": "Custom lane",
+    "lane.icon_picker": "Pick an icon (emoji)",
 
     "card.create": "Add Card",
     "card.title": "Card Title",

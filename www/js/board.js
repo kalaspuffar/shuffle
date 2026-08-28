@@ -56,48 +56,175 @@
         });
     }
 
+    // Read the server-served lane templates once (single source: BoardService::DEFAULT_LANES).
+    var LANE_TEMPLATES = (scriptTag && scriptTag.dataset.laneTemplates)
+        ? (JSON.parse(scriptTag.dataset.laneTemplates) || [])
+        : [];
+
+    // Curated emoji pool for the icon picker.
+    var EMOJI_POOL = [
+        '📥','🔖','⏳','🚦','🔨','⛔','👀','📦','🧪','✅','🚫',
+        '📝','📋','📌','🗂️','📂','📚','🔍','🔎','🔗','📎',
+        '🎯','🚀','🏁','⚙️','🔧','🛠️','⚠️','❗','❓','💡','🔥','✨','🌟','💥','🎉',
+        '🐛','🧩','🔒','🔓','📤','🕐','⌛','🧹','🧠','🤖','💬','🎨','📈','🗑️','🌙','☀️','🌧️','🍕','🎁','👍'
+    ];
+
+    function uniqueEmojis(list) {
+        var seen = {}, out = [];
+        for (var i = 0; i < list.length; i++) {
+            var e = list[i];
+            if (!seen[e]) { seen[e] = true; out.push(e); }
+        }
+        return out;
+    }
+
+    function emojiChoices() {
+        var fromTemplates = [];
+        for (var i = 0; i < LANE_TEMPLATES.length; i++) {
+            if (LANE_TEMPLATES[i].icon) fromTemplates.push(LANE_TEMPLATES[i].icon);
+        }
+        return uniqueEmojis(fromTemplates.concat(EMOJI_POOL));
+    }
+
     function showLaneCreateForm() {
         if (!laneGhost) return;
 
         var form = document.createElement('div');
         form.className = 'lane-create-form';
+
+        // Template dropdown (LANE-10)
+        var tplOptions = ['<option value="">' + escapeHtml(LANG.lane_template_custom || 'Custom lane') + '</option>'];
+        for (var i = 0; i < LANE_TEMPLATES.length; i++) {
+            var t = LANE_TEMPLATES[i];
+            tplOptions.push('<option value="' + i + '">' + escapeHtml((t.icon || '') + ' ' + t.title) + '</option>');
+        }
+
+        // Emoji picker toggle (LANE-11) — compact icon button so the
+        // cramped lane width is not eaten by text; grid stays hidden
+        // until clicked (see .lane-create-emoji-grid[hidden] in app.css).
+        var pickBtn = '<button type="button" class="btn btn-ghost btn-sm lane-create-pick-toggle" ' +
+            'aria-haspopup="true" aria-expanded="false" ' +
+            'aria-label="' + escapeAttr(LANG.lane_icon_picker || 'Pick an icon (emoji)') + '" ' +
+            'title="' + escapeAttr(LANG.lane_icon_picker || 'Pick an icon (emoji)') + '">😀</button>';
+
         form.innerHTML =
-            '<input type="text" class="form-input" placeholder="' + escapeAttr(LANG.lane_title_placeholder || '') + '" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '" maxlength="255" autofocus>' +
+            '<select class="form-input lane-create-template" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '">' +
+                tplOptions.join('') +
+            '</select>' +
+            '<div class="lane-create-fields">' +
+                '<div class="lane-create-icon-wrap">' +
+                    '<input type="text" class="form-input lane-create-icon" placeholder="' + escapeAttr(LANG.lane_icon_placeholder || '📥') + '" aria-label="' + escapeAttr(LANG.lane_icon || 'Lane icon (emoji)') + '" maxlength="16">' +
+                    pickBtn +
+                    '<div class="lane-create-emoji-grid" hidden></div>' +
+                '</div>' +
+                '<input type="text" class="form-input lane-create-title" placeholder="' + escapeAttr(LANG.lane_title_placeholder || '') + '" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '" maxlength="255">' +
+            '</div>' +
             '<div class="form-actions">' +
-            '<button type="button" class="btn btn-primary btn-sm lane-create-save">' + escapeHtml(LANG.action_save || 'Save') + '</button>' +
-            '<button type="button" class="btn btn-secondary btn-sm lane-create-cancel">' + escapeHtml(LANG.action_cancel || 'Cancel') + '</button>' +
+                '<button type="button" class="btn btn-primary btn-sm lane-create-save">' + escapeHtml(LANG.action_save || 'Save') + '</button>' +
+                '<button type="button" class="btn btn-secondary btn-sm lane-create-cancel">' + escapeHtml(LANG.action_cancel || 'Cancel') + '</button>' +
             '</div>';
 
         laneGhost.innerHTML = '';
         laneGhost.appendChild(form);
 
-        var input = form.querySelector('input');
-        input.focus();
+        var templateSel = form.querySelector('.lane-create-template');
+        var titleInput = form.querySelector('.lane-create-title');
+        var iconInput = form.querySelector('.lane-create-icon');
+        var pickToggle = form.querySelector('.lane-create-pick-toggle');
+        var emojiGrid = form.querySelector('.lane-create-emoji-grid');
+
+        // Render the emoji grid (lazy, once)
+        var emojis = emojiChoices();
+        (function renderGrid() {
+            var cells = [];
+            for (var j = 0; j < emojis.length; j++) {
+                cells.push('<button type="button" class="lane-create-emoji" data-emoji="' + escapeAttr(emojis[j]) + '" aria-label="' + escapeAttr(emojis[j]) + '">' + escapeHtml(emojis[j]) + '</button>');
+            }
+            emojiGrid.innerHTML = cells.join('');
+        })();
+
+        titleInput.focus();
+
+        function pickIcon(e) { iconInput.value = e; iconInput.focus(); }
+
+        // Template selection prepopulates title + icon (LANE-10)
+        templateSel.addEventListener('change', function () {
+            var v = templateSel.value;
+            if (v === '') {
+                // Custom lane — leave user-typed values alone (do NOT blank)
+                return;
+            }
+            var t = LANE_TEMPLATES[parseInt(v, 10)];
+            if (t && t.title) titleInput.value = t.title;
+            if (t && t.icon) iconInput.value = t.icon;
+            if (t && t.title) titleInput.focus();
+        });
+
+        // Emoji picker toggle (LANE-11)
+        pickToggle.addEventListener('click', function (e) {
+            e.stopPropagation();
+            var open = emojiGrid.hasAttribute('hidden');
+            if (open) emojiGrid.removeAttribute('hidden');
+            else emojiGrid.setAttribute('hidden', '');
+            pickToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+
+        // Click an emoji in the grid
+        emojiGrid.addEventListener('click', function (e) {
+            var b = e.target.closest('.lane-create-emoji');
+            if (!b) return;
+            pickIcon(b.getAttribute('data-emoji'));
+            emojiGrid.setAttribute('hidden', '');
+            pickToggle.setAttribute('aria-expanded', 'false');
+        });
+
+        // Close grid on outside click (delegated on the form, so it
+        // garbage-collects with the form — no document listener leak)
+        form.addEventListener('click', function (e) {
+            if (emojiGrid.hasAttribute('hidden')) return;
+            if (e.target.closest('.lane-create-emoji')) return;
+            if (e.target.closest('.lane-create-pick-toggle')) { return; } // toggle handler manages state
+            emojiGrid.setAttribute('hidden', '');
+            pickToggle.setAttribute('aria-expanded', 'false');
+        });
+
+        function closeGrid() {
+            if (emojiGrid) emojiGrid.setAttribute('hidden', '');
+            if (pickToggle) pickToggle.setAttribute('aria-expanded', 'false');
+        }
+
+        function handleEnter(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                closeGrid();
+                submitLaneCreate(titleInput.value.trim(), iconInput.value.trim());
+            } else if (e.key === 'Escape') {
+                closeGrid();
+                resetLaneGhost();
+            }
+        }
+        titleInput.addEventListener('keydown', handleEnter);
+        iconInput.addEventListener('keydown', handleEnter);
 
         form.querySelector('.lane-create-save').addEventListener('click', function () {
-            submitLaneCreate(input.value.trim());
+            closeGrid();
+            submitLaneCreate(titleInput.value.trim(), iconInput.value.trim());
         });
 
         form.querySelector('.lane-create-cancel').addEventListener('click', function () {
             resetLaneGhost();
         });
-
-        input.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                submitLaneCreate(input.value.trim());
-            } else if (e.key === 'Escape') {
-                resetLaneGhost();
-            }
-        });
     }
 
-    function submitLaneCreate(title) {
+    function submitLaneCreate(title, icon) {
         if (!title) return;
+
+        var body = { title: title };
+        if (icon) body.icon = icon;
 
         Shuffle.api('/v1/boards/' + BOARD_ID + '/lanes', {
             method: 'POST',
-            body: { title: title }
+            body: body
         }).then(function (result) {
             if (result.status === 201) {
                 Shuffle.showFlash(LANG.lane_create_success || 'Lane created', 'success');

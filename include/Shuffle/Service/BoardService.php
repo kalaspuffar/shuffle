@@ -13,6 +13,25 @@ use Shuffle\Model\Lane;
  */
 class BoardService
 {
+    /**
+     * Default lane set seeded into every new board (LANE-07, LANE-09).
+     *
+     * Order matters — lanes are created in this order, position 1000, 2000, ...
+     */
+    public const DEFAULT_LANES = [
+        ['title' => 'Inbox',               'icon' => '📥', 'desc' => 'Untouched ideas and capture'],
+        ['title' => 'Resources',           'icon' => '🔖', 'desc' => 'Reference material for the project'],
+        ['title' => 'Backlog',             'icon' => '⏳', 'desc' => 'Known work, not yet planned'],
+        ['title' => 'Up Next',             'icon' => '🚦', 'desc' => 'Committed for the near term, unstarted'],
+        ['title' => 'In Progress',         'icon' => '🔨', 'desc' => 'Active work'],
+        ['title' => 'Blocked',             'icon' => '⛔', 'desc' => 'Waiting on someone else\'s action'],
+        ['title' => 'In Review',           'icon' => '👀', 'desc' => 'Awaiting review'],
+        ['title' => 'Waiting for release', 'icon' => '📦', 'desc' => 'Done, waiting to ship with a release'],
+        ['title' => 'QA',                  'icon' => '🧪', 'desc' => 'Quality assurance'],
+        ['title' => 'Done',                'icon' => '✅', 'desc' => 'Complete'],
+        ['title' => "Won't fix",           'icon' => '🚫', 'desc' => 'Rejected or dropped'],
+    ];
+
     private Board $boardModel;
     private ?Lane $laneModel = null;
     private ?Card $cardModel = null;
@@ -60,12 +79,17 @@ class BoardService
     /**
      * Creates a new board.
      *
+     * Seeding of the default 11-lane set is optional (LANE-07, LANE-09).
+     * If `laneModel` was injected at construction time and
+     * `$seedDefaultLanes` is true, the standard lane set is created
+     * immediately after the board, in position order.
+     *
      * @param array $data        Board data: title, description, visibility, organization_ids
      * @param array $currentUser The authenticated user (used for created_by)
      * @return array The created board record
      * @throws \InvalidArgumentException If validation fails
      */
-    public function createBoard(array $data, array $currentUser): array
+    public function createBoard(array $data, array $currentUser, bool $seedDefaultLanes = true): array
     {
         $this->validateBoard($data);
 
@@ -76,6 +100,17 @@ class BoardService
             'created_by'       => (int) $currentUser['id'],
             'organization_ids' => $data['organization_ids'] ?? [],
         ]);
+
+        if ($seedDefaultLanes && $this->laneModel !== null) {
+            foreach (self::DEFAULT_LANES as $lane) {
+                $this->laneModel->create([
+                    'board_id' => $boardId,
+                    'title'    => $lane['title'],
+                    'icon'     => $lane['icon'],
+                ]);
+            }
+            $this->boardModel->incrementVersion($boardId);
+        }
 
         return $this->boardModel->findById($boardId);
     }

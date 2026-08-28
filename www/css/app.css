@@ -1431,6 +1431,13 @@ small,
     flex-shrink: 0;
 }
 
+.lane-icon {
+    flex-shrink: 0;
+    margin-right: var(--space-2);
+    font-size: var(--font-size-md);
+    line-height: 1;
+}
+
 .lane-title {
     font-size: var(--font-size-sm);
     font-weight: var(--font-weight-semibold);
@@ -1598,6 +1605,99 @@ small,
 .lane-create-form .form-actions {
     display: flex;
     gap: var(--space-2);
+}
+
+/* Side-by-side icon + title inputs */
+.lane-create-fields {
+    display: flex;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+.lane-create-fields .lane-create-icon {
+    width: 3.5rem;
+    padding-inline: var(--space-2);
+    flex-shrink: 0;
+    text-align: center;
+    font-size: var(--font-size-md);
+}
+
+/* Icon input + picker button + emoji grid */
+.lane-create-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+/* Compact emoji picker toggle: icon-only button; full label in
+   aria-label + title so nothing eats horizontal space in the lane. */
+.lane-create-pick-toggle {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    margin: 0;
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.lane-create-emoji-grid {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(6, 2.25rem);
+    gap: 2px;
+    padding: var(--space-2);
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-raised, 0 8px 24px rgba(0, 0, 0, 0.12));
+    max-width: calc(var(--lane-width) - var(--space-6));
+}
+
+/* The HTML `hidden` attribute must actually hide the grid — a bare
+   `display: grid` declaration overrides `display: none` from the
+   [hidden] pseudo-class, which was leaving the picker permanently
+   open and obscuring the Save button. */
+.lane-create-emoji-grid[hidden] {
+    display: none !important;
+}
+
+.lane-create-emoji {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-radius: var(--border-radius-sm);
+    font-size: var(--font-size-md);
+    line-height: 1;
+    padding: var(--space-1);
+    cursor: pointer;
+    min-width: 2rem;
+    min-height: 2rem;
+}
+
+.lane-create-emoji:hover {
+    background-color: var(--color-hover-overlay);
+}
+
+.lane-create-emoji:focus {
+    outline: none;
+    border: 1px solid var(--color-border-focus);
+}
+
+/* Lane create template dropdown */
+.lane-create-form .lane-create-template {
+    width: 100%;
+    font-size: var(--font-size-sm);
+    padding: var(--space-2);
 }
 
 /* Inline card create form */

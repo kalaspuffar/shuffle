@@ -75,6 +75,9 @@ require ROOT_DIR . '/include/templates/header.php';
         <?php foreach ($board['lanes'] as $lane): ?>
         <section class="lane" data-lane-id="<?= (int) $lane['id'] ?>" data-lane-position="<?= (int) $lane['position'] ?>" aria-label="<?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?>">
             <div class="lane-header">
+                <?php if (!empty($lane['icon'])): ?>
+                <span class="lane-icon" aria-hidden="true"><?= htmlspecialchars($lane['icon'], ENT_QUOTES, 'UTF-8') ?></span>
+                <?php endif; ?>
                 <h2 class="lane-title" <?php if ($canEdit): ?>contenteditable="false" tabindex="0" role="button" aria-label="<?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?>"<?php endif; ?>><?= htmlspecialchars($lane['title'], ENT_QUOTES, 'UTF-8') ?></h2>
                 <span class="lane-card-count" aria-label="<?= count($lane['cards']) ?> cards"><?= count($lane['cards']) ?></span>
                 <?php if ($canEdit): ?>
@@ -258,6 +261,8 @@ $boardLang = json_encode([
     'lane_delete_confirm'  => $lang->get('lane.delete_confirm'),
     'lane_title_placeholder' => $lang->get('lane.title_placeholder'),
     'lane_create'          => $lang->get('lane.create'),
+    'lane_icon'            => $lang->get('lane.icon'),
+    'lane_icon_placeholder' => $lang->get('lane.icon_placeholder'),
     'lane_rename'          => $lang->get('lane.rename'),
     'lane_delete'          => $lang->get('lane.delete'),
     'lane_move_left'       => $lang->get('lane.move_left'),
@@ -299,7 +304,17 @@ $boardLang = json_encode([
     'action_archive'       => $lang->get('action.archive'),
     'error_bad_request'    => $lang->get('error.bad_request'),
     'comment_create_success' => $lang->get('comment.create_success'),
+    'lane_template_custom' => $lang->get('lane.template_custom'),
+    'lane_icon_picker'     => $lang->get('lane.icon_picker'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
+
+$laneTemplates = Shuffle\Service\BoardService::DEFAULT_LANES;
+$laneTemplatesJson = json_encode(
+    array_values(array_map(function ($t) {
+        return ['title' => $t['title'], 'icon' => $t['icon']];
+    }, $laneTemplates)),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+);
 ?>
-<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>"></script>
+<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>
