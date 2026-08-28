@@ -281,4 +281,25 @@ CREATE TABLE IF NOT EXISTS `sessions` (
         REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------------
+-- user_prio (personal priority list, PRIO-01..11)
+-- Per-user membership + custom ordering for the "work on
+-- next" view. Stores only (user, card) pairs; all card data
+-- is read live from the board on every render (no mirrors).
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `user_prio` (
+    `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`    INT UNSIGNED NOT NULL,
+    `card_id`    INT UNSIGNED NOT NULL,
+    `position`   INT UNSIGNED NOT NULL,
+    `added_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_user_prio_user_card` (`user_id`, `card_id`),
+    KEY `idx_user_prio_user_pos` (`user_id`, `position`),
+    CONSTRAINT `fk_user_prio_user` FOREIGN KEY (`user_id`)
+        REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_user_prio_card` FOREIGN KEY (`card_id`)
+        REFERENCES `cards` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
