@@ -60,6 +60,8 @@
     "lane.delete_success": "Lane deleted successfully.",
     "lane.empty": "No cards in this lane.",
     "lane.title_placeholder": "Enter lane title...",
+    "lane.template_custom": "Custom lane",
+    "lane.icon_picker": "Pick an icon (emoji)",
 
     "card.create": "Add Card",
     "card.title": "Card Title",

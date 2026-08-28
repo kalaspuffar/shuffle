@@ -1622,6 +1622,65 @@ small,
     font-size: var(--font-size-md);
 }
 
+/* Icon input + picker button + emoji grid */
+.lane-create-icon-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.lane-create-pick-toggle {
+    white-space: nowrap;
+    padding-inline: var(--space-2);
+}
+
+.lane-create-emoji-grid {
+    position: absolute;
+    top: calc(100% + var(--space-1));
+    left: 0;
+    z-index: 50;
+    display: grid;
+    grid-template-columns: repeat(8, 2.25rem);
+    gap: 2px;
+    padding: var(--space-2);
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-lg);
+    box-shadow: var(--shadow-raised, 0 8px 24px rgba(0, 0, 0, 0.12));
+    max-width: 16rem;
+}
+
+.lane-create-emoji {
+    appearance: none;
+    background: transparent;
+    border: none;
+    border-radius: var(--border-radius-sm);
+    font-size: var(--font-size-md);
+    line-height: 1;
+    padding: var(--space-1);
+    cursor: pointer;
+    min-width: 2rem;
+    min-height: 2rem;
+}
+
+.lane-create-emoji:hover {
+    background-color: var(--color-hover-overlay);
+}
+
+.lane-create-emoji:focus {
+    outline: none;
+    border: 1px solid var(--color-border-focus);
+}
+
+/* Lane create template dropdown */
+.lane-create-form .lane-create-template {
+    width: 100%;
+    font-size: var(--font-size-sm);
+    padding: var(--space-2);
+}
+
 /* Inline card create form */
 .card-create-form {
     display: flex;

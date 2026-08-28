@@ -304,7 +304,17 @@ $boardLang = json_encode([
     'action_archive'       => $lang->get('action.archive'),
     'error_bad_request'    => $lang->get('error.bad_request'),
     'comment_create_success' => $lang->get('comment.create_success'),
+    'lane_template_custom' => $lang->get('lane.template_custom'),
+    'lane_icon_picker'     => $lang->get('lane.icon_picker'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
+
+$laneTemplates = Shuffle\Service\BoardService::DEFAULT_LANES;
+$laneTemplatesJson = json_encode(
+    array_values(array_map(function ($t) {
+        return ['title' => $t['title'], 'icon' => $t['icon']];
+    }, $laneTemplates)),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+);
 ?>
-<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>"></script>
+<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

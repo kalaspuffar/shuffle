@@ -1542,6 +1542,18 @@ Reorders a lane within its board. This is a deliberate action (not drag-and-drop
 
 Bumps board version.
 
+#### Add-lane form (web UI) — LANE-10, LANE-11
+
+The board's "Add Lane" ghost form contains, in order:
+
+1. **Template dropdown** — a `<select>` with a "Custom lane" option (default) followed by the standard lane set (Inbox, Resources, Backlog, Up Next, In Progress, Blocked, In Review, Waiting for release, QA, Done, Won't fix). Data is served server-side in the board script tag's `data-lane-templates` JSON (single source of truth: `BoardService::DEFAULT_LANES`); each entry is `{title, icon}`.
+   - Selecting a template **prepopulates the title and icon inputs** from that entry; both fields remain freely editable.
+   - Selecting "Custom lane" blanks both inputs (or leaves them untouched if the user has already typed).
+2. **Icon input** — a short text field for the single-emoji icon, plus:
+3. **Emoji picker** — a toggle button showing a curated grid of common emojis (which always includes the 11 template emojis). Clicking an emoji fills the icon input and closes the picker. The input remains editable afterwards.
+
+The picker and dropdown are pure front-end conveniences: they submit through the existing `POST /v1/boards/{boardId}/lanes` body (`{title, icon}`), so the API contract is unchanged and the server-side single-emoji validation (LANE-08) still applies.
+
 #### `DELETE /v1/lanes/{id}`
 
 Deletes a lane. **Refuses if the lane contains cards** — the client must move or delete all cards first.

@@ -257,6 +257,8 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | LANE-07 | A lane can have an **optional icon** (a single emoji) in addition to its title. The icon may be set at creation, updated later, or removed (null) | Must-have |
 | LANE-08 | Lane icons are stored and returned by the API as a distinct field (`icon`), independent of the title. The icon must be validated to be a **single emoji** (base pictographic character plus standard modifiers — variation selectors, keycap, ZWJ, skin tone); anything else is rejected with a validation error | Must-have |
 | LANE-09 | Every **newly created board** is seeded with the standard 11-lane set (Inbox, Resources, Backlog, Up Next, In Progress, Blocked, In Review, Waiting for release, QA, Done, Won't fix), each with its canonical icon, in that order | Must-have |
+| LANE-10 | The add-lane UI offers a **template dropdown**: selecting a standard lane (Inbox, Resources, … Won't fix) **prepopulates title and icon** from that template; both remain freely editable. A "Custom lane" option and free icon input preserve arbitrary lane creation | Should-have |
+| LANE-11 | The add-lane UI offers an **emoji picker** (curated grid) so an icon can be chosen by click instead of typed; picking one fills the icon input, which remains editable | Should-have |
 
 ### 7.6 Cards
 
