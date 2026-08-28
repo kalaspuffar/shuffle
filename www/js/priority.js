@@ -1,15 +1,27 @@
 /**
  * Shuffle — Personal Priority List (PRIO-01..11)
  *
- * progressive enhancement on top of the server-rendered /priority.php:
+ * Progressive enhancement on top of the server-rendered /priority.php:
  *   - "Prioritize" (inbox → prioritized)
- *   - "Remove"    (prioritized → inbox)
+ *   - "Remove"     (prioritized → inbox)
  *   - drag & drop reordering within the prioritized section
- *   - keyboard reordering (Alt+↑ / Alt+↓ / Home / End on a list item)
+ *   - keyboard reordering (Alt+↑ / Alt+↓ / Alt+Home / Alt+End)
  *
- * Without JavaScript the page still renders fully; each card links to its
- * card page. All state-changing calls go to the v1 API with CSRF + session
- * (Shuffle.api from app.js).
+ * LOAD ORDER (important): this script is parsed BEFORE app.js (app.js is
+ * loaded by the shared footer, after the page body). window.Shuffle
+ * therefore does not exist at parse time and must be resolved lazily at
+ * action time — the same pattern board.js / card.js use.
+ *
+ * DOM SYNC: the prioritized <ul> is created/destroyed together with the
+ * first/last item (swapped with the empty-state <p>). List elements are
+ * never used as listeners — every handler is delegated on document and
+ * resolves #priority-reorder-list at event time, so reordering works from
+ * the very first added item and across empty ⇄ filled transitions.
+ *
+ * Every section button always renders the CORRECT symbol: the + / ×
+ * icons are swapped together with data-priority-action on add and on
+ * return, and the inbox card re-appears into the tier bucket it came from
+ * (remembered on the moved node) when removed — no reload needed.
  */
 
 (function () {
@@ -20,60 +32,92 @@
         return; // not a priority page
     }
 
-    var L;
+    var L = {};
     try { L = JSON.parse(script.dataset.lang || '{}'); } catch (e) { L = {}; }
-    // app.js (loaded in the page footer, AFTER this script tag) defines
-    // Shuffle.api. It only exists once a user action fires, so resolve it
-    // lazily at call time — never at parse time (same pattern as
-    // board.js / card.js calling Shuffle.api() inside handlers).
-    function api(url, options) {
-        if (typeof Shuffle === 'undefined' || !Shuffle.api) {
-            return Promise.reject({ message: MSG.errorFailed });
-        }
-        return Shuffle.api(url, options);
-    }
-
     var MSG = {
-        added:        L.added        || 'Moved to prioritized.',
-        removed:      L.removed      || 'Moved back to inbox.',
-        moved:        L.moved        || 'Reordered.',
-        errorFailed:  L.error_failed || 'Couldn\'t update your priority list. Please try again.',
-        errorConflict:L.error_conflict || 'That card is on a Done lane — move it out of Done first.',
-        actionRemove: L.remove       || 'Remove from list',
-        actionAdd:    L.prioritize   || 'Prioritize'
+        added:            L.added             || 'Moved to prioritized.',
+        removed:          L.removed           || 'Moved back to inbox.',
+        moved:            L.moved             || 'Reordered.',
+        errorFailed:      L.error_failed      || "Couldn't update your priority list. Please try again.",
+        remove:           L.action_remove     || 'Remove from list',
+        prioritize:       L.action_prioritize || 'Prioritize',
+        prioritizedEmpty: L.prioritized_empty || 'Nothing prioritized yet.'
     };
 
-    // ---------------------------------------------------------------
-    // DOM anchors
-    // ---------------------------------------------------------------
-    var inboxSection     = document.querySelector('[data-count-section="inbox"]');
-    var prioritizedCount = document.querySelector('[data-count-section="prioritized"]');
-    var inboxList        = document.querySelector('[data-priority-section="inbox"]');
-    var prioList         = document.getElementById('priority-reorder-list');
-    var anyPrioritized   = !!prioList;
-    var anyInbox         = !!inboxList;
-    var allEmptyEl       = document.querySelector('.priority-all-empty');
+    // Same SVGs the PHP template renders (12x12, currentColor).
+    var SVG_ADD    = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 2v12M2 8h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+    var SVG_REMOVE = '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
 
-    function itemCount(listEl) {
-        if (!listEl) return 0;
-        // Prioritized section: items are direct children.
-        // Inbox section: items live inside tier <li> wrappers.
-        return listEl.querySelectorAll(':scope > .priority-item').length
-             + listEl.querySelectorAll(':scope > .priority-tier > .priority-item').length;
-    }
-
-    function refreshCounts() {
-        if (inboxSection && inboxList) inboxSection.textContent = String(itemCount(inboxList));
-        if (prioritizedCount && prioList) prioritizedCount.textContent = String(itemCount(prioList));
+    // ------------------------------------------------------------------
+    // Lazy helpers (Shuffle resolves when the user acts, not at parse time)
+    // ------------------------------------------------------------------
+    function api(url, options) {
+        // Reference the global at call time only (no early binding).
+        var g = (typeof window !== 'undefined' && window.Shuffle) || (typeof Shuffle !== 'undefined' ? Shuffle : null);
+        if (!g || typeof g.api !== 'function') {
+            return Promise.reject({ message: MSG.errorFailed });
+        }
+        return g.api(url, options);
     }
 
     function flash(message, type) {
-        if (typeof Shuffle.showFlash === 'function') Shuffle.showFlash(message, type);
+        var g = (typeof window !== 'undefined' && window.Shuffle) || (typeof Shuffle !== 'undefined' ? Shuffle : null);
+        if (g && typeof g.showFlash === 'function') {
+            g.showFlash(message, type);
+        }
     }
 
-    function busy(btn, busyState) {
-        if (busyState) {
-            btn.dataset.label = btn.textContent;
+    // ------------------------------------------------------------------
+    // Section anchors — always re-resolved (the prioritized <ul> can be
+    // swapped with the empty-state <p> at any time)
+    // ------------------------------------------------------------------
+    function inboxSection()         { return document.getElementById('priority-inbox-section'); }
+    function prioritizedSection()   { return document.getElementById('priority-prioritized-section'); }
+    function prioritizedList()      { return document.getElementById('priority-reorder-list'); }
+    function inboxList() {
+        var s = inboxSection();
+        if (!s) return null;
+        var all = s.querySelectorAll('[data-priority-section="inbox"]');
+        return all.length ? all[0] : null;
+    }
+
+    // Direct-child count among the items of a list (used for the header
+    // counters). Works with any nesting because it filters by class.
+    function countItems(listEl) {
+        if (!listEl) return 0;
+        return listEl.querySelectorAll('.priority-item').length;
+    }
+
+    function refreshCounts() {
+        var inbox = inboxSection();
+        if (inbox) {
+            var all = inbox.querySelectorAll('[data-count-section="inbox"]');
+            if (all.length) all[0].textContent = String(countItems(inboxList()));
+        }
+        var prio = prioritizedSection();
+        if (prio) {
+            var all2 = prio.querySelectorAll('[data-count-section="prioritized"]');
+            if (all2.length) all2[0].textContent = String(countItems(prioritizedList()));
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Action button (+ / ×) — icon and action data are set together so the
+    // visible symbol always matches the behaviour (fix: "cards still show
+    // the plus sign after being prioritized").
+    // ------------------------------------------------------------------
+    function setAction(btn, action, itemEl) {
+        if (!btn) return;
+        btn.dataset.priorityAction = action;
+        btn.innerHTML = (action === 'remove') ? SVG_REMOVE : SVG_ADD;
+        var label = (action === 'remove') ? MSG.remove : MSG.prioritize;
+        var link  = itemEl ? (itemEl.querySelectorAll ? itemEl.querySelectorAll('.priority-item-link').length ? itemEl.querySelectorAll('.priority-item-link')[0].textContent : null : null) : null;
+        btn.setAttribute('aria-label', label + (link ? ' — ' + link : ''));
+    }
+
+    function busy(btn, state) {
+        if (!btn) return;
+        if (state) {
             btn.disabled = true;
             btn.setAttribute('aria-busy', 'true');
         } else {
@@ -82,169 +126,178 @@
         }
     }
 
-    // ---------------------------------------------------------------
-    // Prioritize / Remove
-    // ---------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // Section switching: prioritized <ul> ⇄ empty-state <p>
+    // ------------------------------------------------------------------
+    function ensurePrioritizedList() {
+        var ul = prioritizedList();
+        if (ul) return ul;
+
+        var section = prioritizedSection();
+        if (!section) return null;
+        var empties = section.querySelectorAll('.priority-empty');
+        var empty = empties.length ? empties[0] : null;
+        if (!empty) return null;
+
+        ul = document.createElement('ul');
+        ul.className = 'priority-list';
+        ul.setAttribute('role', 'list');
+        ul.setAttribute('data-priority-section', 'prioritized');
+        ul.id = 'priority-reorder-list';
+        empty.replaceWith ? empty.replaceWith(ul) : empty.parentNode.insertBefore(ul, empty);
+        if (ul.parentNode !== empty.parentNode) empty.remove(); // fallback path
+        return ul;
+    }
+
+    function emptyPrioritizedSection() {
+        var section = prioritizedSection();
+        var ul = prioritizedList();
+        if (!section || !ul) return;
+        var p = document.createElement('p');
+        p.className = 'priority-empty';
+        p.setAttribute('role', 'status');
+        p.textContent = MSG.prioritizedEmpty;
+        ul.replaceWith ? ul.replaceWith(p) : ul.parentNode.insertBefore(p, ul);
+        if (p.parentNode !== ul.parentNode) ul.remove();
+    }
+
+    // ------------------------------------------------------------------
+    // Prioritize / Remove (delegated on document — survives DOM swaps)
+    // ------------------------------------------------------------------
     document.addEventListener('click', function (event) {
-        var btn = event.target.closest('[data-priority-action]');
+        var t = event.target;
+        var btn = (t && t.closest) ? t.closest('[data-priority-action]') : null;
         if (!btn) return;
 
-        var action  = btn.dataset.priorityAction;
-        var cardId  = btn.dataset.cardId;
-        var itemEl  = btn.closest('.priority-item');
+        var action = btn.dataset.priorityAction;
+        var cardId = btn.dataset.cardId;
+        var itemEl = btn.closest ? btn.closest('.priority-item') : null;
         if (!itemEl || !cardId) return;
 
         busy(btn, true);
 
         if (action === 'prioritize') {
-            api(`/v1/priority/inbox/${encodeURIComponent(cardId)}`, { method: 'POST' })
+            api('/v1/priority/inbox/' + encodeURIComponent(cardId), { method: 'POST' })
                 .then(function (res) {
                     if (res.status !== 200 && res.status !== 204) {
-                        throw { message: res.data && res.data.error || MSG.errorFailed, conflict: false };
+                        throw { message: (res.data && res.data.error) || MSG.errorFailed };
                     }
                     onPrioritized(itemEl);
                     flash(MSG.added, 'success');
                 })
-                .catch(function (err) {
-                    flash((err && err.message) || MSG.errorFailed, 'error');
-                })
+                .catch(function (err) { flash((err && err.message) || MSG.errorFailed, 'error'); })
                 .finally(function () { busy(btn, false); });
         } else if (action === 'remove') {
-            api(`/v1/priority/inbox/${encodeURIComponent(cardId)}`, { method: 'DELETE' })
+            api('/v1/priority/inbox/' + encodeURIComponent(cardId), { method: 'DELETE' })
                 .then(function (res) {
+                    if (res.status !== 200 && res.status !== 204) {
+                        throw { message: (res.data && res.data.error) || MSG.errorFailed };
+                    }
                     onRemoved(itemEl);
                     flash(MSG.removed, 'success');
                 })
-                .catch(function () {
-                    flash(MSG.errorFailed, 'error');
-                })
+                .catch(function (err) { flash((err && err.message) || MSG.errorFailed, 'error'); })
                 .finally(function () { busy(btn, false); });
         }
     });
 
     function onPrioritized(itemEl) {
-        // Move the card from inbox to the bottom of prioritized.
-        if (!prioList) {
-            // No prioritized <ul> rendered (was empty). Build one by swapping
-            // the empty-state <p> for the list element.
-            var section = document.getElementById('priority-prioritized-section');
-            if (section) {
-                var empty = section.querySelector('.priority-empty');
-                if (empty) {
-                    var ul = document.createElement('ul');
-                    ul.className = 'priority-list';
-                    ul.setAttribute('role', 'list');
-                    ul.dataset.prioritySection = 'prioritized';
-                    ul.id = 'priority-reorder-list';
-                    empty.replaceWith(ul);
-                    prioList = ul;
-                }
-            }
-            // Re-acquire anchor
-            prioList = document.getElementById('priority-reorder-list');
-        }
+        var ul = ensurePrioritizedList();
+        if (!ul) { flash(MSG.errorFailed, 'error'); return; }
 
         var clone = itemEl.cloneNode(true);
         clone.classList.add('priority-item--reorderable');
+        clone.classList.remove('priority-item--inbox');
         clone.setAttribute('draggable', 'true');
-        // Switch the action button: add → remove
-        var actionBtn = clone.querySelector('[data-priority-action]');
-        if (actionBtn) {
-            actionBtn.dataset.priorityAction = 'remove';
-            actionBtn.setAttribute('aria-label', MSG.actionRemove + ' — ' + (clone.querySelector('.priority-item-link') || {}).textContent);
+
+        // Remember the originating inbox tier so a later "return" re-slots
+        // the card into the same bucket (In Progress / Inbox / Other).
+        var tierWrap = itemEl.closest ? itemEl.closest('li[data-tier]') : null;
+        if (tierWrap) {
+            clone.dataset.fromTier = String(tierWrap.dataset.tier || tierWrap.getAttribute('data-tier') || '');
         }
 
-        if (prioList) prioList.appendChild(clone);
-        itemEl.remove();
+        setAction(clone.querySelector ? clone.querySelector('[data-priority-action]') : null, 'remove', clone);
+
+        ul.appendChild(clone);
+        itemEl.remove ? itemEl.remove() : itemEl.parentNode.removeChild(itemEl);
+
+        var all = document.querySelectorAll ? document.querySelectorAll('.priority-all-empty') : null;
+        if (all && all.length) all[0].remove();
 
         refreshCounts();
-        hideEmptyStates();
     }
 
     function onRemoved(itemEl) {
-        itemEl.remove();
-        if (anyPrioritized && prioList && prioList.querySelectorAll(':scope > .priority-item').length === 0) {
-            // Show the empty state again, drop the list
-            var section = document.getElementById('priority-prioritized-section');
-            if (section && prioList) {
-                var p = document.createElement('p');
-                p.className = 'priority-empty';
-                p.setAttribute('role', 'status');
-                var emptyText = (document.getElementById('priority-inbox-section') &&
-                                 (document.getElementById('priority-inbox-section').querySelector('.priority-empty'))) ||
-                                document.createElement('span');
-                p.textContent = emptyText.textContent || 'Nothing prioritized yet.';
-                prioList.replaceWith(p);
-            }
+        // Tier bucket to restore into: from the marker on the moving node
+        // (preferred) or from the current tier wrapper (if still there).
+        var tier = null;
+        if (itemEl && itemEl.dataset && itemEl.dataset.fromTier) {
+            tier = itemEl.dataset.fromTier;
+        } else if (itemEl && itemEl.closest) {
+            var tw = itemEl.closest('li[data-tier]');
+            if (tw) tier = String(tw.dataset.tier || tw.getAttribute('data-tier') || '');
         }
+        if (tier === '') tier = null;
+
+        var restoredNode = itemEl.cloneNode(true); // clone before detaching
+        itemEl.remove ? itemEl.remove() : itemEl.parentNode.removeChild(itemEl);
+
+        var ul = prioritizedList();
+        if (ul && countItems(ul) === 0) {
+            emptyPrioritizedSection();
+        }
+
+        var list = inboxList();
+        if (list) {
+            restoredNode.classList.remove('priority-item--reorderable');
+            restoredNode.classList.add('priority-item--inbox');
+            restoredNode.removeAttribute('draggable');
+            delete restoredNode.dataset.fromTier;
+            setAction(restoredNode.querySelector('[data-priority-action]'), 'prioritize', restoredNode);
+
+            var targetUl = null;
+            if (tier) {
+                var tierItems = list.querySelectorAll('li[data-tier]');
+                for (var i = 0; i < tierItems.length; i++) {
+                    var t = tierItems[i];
+                    if (String(t.dataset.tier || t.getAttribute('data-tier') || '') === tier) {
+                        var uls = t.querySelectorAll('ul');
+                        if (uls.length) targetUl = uls[0];
+                        break;
+                    }
+                }
+            }
+            if (targetUl) targetUl.appendChild(restoredNode);
+            else list.appendChild(restoredNode); // keep visible; reload re-sorts
+        }
+
+        var all = document.querySelectorAll ? document.querySelectorAll('.priority-all-empty') : null;
+        if (all && all.length) all[0].remove();
+
         refreshCounts();
     }
 
-    function hideEmptyStates() {
-        if (allEmptyEl) allEmptyEl.remove();
-    }
-
-    // ---------------------------------------------------------------
-    // Drag & drop reordering (prioritized section)
-    // ---------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // Drag & drop reordering.
+    //
+    // DELEGATED on document (not on the list element) because the live
+    // #priority-reorder-list <ul> is swapped in and out of the DOM as the
+    // first/last item is added/removed. Handlers bound to an old <ul>
+    // would silently stop firing — the exact bug reported ("can't reorder
+    // right after adding").
+    // ------------------------------------------------------------------
     var dragSrc = null;
-    var prevDragOverTarget = null;
 
-    if (anyPrioritized && prioList) {
-        prioList.addEventListener('dragstart', function (event) {
-            var item = event.target.closest('.priority-item');
-            if (!item) return;
-            dragSrc = item;
-            item.classList.add('dragging');
-            if (event.dataTransfer) {
-                event.dataTransfer.effectAllowed = 'move';
-                try { event.dataTransfer.setData('text/plain', item.dataset.cardId || ''); } catch (e) {}
-            }
-        });
-
-        prioList.addEventListener('dragover', function (event) {
-            event.preventDefault(); // allow drop
-            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
-            var target = event.target.closest('.priority-item--reorderable');
-            if (!target || !dragSrc || target === dragSrc) return; // self-hittest: no-op
-            var rect = target.getBoundingClientRect();
-            var before = (event.clientY - rect.top) < rect.height / 2;
-            movePlaceholder(dragSrc, target, before);
-        });
-
-        prioList.addEventListener('drop', function (event) {
-            event.preventDefault();
-        });
-
-        prioList.addEventListener('dragend', function () {
-            if (dragSrc) {
-                dragSrc.classList.remove('dragging');
-                commitReorder(dragSrc);
-                dragSrc = null;
-                prevDragOverTarget = null;
-            }
-        });
-    }
-
-    function movePlaceholder(placeholder, target, before) {
-        if (target.parentNode !== placeholder.parentNode) return;
-        if (before) {
-            if (target !== placeholder && (target.previousElementSibling !== placeholder)) {
-                target.parentNode.insertBefore(placeholder, target);
-            }
-        } else {
-            var next = target.nextElementSibling;
-            if (next !== placeholder && next) {
-                target.parentNode.insertBefore(placeholder, next);
-            } else if (target.parentNode.lastElementChild !== placeholder) {
-                target.parentNode.appendChild(placeholder);
-            }
-        }
+    function reorderableItemOf(target) {
+        if (!target || !target.closest) return null;
+        if (!target.closest('#priority-reorder-list')) return null;
+        return target.closest('.priority-item--reorderable');
     }
 
     function prevSibling(el) {
         var n = el.previousElementSibling;
-        while (n && !n.classList.contains('priority-item--reorderable')) {
+        while (n && !(n.classList && n.classList.contains('priority-item--reorderable'))) {
             n = n.previousElementSibling;
         }
         return n;
@@ -252,102 +305,152 @@
 
     function nextSibling(el) {
         var n = el.nextElementSibling;
-        while (n && !n.classList.contains('priority-item--reorderable')) {
+        while (n && !(n.classList && n.classList.contains('priority-item--reorderable'))) {
             n = n.nextElementSibling;
         }
         return n;
     }
 
     function firstReorderable(list) {
-        return list.querySelector(':scope > .priority-item--reorderable');
+        var all = list.querySelectorAll('.priority-item--reorderable');
+        return all.length ? all[0] : null;
     }
 
     function lastReorderable(list) {
-        var all = list.querySelectorAll(':scope > .priority-item--reorderable');
+        var all = list.querySelectorAll('.priority-item--reorderable');
         return all.length ? all[all.length - 1] : null;
     }
 
+    document.addEventListener('dragstart', function (event) {
+        var item = reorderableItemOf(event.target);
+        if (!item) return;
+        dragSrc = item;
+        if (item.classList) item.classList.add('dragging');
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = 'move';
+            try { event.dataTransfer.setData('text/plain', item.dataset.cardId || ''); } catch (e) { /* required on some legacy engines only */ }
+        }
+    });
+
+    document.addEventListener('dragover', function (event) {
+        if (!dragSrc) return;
+        var item = reorderableItemOf(event.target);
+        if (!item) return; // only reorder inside the prioritized list
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+
+        var target = reorderableItemOf(event.target);
+        if (!target || target === dragSrc) return;
+        var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { top: 0, height: 40 };
+        var before = (event.clientY - rect.top) < rect.height / 2;
+        movePlaceholder(dragSrc, target, before);
+    });
+
+    document.addEventListener('drop', function (event) {
+        if (dragSrc && event.target && event.target.closest && event.target.closest('#priority-reorder-list')) {
+            event.preventDefault();
+        }
+    });
+
+    document.addEventListener('dragend', function () {
+        if (!dragSrc) return;
+        var el = dragSrc;
+        dragSrc = null;
+        if (el.classList) el.classList.remove('dragging');
+        commitReorder(el);
+    });
+
+    function movePlaceholder(placeholder, target, before) {
+        var parent = placeholder.parentNode;
+        if (!parent || parent !== target.parentNode) return;
+        if (before) {
+            if (target !== placeholder && target.previousElementSibling !== placeholder) {
+                parent.insertBefore(placeholder, target);
+            }
+        } else {
+            var next = target.nextElementSibling;
+            if (next && next !== placeholder) {
+                parent.insertBefore(placeholder, next);
+            } else if (parent.lastElementChild !== placeholder) {
+                parent.appendChild(placeholder);
+            }
+        }
+    }
+
     function commitReorder(movingEl) {
-        // The DOM order after the drop is the desired state: find the item
-        // immediately BEFORE the moving item in the list (null if it is first)
-        // and tell the API "put it after that card" (null = move to top).
+        var list = movingEl.parentNode;
+        if (!list) return;
         var prev = prevSibling(movingEl);
         api('/v1/priority/position', {
             method: 'PUT',
             body: {
-                card_id:       parseInt(movingEl.dataset.cardId, 10) || 0,
+                card_id: parseInt(movingEl.dataset.cardId, 10) || 0,
                 after_card_id: prev ? (parseInt(prev.dataset.cardId, 10) || null) : null
             }
         })
             .then(function (res) {
-                if (res.status !== 200) {
+                if (res.status !== 200 && res.status !== 204) {
                     throw { message: (res.data && res.data.error) || MSG.errorFailed };
                 }
                 flash(MSG.moved, 'success');
             })
-            .catch(function (err) {
-                flash((err && err.message) || MSG.errorFailed, 'error');
-            });
+            .catch(function (err) { flash((err && err.message) || MSG.errorFailed, 'error'); });
     }
 
-    // ---------------------------------------------------------------
-    // Keyboard reordering (Alt+↑ / Alt+↓ / Home / End)
-    // ---------------------------------------------------------------
-    if (anyPrioritized && prioList) {
-        prioList.addEventListener('keydown', function (event) {
-            var item = event.target.closest('.priority-item--reorderable');
-            if (!item) return;
+    // ------------------------------------------------------------------
+    // Keyboard reordering (Alt+↑ / Alt+↓ / Alt+Home / Alt+End) — also
+    // delegated, also event-time list resolution.
+    // ------------------------------------------------------------------
+    document.addEventListener('keydown', function (event) {
+        if (!event.altKey) return;
+        var t = event.target;
+        var item = (t && t.closest) ? t.closest('.priority-item--reorderable') : null;
+        if (!item) return;
+        var list = item.parentNode;
+        if (!list || list.id !== 'priority-reorder-list') return;
 
-            var key = event.key;
-            if (!event.altKey && !event.ctrlKey) return; // let bare keys do nothing
+        var key = event.key;
 
-            if (!event.altKey) return;
-
-            if (key === 'ArrowUp' || key === 'ArrowLeft') {
-                var prev = prevSibling(item);
-                if (prev) {
-                    event.preventDefault();
-                    if (item.move) item.move({ before: prev });
-                    else prev.parentNode.insertBefore(item, prev);
-                    commitReorder(item);
-                    item.focus();
-                }
-            } else if (key === 'ArrowDown' || key === 'ArrowRight') {
-                var next = nextSibling(item);
-                if (next) {
-                    event.preventDefault();
-                    if (item.move) item.move({ after: next });
-                    else {
-                        var afterNext = next.nextElementSibling;
-                        next.parentNode.insertBefore(item, afterNext);
-                    }
-                    commitReorder(item);
-                    item.focus();
-                }
-            } else if (key === 'Home') {
-                event.preventDefault();
-                var first = firstReorderable(prioList);
-                if (first && first !== item) {
-                    if (item.move) item.move({ before: first });
-                    else first.parentNode.insertBefore(item, first);
-                    commitReorder(item);
-                    item.focus();
-                }
-            } else if (key === 'End') {
-                event.preventDefault();
-                var last = lastReorderable(prioList);
-                if (last && last !== item) {
-                    if (item.move) prioList.appendChild(item);
-                    else prioList.appendChild(item);
-                    commitReorder(item);
-                    item.focus();
-                }
+        if (key === 'ArrowUp' || key === 'ArrowLeft') {
+            var prev = prevSibling(item);
+            if (prev) {
+                event.preventDefault ? event.preventDefault() : null;
+                list.insertBefore(item, prev);
+                commitReorder(item);
+                if (item.focus) item.focus();
             }
-        });
-    }
+        } else if (key === 'ArrowDown' || key === 'ArrowRight') {
+            var next = nextSibling(item);
+            if (next) {
+                event.preventDefault ? event.preventDefault() : null;
+                var after = next.nextElementSibling;
+                if (after) list.insertBefore(item, after);
+                else list.appendChild(item);
+                commitReorder(item);
+                if (item.focus) item.focus();
+            }
+        } else if (key === 'Home') {
+            var first = firstReorderable(list);
+            if (first && first !== item) {
+                event.preventDefault ? event.preventDefault() : null;
+                list.insertBefore(item, first);
+                commitReorder(item);
+                if (item.focus) item.focus();
+            }
+        } else if (key === 'End') {
+            var last = lastReorderable(list);
+            if (last && last !== item) {
+                event.preventDefault ? event.preventDefault() : null;
+                list.appendChild(item);
+                commitReorder(item);
+                if (item.focus) item.focus();
+            }
+        }
+    });
 
-    // ---------------------------------------------------------------
-    // Initial count refresh
-    // ---------------------------------------------------------------
+    // ------------------------------------------------------------------
+    // Initial count refresh (counters are server-rendered but cheap to
+    // recompute once here for safety after a partial client-side change).
+    // ------------------------------------------------------------------
     refreshCounts();
 })();

@@ -199,6 +199,7 @@ $priorityLang = json_encode([
     'error_conflict' => $lang->get('priority.error_conflict'),
     'remove'         => $lang->get('priority.action_remove'),
     'prioritize'     => $lang->get('priority.action_prioritize'),
+    'prioritized_empty' => $lang->get('priority.prioritized_empty'),
 ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
 ?>
 <script id="priority-script" src="/js/priority.js" data-lang="<?= htmlspecialchars($priorityLang, ENT_QUOTES, 'UTF-8') ?>"></script>
