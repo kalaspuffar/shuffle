@@ -99,10 +99,13 @@
             tplOptions.push('<option value="' + i + '">' + escapeHtml((t.icon || '') + ' ' + t.title) + '</option>');
         }
 
-        // Emoji picker options (LANE-11)
-        var emojis = emojiChoices();
-        var pickBtn = '<button type="button" class="btn btn-ghost btn-sm lane-create-pick-toggle" aria-haspopup="true" aria-expanded="false">' +
-            '😀 ' + escapeHtml(LANG.lane_icon_picker || 'Pick an icon') + '</button>';
+        // Emoji picker toggle (LANE-11) — compact icon button so the
+        // cramped lane width is not eaten by text; grid stays hidden
+        // until clicked (see .lane-create-emoji-grid[hidden] in app.css).
+        var pickBtn = '<button type="button" class="btn btn-ghost btn-sm lane-create-pick-toggle" ' +
+            'aria-haspopup="true" aria-expanded="false" ' +
+            'aria-label="' + escapeAttr(LANG.lane_icon_picker || 'Pick an icon (emoji)') + '" ' +
+            'title="' + escapeAttr(LANG.lane_icon_picker || 'Pick an icon (emoji)') + '">😀</button>';
 
         form.innerHTML =
             '<select class="form-input lane-create-template" aria-label="' + escapeAttr(LANG.lane_create || 'Add Lane') + '">' +
@@ -131,6 +134,7 @@
         var emojiGrid = form.querySelector('.lane-create-emoji-grid');
 
         // Render the emoji grid (lazy, once)
+        var emojis = emojiChoices();
         (function renderGrid() {
             var cells = [];
             for (var j = 0; j < emojis.length; j++) {
