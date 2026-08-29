@@ -4,6 +4,7 @@ namespace Shuffle\Service;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
 use Shuffle\Model\Lane;
+use Shuffle\Model\UserPrio;
 
 /**
  * Board business logic service.
@@ -35,17 +36,23 @@ class BoardService
     private Board $boardModel;
     private ?Lane $laneModel = null;
     private ?Card $cardModel = null;
+    private ?UserPrio $userPrio = null;
 
     /**
      * @param Board     $boardModel Board data access instance
      * @param Lane|null $laneModel  Lane data access instance (optional, for full view)
      * @param Card|null $cardModel  Card data access instance (optional, for full view)
+     * @param UserPrio|null $userPrio (optional) — when injected, archiveBoard()
+     *                                also clears user_prio rows for the board's
+     *                                cards so they leave every user's
+     *                                prioritized lane (BOARD-06d).
      */
-    public function __construct(Board $boardModel, ?Lane $laneModel = null, ?Card $cardModel = null)
+    public function __construct(Board $boardModel, ?Lane $laneModel = null, ?Card $cardModel = null, ?UserPrio $userPrio = null)
     {
         $this->boardModel = $boardModel;
-        $this->laneModel = $laneModel;
-        $this->cardModel = $cardModel;
+        $this->laneModel  = $laneModel;
+        $this->cardModel  = $cardModel;
+        $this->userPrio   = $userPrio;
     }
 
     /**
@@ -199,6 +206,12 @@ class BoardService
     /**
      * Archives a board.
      *
+     * When `userPrio` was injected (see constructor), also clears every
+     * `user_prio` row for the board's cards (BOARD-06d): archived material
+     * must not remain in any user's prioritized lane, and a later restore
+     * re-includes the cards in the **inbox** (live recompute) but does not
+     * auto-return them to the prioritized lane.
+     *
      * @param int $id Board ID
      * @throws \RuntimeException If board not found
      */
@@ -209,6 +222,9 @@ class BoardService
             throw new \RuntimeException('Board not found');
         }
 
+        if ($this->userPrio !== null) {
+            $this->userPrio->removeForBoard($id);
+        }
         $this->boardModel->archive($id);
     }
 

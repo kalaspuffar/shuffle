@@ -63,6 +63,23 @@
         deleteSlotEl.hidden = !visible;
         deleteSlotEl.setAttribute('aria-hidden', visible ? 'false' : 'true');
     }
+    // BOARD-06c: Archive/Restore slot — present only for admins (rendered
+    // behind $isAdmin), edit-mode only, and its button label flips based on
+    // the board's current state.
+    var archiveSlotEl = document.getElementById('board-modal-archive-slot');
+    var archiveBtnEl = document.getElementById('board-modal-archive');
+    var pendingArchiveContext = null; // { boardId, archived: bool }
+    function setArchiveSlotVisible(visible) {
+        if (!archiveSlotEl) return;
+        archiveSlotEl.hidden = !visible;
+        archiveSlotEl.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    }
+    function setArchiveBtnLabel(archived) {
+        if (!archiveBtnEl) return;
+        archiveBtnEl.textContent = archived
+            ? (LANG.restore_label || 'Restore')
+            : (LANG.archive_label || 'Archive');
+    }
 
     function openCreateModal(opener) {
         editingBoardId = null;
@@ -72,6 +89,8 @@
         lastOpener = (opener && typeof opener.focus === 'function') ? opener : openBtn;
         if (modalTitle) modalTitle.textContent = LANG.create_title || modalTitle.textContent;
         setDeleteSlotVisible(false);
+        setArchiveSlotVisible(false);
+        pendingArchiveContext = null;
         modal.hidden = false;
         document.getElementById('board-title').focus();
     }
@@ -90,6 +109,12 @@
             cardCount: parseInt(btn.dataset.cardCount, 10)
         };
         if (isNaN(pendingDeleteContext.cardCount)) pendingDeleteContext.cardCount = 0;
+        // BOARD-06c: stash the archive state so the modal's soft action can
+        // toggle its label (Archive ↔ Restore) without a round-trip.
+        pendingArchiveContext = {
+            boardId: editingBoardId,
+            archived: parseInt(btn.dataset.boardArchived, 10) === 1
+        };
 
         // Pre-populate form fields from data attributes
         document.getElementById('board-title').value = btn.dataset.boardTitle || '';
@@ -125,6 +150,8 @@
         if (modalTitle) modalTitle.textContent = LANG.edit_title || 'Edit Board';
 
         setDeleteSlotVisible(true);
+        setArchiveSlotVisible(true);
+        setArchiveBtnLabel(pendingArchiveContext ? pendingArchiveContext.archived : false);
 
         modal.hidden = false;
         document.getElementById('board-title').focus();
@@ -144,6 +171,8 @@
         editingBoardId = null;
         pendingDeleteContext = null;
         setDeleteSlotVisible(false);
+        pendingArchiveContext = null;
+        setArchiveSlotVisible(false);
 
         // Restore modal title to create mode for next open
         if (modalTitle) modalTitle.textContent = LANG.create_title || 'Create Board';
@@ -423,5 +452,88 @@
                 deleteConfirmBtn.setAttribute('aria-disabled', 'false');
             });
         });
+    }
+
+    /* =============================================
+       BOARD-06c: Board archive / restore (admin only)
+       Soft action in the edit-modal footer — recoverable,
+       so no confirmation dialog (unlike Delete). The button
+       label is already flipped by openEditModal() based on
+       data-board-archived; here we just call the API and
+       react to the result.
+       ============================================= */
+    if (archiveSlotEl && archiveBtnEl) {
+        var archiveBusy = false;
+        archiveBtnEl.addEventListener('click', function () {
+            if (archiveBusy || !pendingArchiveContext) return;
+            archiveBusy = true;
+            archiveBtnEl.setAttribute('aria-disabled', 'true');
+
+            var boardId = pendingArchiveContext.boardId;
+            var wasArchived = pendingArchiveContext.archived;
+            var path = wasArchived
+                ? '/v1/boards/' + boardId + '/restore'
+                : '/v1/boards/' + boardId + '/archive';
+
+            Shuffle.api(path, { method: 'POST' }).then(function (result) {
+                if (result.status !== 204) {
+                    var msg = (result.data && result.data.error)
+                        ? result.data.error
+                        : (LANG.error_bad_request || 'Error');
+                    Shuffle.showFlash(msg, 'error');
+                    archiveBusy = false;
+                    archiveBtnEl.removeAttribute('aria-disabled');
+                    return;
+                }
+                // Capture the id before any close handler can null out state.
+                var actedBoardId = boardId;
+                if (wasArchived) {
+                    // Restore: the board re-enters the default list. The board
+                    // card in the grid is already present for admins (rendered
+                    // under "Show archived"); for non-admins the list may also
+                    // refresh — either way a reload is the cheapest correct
+                    // path.
+                    Shuffle.showFlash(LANG.restore_success || 'Board restored', 'success');
+                    closeArchiveModalAndReload();
+                } else {
+                    // Archive: remove the card from the grid (it has now left
+                    // the default list), flash success, close the modal.
+                    var removedCard = null;
+                    if (actedBoardId !== null) {
+                        var marker = document.querySelector(
+                            '.board-card-pencil[data-board-id="' + actedBoardId + '"]'
+                        );
+                        removedCard = marker ? marker.closest('article') : null;
+                    }
+                    if (removedCard && removedCard.parentNode) {
+                        removedCard.parentNode.removeChild(removedCard);
+                    }
+                    var archiveGrid = document.querySelector('.boards-grid');
+                    var emptyEl = document.querySelector('.boards-empty');
+                    if (archiveGrid && archiveGrid.querySelectorAll('article').length === 0) {
+                        if (emptyEl) {
+                            archiveGrid.style.display = 'none';
+                            emptyEl.style.display = '';
+                        } else {
+                            window.location.reload();
+                        }
+                    }
+                    Shuffle.showFlash(LANG.archive_success || 'Board archived', 'success');
+                    if (modal && !modal.hidden) closeModal();
+                }
+            }).catch(function (err) {
+                console.error('board archive/restore failed', err);
+                Shuffle.showFlash(LANG.error_bad_request || 'Error', 'error');
+                archiveBusy = false;
+                archiveBtnEl.removeAttribute('aria-disabled');
+            });
+        });
+    }
+
+    function closeArchiveModalAndReload() {
+        if (modal && !modal.hidden) closeModal();
+        // Defer so the modal's close animation/state settles before the page
+        // goes — the reload also resets any stale list state.
+        setTimeout(function () { window.location.reload(); }, 300);
     }
 })();

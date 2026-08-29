@@ -247,7 +247,7 @@ class PriorityService
         $items = [];
         foreach ($cardIds as $cardId) {
             if (!isset($rowsByCard[$cardId])) {
-                continue; // Card deleted, or lane/board gone (PRIO-08).
+                continue; // Card deleted, board archived (BOARD-06d), or lane/board gone (PRIO-08).
             }
 
             $row = $rowsByCard[$cardId];
