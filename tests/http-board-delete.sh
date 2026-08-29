@@ -52,10 +52,37 @@ echo "$HTML" | grep -q 'id="board-delete-overlay"' ; ck "render: delete confirma
 #     covered it — .board-card-pencil is position:absolute but .board-card had no
 #     position, so the element escaped to the viewport-level containing block).
 #     Grep-level HTML tests cannot see this; assert the containing block exists.
-awk '/^\.board-card \{/{f=1} f{print} f&&/^\}/{exit}' www/css/app.css \
+awk '/^\.board-card \{/{f=1} f{print} f&&/^}/{exit}' www/css/app.css \
   | grep -q 'position: relative' ; ck "css: .board-card is a positioned containing block for the pencil" $?
-awk '/^\.board-card-pencil \{/{f=1} f&&/z-index/{z=1} f&&/^\}/{exit} END{exit z?0:1}' www/css/app.css \
+awk '/^\.board-card-pencil \{/{f=1} f&&/z-index/{z=1} f&&/^}/{exit} END{exit z?0:1}' www/css/app.css \
   ; ck "css: .board-card-pencil has z-index above the card link" $?
+# 2026-08-29: footer Cancel must not inherit the header "x" glyph sizing
+# (.modal-close), otherwise it renders shorter than Save (Daniel: 'not the
+# same size as the other buttons').
+awk '/^\.modal-footer \.btn\.modal-close \{/{f=1} f&&/line-height/{lh=1} f&&/^}/{exit} END{exit lh?0:1}' www/css/app.css \
+  ; ck "css: footer .btn.modal-close resets line-height to the .btn base" $?
+# 2026-08-29: delete-204 handler must capture the board id BEFORE
+# closeDeleteModal() nulls it (the lookup used to query id 'null' and the
+# card stayed in the grid; Daniel: 'deleting a board will only change when
+# you reload'). Anchor on the executable statement (a bare comment mention
+# of closeDeleteModal() appears earlier and would false-positive).
+node -e '
+  const s = require("fs").readFileSync("www/js/boards.js", "utf8");
+  const i = s.indexOf("if (result.status === 204)");
+  if (i < 0) process.exit(1);
+  const seg = s.slice(i, i + 3000);
+  const cap = seg.indexOf("var removedBoardId = deletingBoardId");
+  const close = seg.indexOf("closeDeleteModal();");
+  if (cap === -1 || close === -1 || cap > close) process.exit(1);
+' ; ck "js: delete-204 captures board id before closeDeleteModal() nulls it" $?
+# 2026-08-29: create path — openCreateModal must not store a non-element
+# (the Create button listener passes a MouseEvent; closeModal's focus-return
+# then threw and skipped the post-success reload).
+node -e '
+  const s = require("fs").readFileSync("www/js/boards.js", "utf8");
+  if (s.indexOf("typeof opener.focus ===") === -1) process.exit(1);
+  if (s.indexOf("lastOpener.focus && lastOpener.focus()") === -1) process.exit(1);
+' ; ck "js: create-modal focus handling is guarded (no throw before reload)" $?
 
 # 3. DELETE /v1/boards/{id} as admin → 204, then board gone
 CODE=$(curl -s -o /dev/null -w '%{http_code}' $H -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -X DELETE $B/v1/boards/$SID2)
