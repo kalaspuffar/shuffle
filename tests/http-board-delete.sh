@@ -48,6 +48,15 @@ echo "$HTML" | grep -q "id=\"board-modal-delete\"" ; ck "render: red Delete butt
 echo "$HTML" | grep -q "data-card-count=\"1\"" ; ck "render: pencil carries data-card-count=1" $?
 echo "$HTML" | grep -q 'id="board-delete-overlay"' ; ck "render: delete confirmation dialog present" $?
 
+# 2b. CSS rendering regression (2026-08-29, Daniel: pencil invisible, card link
+#     covered it — .board-card-pencil is position:absolute but .board-card had no
+#     position, so the element escaped to the viewport-level containing block).
+#     Grep-level HTML tests cannot see this; assert the containing block exists.
+awk '/^\.board-card \{/{f=1} f{print} f&&/^\}/{exit}' www/css/app.css \
+  | grep -q 'position: relative' ; ck "css: .board-card is a positioned containing block for the pencil" $?
+awk '/^\.board-card-pencil \{/{f=1} f&&/z-index/{z=1} f&&/^\}/{exit} END{exit z?0:1}' www/css/app.css \
+  ; ck "css: .board-card-pencil has z-index above the card link" $?
+
 # 3. DELETE /v1/boards/{id} as admin → 204, then board gone
 CODE=$(curl -s -o /dev/null -w '%{http_code}' $H -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -X DELETE $B/v1/boards/$SID2)
 [ "$CODE" = "204" ]; ck "DELETE /v1/boards/$SID2 -> 204 (got $CODE)" $?
