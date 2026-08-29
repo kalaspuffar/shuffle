@@ -182,6 +182,7 @@ require ROOT_DIR . '/include/templates/header.php';
                 data-board-description="<?= htmlspecialchars($board['description'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 data-board-visibility="<?= htmlspecialchars($board['visibility'], ENT_QUOTES, 'UTF-8') ?>"
                 data-board-organizations="<?= htmlspecialchars(json_encode($board['organizations'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>"
+                data-board-archived="<?= (int) ($board['is_archived'] ? 1 : 0) ?>"
                 data-card-count="<?= (int) ($board['card_count'] ?? 0) ?>">
                 <!-- Pencil icon (edit board) -->
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -244,6 +245,15 @@ require ROOT_DIR . '/include/templates/header.php';
                         <?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?>
                     </button>
                 </div>
+                <!-- BOARD-06c: Board archive/restore — admin only; edit-mode only.
+                     Toggles label Archive ⇔ Restore based on the board's current
+                     state (data-board-archived on the pencil button). Recoverable
+                     action — no confirmation dialog (SPECIFICATION.md §5.5). -->
+                <div class="modal-footer-soft" id="board-modal-archive-slot" aria-hidden="true" hidden>
+                    <button type="button" class="btn btn-secondary" id="board-modal-archive">
+                        <?= htmlspecialchars($lang->get('action.archive'), ENT_QUOTES, 'UTF-8') ?>
+                    </button>
+                </div>
                 <?php endif; ?>
                 <div class="modal-footer-actions">
                     <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
@@ -285,6 +295,10 @@ $boardsLang = json_encode([
     'delete_warning'    => $lang->get('board.delete_warning'),
     'delete_empty_warning' => $lang->get('board.delete_empty_warning'),
     'delete_success'    => $lang->get('board.delete_success'),
+    'archive_label'     => $lang->get('action.archive'),
+    'restore_label'     => $lang->get('action.restore'),
+    'archive_success'   => $lang->get('board.archive_success'),
+    'restore_success'   => $lang->get('board.restore_success'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="boards-script" src="/js/boards.js" data-lang="<?= htmlspecialchars($boardsLang, ENT_QUOTES, 'UTF-8') ?>"></script>

@@ -111,6 +111,27 @@ class UserPrio
     }
 
     /**
+     * Removes every `user_prio` row whose card belongs to a given board
+     * (any user). Used by BoardService::archiveBoard() so archived material
+     * leaves **every** user's prioritized lane (BOARD-06d); restore of the
+     * board re-includes the cards in the inbox (live recompute) but does
+     * NOT auto-put them back into the prioritized lane — the user has to
+     * re-prioritize.
+     *
+     * @param int $boardId Board ID
+     */
+    public function removeForBoard(int $boardId): void
+    {
+        $this->db->execute(
+            'DELETE FROM user_prio WHERE card_id IN (
+                SELECT c.id FROM cards c
+                JOIN lanes l ON l.id = c.lane_id
+                WHERE l.board_id = ?)',
+            [$boardId]
+        );
+    }
+
+    /**
      * Moves a user's entry to after another entry (or to the top when
      * $afterCardId is null), using the shared gap-based scheme
      * (SPECIFICATION.md §4.2). A collapsed gap triggers a full renumber

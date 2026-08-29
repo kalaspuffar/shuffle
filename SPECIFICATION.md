@@ -1491,6 +1491,10 @@ Permanently deletes a board and all its contents. Cascades to lanes, cards, comm
 
 **UI surface (BOARD-06a):** the board listing page (`boards.php`) shows a quiet icon-only **Edit (pencil) button** at the top-right of each board card (visible to Admins and Members). The **Delete action is admin-only** and lives **inside the edit-board modal footer** as a red danger button (Cancel &middot; Save on the right, Delete on the left — never shown in create mode, never rendered to non-admins). It opens a confirmation dialog stating the board title and its `card_count`; boards with cards carry the stronger warning ("X cards will also be deleted permanently"). Confirmation calls this endpoint; success (204) closes the dialogs and removes the board card from the grid, error (404/403/500) shows a flash and keeps the page.
 
+**UI surface (BOARD-06c):** the same edit-board modal footer carries an **Archive &middot; Restore** soft action, also **admin-only** (rendered only for admins, like the Delete slot; edit-mode only via the JS toggle). Footer order left&thinsp;&rarr;&thinsp;right: `Delete` (red, far left) &middot; `Archive` (secondary) &middot; `Cancel` &middot; `Save`. For a board opened in the modal that is **already archived**, the soft action reads `Restore` instead. Clicking **Archive** posts `POST /v1/boards/{id}/archive`; on 204 the board card is removed from the grid, a success flash is shown, and the modal closes — **no confirmation dialog** (archive is recoverable "off the rack", not destructive). **Restore** posts `POST /v1/boards/{id}/restore`; on 204 a success flash is shown and the page reloads (restored boards re-enter the default list; with the "Show archived" toggle off the grid refreshes to the non-archived set). All strings are externalized (`board.archive`, `action.restore`, `board.archive_success`, `board.restore_success`).
+
+**Prio exclusion (BOARD-06d):** archiving a board **removes every `user_prio` row for the board's cards** (`BoardService::archiveBoard()` calls `UserPrio::removeForBoard()` when the model is injected), so a prioritized card on a board that gets archived leaves **every user's** prioritized lane immediately — not merely hidden by a join filter. As defense in depth, `Card::findWithBoardForUserList` also omits rows on **archived boards** (`AND b.is_archived = 0`, joined on `lanes.board_id`), so the `Prioritized` section of `GET /v1/priority` never lists a card whose board is archived even if a stale row exists. `PriorityService::loadPrioritized()` drops those rows explicitly, documenting the intent rather than relying on the WHERE clause alone. The inbox query already carries `b.is_archived = 0` (PRIO-08, pre-existing). Restoring a board re-includes its cards in the **inbox** (live recompute) but **not** into the prioritized lane — since the `user_prio` row was cleared on archive, the user who wants the card back in their prioritized list must **re-prioritize** it. Archived boards remain **reachable in search results** (SEARCH-04); that search visibility is intentionally distinct from priority-list hiding.
+
 ### 5.6 Lanes
 
 #### `GET /v1/boards/{boardId}/lanes`
@@ -2143,7 +2147,7 @@ Returns the acting user's full list in one pass (PRIO-01, PRIO-03, PRIO-06, PRIO
 
 Semantics:
 - `inbox` — computed live: cards assigned to the user, on boards the user can access, non-archived, **not in a Done lane** (lane title case-insensitive match), and not already in `user_prio`. Order: tier 1 (In Progress lane) → tier 2 (Inbox lane) → tier 3 (everything else); within a tier, lane position, then card position, with boards merged in board-creation order (PRIO-04).
-- `prioritized` — the user's `user_prio` rows in position order, joined live to card/lane/board. Rows whose card was deleted, archived, moved to Done, or whose board access was lost are still returned with their live state (Done marking included, per PRIO-09) unless the card was deleted or the board is fully inaccessible — those rows are omitted.
+- `prioritized` — the user's `user_prio` rows in position order, joined live to card/lane/board. Rows whose card was deleted, archived, moved to Done, or whose board access was lost are still returned with their live state (Done marking included, per PRIO-09) unless the card was deleted or the board is fully inaccessible — those rows are omitted. **Board archived** rows are also omitted (BOARD-06d: archived boards leave every user's priority list, inbox and prioritized alike).
 
 #### `POST /v1/priority/inbox/{cardId}`
 
@@ -2817,6 +2821,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | RBAC-01 through RBAC-05 | 3.13, 6.7 |
 | BOARD-01 through BOARD-06 | 3.14, 3.15, 4.1 (boards, board_organizations), 5.5 |
 | BOARD-06a / BOARD-06b | 5.5 (DELETE /v1/boards UI surface; `card_count` in GET /v1/boards), 3.15 (BoardService::listBoards), www/boards.php + www/js/boards.js |
+| BOARD-06c / BOARD-06d | 5.5 (archive/restore UI surface in the edit-board modal; `UserPrio::removeForBoard` + `Card::findWithBoardForUserList` archived-board exclusion in the prio prioritized lane), 3.15 (BoardService::archiveBoard, PriorityService::loadPrioritized), www/v1/index.php, www/boards.php + www/js/boards.js |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.14 |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |

@@ -963,6 +963,15 @@ small,
     margin-right: auto;
 }
 
+/* Modal footer: soft/reversible action (board archive) sits right of the
+   danger slot and left of the right-hand Cancel · Save group (BOARD-06c).
+   Keeping margin-right:auto on BOTH slots splits the free space evenly:
+   Delete … Archive … Cancel · Save, so neither left action floats over to
+   the right group. */
+.modal-footer .modal-footer-soft {
+    margin-right: auto;
+}
+
 .board-card--archived {
     opacity: 0.65;
 }

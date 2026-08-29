@@ -426,7 +426,10 @@ class Card
     /**
      * Batch-joins cards to their lane (icon + title) and board for the
      * priority list view (PRIO-07). Cards whose lane/board is missing are
-     * omitted.
+     * omitted. Rows on **archived boards are also omitted** (BOARD-06d): the
+     * live join is the single source of the "board is accessible" decision,
+     * and an archived board is treated the same as a deleted one — silently
+     * absent, never an error.
      *
      * @param int[] $cardIds Card IDs (any order; input order is not kept —
      *                       caller sorts by position)
@@ -448,6 +451,7 @@ class Card
              JOIN lanes l ON c.lane_id = l.id
              JOIN boards b ON l.board_id = b.id
              WHERE c.id IN ($in)
+             AND b.is_archived = 0
              ORDER BY c.id ASC",
             array_map('intval', $cardIds)
         );

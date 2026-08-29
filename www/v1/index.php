@@ -71,8 +71,9 @@ $orgController = new Shuffle\Controller\OrganizationController($auth, $orgServic
 $boardModel      = new Shuffle\Model\Board($db);
 $laneModel       = new Shuffle\Model\Lane($db);
 $cardModel       = new Shuffle\Model\Card($db);
+$userPrioModel   = new Shuffle\Model\UserPrio($db);
 
-$boardService    = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel);
+$boardService    = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel, $userPrioModel);
 $boardController = new Shuffle\Controller\BoardController($auth, $boardService);
 
 $laneService    = new Shuffle\Service\LaneService($laneModel, $boardModel);
