@@ -186,6 +186,18 @@ require ROOT_DIR . '/include/templates/header.php';
                 <?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?>
             </button>
             <?php endif; ?>
+            <?php if ($isAdmin): ?>
+            <!-- BOARD-06a: board delete — admin only; card_count (BOARD-06b) powers the warning -->
+            <button type="button"
+                class="btn btn-ghost board-card-delete"
+                aria-label="<?= htmlspecialchars($lang->get('board.delete_title') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
+                aria-haspopup="dialog"
+                data-board-id="<?= (int) $board['id'] ?>"
+                data-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>"
+                data-card-count="<?= (int) ($board['card_count'] ?? 0) ?>">
+                <?= htmlspecialchars($lang->get('board.delete_title'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+            <?php endif; ?>
         </article>
         <?php endforeach; ?>
     </div>
@@ -238,6 +250,25 @@ require ROOT_DIR . '/include/templates/header.php';
 </div>
 <?php endif; ?>
 
+<?php if ($isAdmin): ?>
+<!-- BOARD-06a: Board delete confirmation (admin only) -->
+<div class="modal-overlay" id="board-delete-overlay" hidden>
+    <div class="modal" role="dialog" aria-labelledby="board-delete-title" aria-describedby="board-delete-warning" aria-modal="true" id="board-delete-modal">
+        <div class="modal-header">
+            <h2 id="board-delete-title"><?= htmlspecialchars($lang->get('board.delete_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="board-delete-warning" class="board-delete-warning" role="alert"></p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-danger" id="board-delete-confirm" aria-disabled="false"><?= htmlspecialchars($lang->get('board.delete_delete'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
+
 <?php
 // Pass i18n strings to external JS via data attribute (CSP-compliant)
 $boardsLang = json_encode([
@@ -246,6 +277,9 @@ $boardsLang = json_encode([
     'create_title'      => $lang->get('board.create'),
     'edit_title'        => $lang->get('board.edit_title'),
     'error_bad_request' => $lang->get('error.bad_request'),
+    'delete_warning'    => $lang->get('board.delete_warning'),
+    'delete_empty_warning' => $lang->get('board.delete_empty_warning'),
+    'delete_success'    => $lang->get('board.delete_success'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="boards-script" src="/js/boards.js" data-lang="<?= htmlspecialchars($boardsLang, ENT_QUOTES, 'UTF-8') ?>"></script>

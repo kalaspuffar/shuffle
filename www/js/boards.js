@@ -237,4 +237,110 @@
             });
         }
     });
+
+    /* =============================================
+       BOARD-06a: Board delete confirmation (admin only)
+       ============================================= */
+
+    var deleteOverlay = document.getElementById('board-delete-overlay');
+    if (deleteOverlay) {
+        var deleteWarning = document.getElementById('board-delete-warning');
+        var deleteConfirmBtn = document.getElementById('board-delete-confirm');
+        var deletingBoardId = null;
+        var deleteBusy = false;
+        var deleteOpener = null;
+        // Lazy resolution — boards.js may parse before footer's app.js defines
+        // window.Shuffle (same pattern as priority.js).
+        var api = function (path, options) {
+            if (!window.Shuffle || typeof window.Shuffle.api !== 'function') {
+                throw new Error('Shuffle.api not available');
+            }
+            return window.Shuffle.api(path, options);
+        };
+
+        function openDeleteModal(btn) {
+            var id = parseInt(btn.dataset.boardId, 10);
+            if (isNaN(id)) {
+                console.error('board-card-delete: missing or invalid data-board-id');
+                return;
+            }
+            deletingBoardId = id;
+            deleteOpener = btn;
+            deleteBusy = false;
+            deleteConfirmBtn.setAttribute('aria-disabled', 'false');
+
+            // BOARD-06a/06b: stronger warning when cards will be deleted
+            var count = parseInt(btn.dataset.cardCount, 10);
+            if (isNaN(count)) count = 0;
+            var title = btn.dataset.boardTitle || '';
+            var template = count > 0
+                ? (LANG.delete_warning || 'Delete this board and all of its {count} cards?')
+                : (LANG.delete_empty_warning || 'Delete this board?');
+            deleteWarning.textContent = template
+                .replace('{title}', title)
+                .replace('{count}', String(count));
+
+            deleteOverlay.hidden = false;
+            deleteConfirmBtn.focus();
+        }
+
+        function closeDeleteModal() {
+            deleteOverlay.hidden = true;
+            deletingBoardId = null;
+            if (deleteOpener) {
+                deleteOpener.focus();
+                deleteOpener = null;
+            }
+        }
+
+        document.querySelectorAll('.board-card-delete').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                openDeleteModal(btn);
+            });
+        });
+
+        var deleteCloseBtns = deleteOverlay.querySelectorAll('.modal-close');
+        deleteCloseBtns.forEach(function (b) {
+            b.addEventListener('click', closeDeleteModal);
+        });
+
+        deleteOverlay.addEventListener('click', function (e) {
+            if (e.target === deleteOverlay) closeDeleteModal();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !deleteOverlay.hidden) closeDeleteModal();
+        });
+
+        deleteConfirmBtn.addEventListener('click', function () {
+            if (deleteBusy || deletingBoardId === null) return;
+            deleteBusy = true;
+            deleteConfirmBtn.setAttribute('aria-disabled', 'true');
+
+            api('/v1/boards/' + deletingBoardId, { method: 'DELETE' }).then(function (result) {
+                if (result.status === 204) {
+                    // Success — remove the card from the grid, then reload so
+                    // board counts/checklist state stay canonical.
+                    var article = deleteOpener ? deleteOpener.closest('article') : null;
+                    var grid = deleteOverlay ? document.querySelector('.boards-grid') : null;
+                    closeDeleteModal();
+                    Shuffle.showFlash(LANG.delete_success || 'Board deleted', 'success');
+                    if (article && article.parentNode) article.parentNode.removeChild(article);
+                    if (grid && grid.querySelectorAll('article').length === 0) {
+                        window.location.reload();
+                    }
+                } else {
+                    var msg = (result.data && result.data.error) ? result.data.error : (LANG.error_bad_request || 'Error');
+                    Shuffle.showFlash(msg, 'error');
+                    deleteBusy = false;
+                    deleteConfirmBtn.setAttribute('aria-disabled', 'false');
+                }
+            }).catch(function (err) {
+                console.error('board delete failed', err);
+                Shuffle.showFlash(LANG.error_bad_request || 'Error', 'error');
+                deleteBusy = false;
+                deleteConfirmBtn.setAttribute('aria-disabled', 'false');
+            });
+        });
+    }
 })();

@@ -1,7 +1,7 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.3
-**Date:** 2026-08-28
+**Version:** 1.4
+**Date:** 2026-08-29
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
@@ -244,6 +244,8 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | BOARD-04b | **Strict board isolation** — no information about inaccessible boards is leaked to unauthorized users | Must-have |
 | BOARD-05 | No system limit on the number of boards | Must-have |
 | BOARD-06 | Boards can be archived or deleted by Admins | Must-have |
+| BOARD-06a | Board deletion is surfaced in the **board listing UI** (admin only). The destructive action requires an explicit confirmation that states the board title and the number of cards that will be deleted (including archived cards, which cascade). A board **without any cards** can be deleted in a single step; a board **with cards** shows a stronger, two-step confirmation (a warning about the card count) before the call proceeds | Must-have |
+| BOARD-06b | Board listing responses (UI and `GET /v1/boards`) include a per-board **`card_count`** (all cards in the board, archived included) so the confirmation surface can warn about the blast radius without an extra round-trip | Must-have |
 
 ### 7.5 Lanes (Columns)
 
