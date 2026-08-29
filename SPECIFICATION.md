@@ -1489,7 +1489,7 @@ Permanently deletes a board and all its contents. Cascades to lanes, cards, comm
 
 **Response (204):** No content.
 
-**UI surface (BOARD-06a):** the board listing page (`boards.php`) renders a Delete button (admin only) next to each board's Edit action. It opens an in-page confirmation modal showing the board title and its `card_count`; boards with cards carry a stronger warning ("X cards will also be deleted permanently"). Confirmation calls this endpoint; success (204) removes the board card from the grid, error (404/403/500) shows a flash and keeps the page.
+**UI surface (BOARD-06a):** the board listing page (`boards.php`) shows a quiet icon-only **Edit (pencil) button** at the top-right of each board card (visible to Admins and Members). The **Delete action is admin-only** and lives **inside the edit-board modal footer** as a red danger button (Cancel &middot; Save on the right, Delete on the left — never shown in create mode, never rendered to non-admins). It opens a confirmation dialog stating the board title and its `card_count`; boards with cards carry the stronger warning ("X cards will also be deleted permanently"). Confirmation calls this endpoint; success (204) closes the dialogs and removes the board card from the grid, error (404/403/500) shows a flash and keeps the page.
 
 ### 5.6 Lanes
 

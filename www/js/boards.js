@@ -45,13 +45,30 @@
     // Track which board is being edited (null = create mode)
     var editingBoardId = null;
 
+    // BOARD-06a: stash the board context when the user opens the edit modal —
+    // this drives the in-modal delete confirmation (count + title come from
+    // the pencil button's data-* attributes, which are the authoritative
+    // server-rendered values from card_count (BOARD-06b)).
+    var pendingDeleteContext = null;
+
     // Track which element triggered the modal, so focus can return on close
     var lastOpener = null;
+
+    // BOARD-06a: the Delete slot in the modal footer is hidden by default.
+    // It's shown in edit mode only (not create), and only when the DOM
+    // contains the admin-rendered slot ($isAdmin server-side gate).
+    var deleteSlotEl = document.getElementById('board-modal-delete-slot');
+    function setDeleteSlotVisible(visible) {
+        if (!deleteSlotEl) return;
+        deleteSlotEl.hidden = !visible;
+        deleteSlotEl.setAttribute('aria-hidden', visible ? 'false' : 'true');
+    }
 
     function openCreateModal(opener) {
         editingBoardId = null;
         lastOpener = opener || openBtn;
         if (modalTitle) modalTitle.textContent = LANG.create_title || modalTitle.textContent;
+        setDeleteSlotVisible(false);
         modal.hidden = false;
         document.getElementById('board-title').focus();
     }
@@ -59,10 +76,17 @@
     function openEditModal(btn) {
         editingBoardId = parseInt(btn.dataset.boardId, 10);
         if (isNaN(editingBoardId)) {
-            console.error('board-card-edit: missing or invalid data-board-id');
+            console.error('board-card-pencil: missing or invalid data-board-id');
             return;
         }
         lastOpener = btn;
+        // Stash the board card count + title for the in-modal delete flow.
+        pendingDeleteContext = {
+            boardId: editingBoardId,
+            title: btn.dataset.boardTitle || '',
+            cardCount: parseInt(btn.dataset.cardCount, 10)
+        };
+        if (isNaN(pendingDeleteContext.cardCount)) pendingDeleteContext.cardCount = 0;
 
         // Pre-populate form fields from data attributes
         document.getElementById('board-title').value = btn.dataset.boardTitle || '';
@@ -93,8 +117,11 @@
             }
         }
 
-        // Update modal title to edit mode
+        // Update modal title to edit mode (BOARD-06a: only show Delete when
+        // editing AND the delete slot is present in the DOM)
         if (modalTitle) modalTitle.textContent = LANG.edit_title || 'Edit Board';
+
+        setDeleteSlotVisible(true);
 
         modal.hidden = false;
         document.getElementById('board-title').focus();
@@ -107,10 +134,13 @@
         }
     }
 
+    // BOARD-06a: reset the delete slot so it's hidden after every close
     function closeModal() {
         modal.hidden = true;
         boardForm.reset(); // reset() already unchecks all checkboxes
         editingBoardId = null;
+        pendingDeleteContext = null;
+        setDeleteSlotVisible(false);
 
         // Restore modal title to create mode for next open
         if (modalTitle) modalTitle.textContent = LANG.create_title || 'Create Board';
@@ -147,8 +177,8 @@
         openCreateModal();
     }
 
-    // Open edit modal via any Edit button on the board cards
-    var editBtns = document.querySelectorAll('.board-card-edit');
+    // Open edit modal via the pencil icon on the board cards
+    var editBtns = document.querySelectorAll('.board-card-pencil');
     for (var n = 0; n < editBtns.length; n++) {
         editBtns[n].addEventListener('click', function (e) {
             openEditModal(e.currentTarget);
@@ -240,6 +270,9 @@
 
     /* =============================================
        BOARD-06a: Board delete confirmation (admin only)
+       Triggered by the red Delete button inside the
+       edit-board modal footer — it uses the pending
+       context captured from the pencil button.
        ============================================= */
 
     var deleteOverlay = document.getElementById('board-delete-overlay');
@@ -249,30 +282,29 @@
         var deletingBoardId = null;
         var deleteBusy = false;
         var deleteOpener = null;
-        // Lazy resolution — boards.js may parse before footer's app.js defines
-        // window.Shuffle (same pattern as priority.js).
-        var api = function (path, options) {
+        var modalDeleteBtn = document.getElementById('board-modal-delete');
+
+        // Lazy resolution — boards.js may parse before footer's app.js
+        // defines window.Shuffle (same pattern as priority.js).
+        function api(path, options) {
             if (!window.Shuffle || typeof window.Shuffle.api !== 'function') {
                 throw new Error('Shuffle.api not available');
             }
             return window.Shuffle.api(path, options);
-        };
+        }
 
-        function openDeleteModal(btn) {
-            var id = parseInt(btn.dataset.boardId, 10);
-            if (isNaN(id)) {
-                console.error('board-card-delete: missing or invalid data-board-id');
-                return;
-            }
-            deletingBoardId = id;
-            deleteOpener = btn;
+        function openDeleteModal() {
+            if (!pendingDeleteContext) return;
+            deletingBoardId = pendingDeleteContext.boardId;
+            deleteOpener = modalDeleteBtn || null;
             deleteBusy = false;
             deleteConfirmBtn.setAttribute('aria-disabled', 'false');
 
-            // BOARD-06a/06b: stronger warning when cards will be deleted
-            var count = parseInt(btn.dataset.cardCount, 10);
-            if (isNaN(count)) count = 0;
-            var title = btn.dataset.boardTitle || '';
+            // BOARD-06a/06b: stronger warning when cards will be deleted.
+            // The "count" here is the blast-radius — all cards, archived
+            // included, so the user sees exactly what's going away.
+            var count = pendingDeleteContext.cardCount || 0;
+            var title = pendingDeleteContext.title || '';
             var template = count > 0
                 ? (LANG.delete_warning || 'Delete this board and all of its {count} cards?')
                 : (LANG.delete_empty_warning || 'Delete this board?');
@@ -287,17 +319,23 @@
         function closeDeleteModal() {
             deleteOverlay.hidden = true;
             deletingBoardId = null;
-            if (deleteOpener) {
-                deleteOpener.focus();
-                deleteOpener = null;
-            }
+            if (deleteOpener) { deleteOpener.focus(); deleteOpener = null; }
         }
 
-        document.querySelectorAll('.board-card-delete').forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                openDeleteModal(btn);
+        // Wire the in-modal red Delete button (admin only — the element is
+        // only present in the DOM for $isAdmin via boards.php)
+        if (modalDeleteBtn) {
+            modalDeleteBtn.addEventListener('click', function () {
+                if (!pendingDeleteContext) {
+                    // Defensive: shouldn't happen — the modalDeleteBtn is
+                    // only shown via setDeleteSlotVisible(true) after
+                    // openEditModal() has set the context.
+                    console.error('board delete: no context; opening via pending context required');
+                    return;
+                }
+                openDeleteModal();
             });
-        });
+        }
 
         var deleteCloseBtns = deleteOverlay.querySelectorAll('.modal-close');
         deleteCloseBtns.forEach(function (b) {
@@ -319,14 +357,18 @@
 
             api('/v1/boards/' + deletingBoardId, { method: 'DELETE' }).then(function (result) {
                 if (result.status === 204) {
-                    // Success — remove the card from the grid, then reload so
-                    // board counts/checklist state stay canonical.
-                    var article = deleteOpener ? deleteOpener.closest('article') : null;
-                    var grid = deleteOverlay ? document.querySelector('.boards-grid') : null;
                     closeDeleteModal();
-                    Shuffle.showFlash(LANG.delete_success || 'Board deleted', 'success');
+                    // Close the edit modal if it's open (Delete was reached
+                    // from the edit footer)
+                    if (modal && !modal.hidden) closeModal();
+                    // Remove the board card from the grid for a snappy feel.
+                    var pencil = deleteOpener ? document.querySelector('.board-card-pencil[data-board-id="' + deletingBoardId + '"]') : null;
+                    var article = pencil ? pencil.closest('article') : null;
                     if (article && article.parentNode) article.parentNode.removeChild(article);
-                    if (grid && grid.querySelectorAll('article').length === 0) {
+                    Shuffle.showFlash(LANG.delete_success || 'Board deleted', 'success');
+                    // Reload if the grid is empty so the empty-state shows.
+                    var grid = document.querySelector('.boards-grid');
+                    if (!grid || grid.querySelectorAll('article').length === 0) {
                         window.location.reload();
                     }
                 } else {

@@ -40,12 +40,13 @@ row=[b for b in d['boards'] if b['id']==$SID2][0]
 assert row['card_count']==1, row
 print('fixture card_count=1 OK')" ; ck "API fixture board card_count == 1" $?
 
-# 2. Admin render: delete button + modal + data-card-count=1
+# 2. Admin render: pencil icon + delete slot in edit modal + data-card-count
 HTML=$(curl -s $H -b "$COOKIE" "$B/boards.php")
-echo "$HTML" | grep -q 'board-card-delete' ; ck "render: board-card-delete button present" $?
-echo "$HTML" | grep -q "id=\"board-delete-overlay\"" ; ck "render: delete confirmation modal present" $?
-echo "$HTML" | grep -q "data-card-count=\"1\"" ; ck "render: fixture button data-card-count=1" $?
-echo "$HTML" | grep -q 'board.delete_empty_warning\|delete_empty_warning' ; ck "render: i18n delete strings injected" $?
+echo "$HTML" | grep -q 'board-card-pencil' ; ck "render: pencil edit button present" $?
+echo "$HTML" | grep -q "id=\"board-modal-delete-slot\"" ; ck "render: modal delete slot present (admin)" $?
+echo "$HTML" | grep -q "id=\"board-modal-delete\"" ; ck "render: red Delete button in modal footer" $?
+echo "$HTML" | grep -q "data-card-count=\"1\"" ; ck "render: pencil carries data-card-count=1" $?
+echo "$HTML" | grep -q 'id="board-delete-overlay"' ; ck "render: delete confirmation dialog present" $?
 
 # 3. DELETE /v1/boards/{id} as admin → 204, then board gone
 CODE=$(curl -s -o /dev/null -w '%{http_code}' $H -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -X DELETE $B/v1/boards/$SID2)
