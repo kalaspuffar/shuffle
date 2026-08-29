@@ -635,6 +635,7 @@ class Board {
 | `Attachment` | `findByCard()` |
 | `Notification` | `findByUser()`, `countUnread()`, `markRead()`, `dismiss()` |
 | `Label` | `findByBoard()`, `attachToCard()`, `detachFromCard()` |
+| `UserPrio` | `findByUser()`, `add()`, `remove()`, `reposition()`, `reorderByCardIds()` |
 
 ### 3.15 Services
 
@@ -664,6 +665,13 @@ Services contain business logic, orchestrate model calls, enforce business rules
 
 **ImportService:**
 - `importTrelloBoard()` — Parses Trello JSON, maps to Shuffle entities, creates placeholder users
+
+**PriorityService** (personal priority list, PRIO-01..11):
+- `getList()` — Returns the current user's `{inbox, prioritized}` in one pass. Inbox is computed (not stored): cards assigned to the user on accessible boards, non-archived, not in a Done lane, not in the user's `user_prio`; tiered per PRIO-04 (In Progress → Inbox lane → other) and merged stably in board-creation order within tier. Prioritized = `user_prio` joined live to card/lane/board, dropping rows whose card or board is no longer accessible.
+- `prioritize(cardId)` — Adds the card to the user's prioritized section (position = max + 1000). Idempotent (already-prioritized card is a no-op success). 404-equivalent if the card is inaccessible or on a Done lane.
+- `deprioritize(cardId)` — Removes the membership; the card reappears in the inbox (if it still qualifies). No-op if not a member.
+- `reorder(cardId, afterCardId|null)` — Moves a prioritized card relative to another (null = to top) using §4.2 gap logic; renumbers the user's container on a missing gap.
+- Every read of a card is board-access-checked for the requesting user; a stale `user_prio` row pointing at an inaccessible/deleted card is surfaced as absent, never as an error page.
 
 ### 3.16 API Controllers
 
@@ -759,6 +767,13 @@ All JS files are vanilla JavaScript (ES6+), no build step, loaded with `<script>
 - Updates the notification bell badge
 - Dropdown panel showing recent notifications
 - Mark-as-read and dismiss actions
+
+**`js/priority.js`** — Personal priority list interactions (PRIO-05/06/10):
+- Add inbox card to prioritized (`POST /v1/priority/inbox/{id}`) with optimistic move + revert on error
+- Remove prioritized card (`DELETE /v1/priority/inbox/{id}`) with optimistic move + revert on error
+- Reorder prioritized section: drag-and-drop with a **keyboard alternative** (up/down action buttons on each item, visible focus, ARIA live-region announcements of moves) persisted via `PUT /v1/priority/position`
+- Re-fetches `GET /v1/priority` after every successful mutation so the canonical server state re-renders
+- Flash messages on success/failure using the shared `api()` helper and i18n strings
 
 ### 3.19 CLI Scripts
 
@@ -986,9 +1001,24 @@ PRIMARY KEY (`card_id`, `label_id`)
 INDEX (`user_id`)
 INDEX (`last_activity`)
 
+#### `user_prio`
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | INT UNSIGNED | PRIMARY KEY, AUTO_INCREMENT |
+| `user_id` | INT UNSIGNED | NOT NULL, FK → users.id ON DELETE CASCADE |
+| `card_id` | INT UNSIGNED | NOT NULL, FK → cards.id ON DELETE CASCADE |
+| `position` | INT UNSIGNED | NOT NULL |
+| `added_at` | DATETIME | NOT NULL, DEFAULT CURRENT_TIMESTAMP |
+
+UNIQUE KEY (`user_id`, `card_id`)
+INDEX (`user_id`, `position`)
+
+Per-user priority list membership (PRIO-01..11). Stores **only** (user, card) pairs and the user's custom order — no other card data is duplicated here. `card_id` cascade-deletes with the card, `user_id` cascade-deletes with the user. The `position` column uses the same gap-based scheme as §4.2 (gap 1000) within the per-user container.
+
 ### 4.2 Position Management Strategy
 
-Entities with user-controlled ordering (lanes, cards, checklist items) use an integer `position` column with a gap-based numbering scheme.
+Entities with user-controlled ordering (lanes, cards, checklist items, and **user priority entries**) use an integer `position` column with a gap-based numbering scheme.
 
 **Initial assignment:** New items get `position = (max_position_in_container + 1000)`, or `1000` if the container is empty.
 
@@ -2068,7 +2098,79 @@ LIMIT 50
 
 For private boards, an additional `OR b.created_by = ?` condition is included.
 
-### 5.13 Labels (Post-MVP)
+### 5.13 Personal Priority List (PRIO-01..11)
+
+All endpoints are for the **authenticated user only** — there is no `user_id` parameter anywhere on these routes; the service resolves the acting user from the session and never acts on another user's list (PRIO-02).
+
+**Common item shape** (`inbox[]` and `prioritized[]` entries):
+
+```json
+{
+    "card_id": 42,
+    "card_title": "Implement login",
+    "board_id": 1,
+    "board_title": "Sprint Board",
+    "lane_id": 2,
+    "lane_title": "In Progress",
+    "lane_icon": "🔨",
+    "state_marker": "🔨",
+    "due_date": "2026-09-01",
+    "card_html": "/card.php?id=42",
+    "tier": 1
+}
+```
+
+- `card_html` is the deep link to the card on its board (PRIO-07); the card page enforces board access itself.
+- `state_marker` is derived from the live lane (PRIO-07): In Progress → 🔨, Inbox → 📥, Done → ✅, anything else → the lane's own icon when it has one, or a neutral marker when it does not.
+- `tier` is present only on inbox items (1/2/3, per PRIO-04).
+
+#### `GET /v1/priority`
+
+Returns the acting user's full list in one pass (PRIO-01, PRIO-03, PRIO-06, PRIO-09).
+
+**Response (200):**
+```json
+{
+    "inbox": [ { ...item with tier... } ],
+    "prioritized": [ { ...item... } ]
+}
+```
+
+Semantics:
+- `inbox` — computed live: cards assigned to the user, on boards the user can access, non-archived, **not in a Done lane** (lane title case-insensitive match), and not already in `user_prio`. Order: tier 1 (In Progress lane) → tier 2 (Inbox lane) → tier 3 (everything else); within a tier, lane position, then card position, with boards merged in board-creation order (PRIO-04).
+- `prioritized` — the user's `user_prio` rows in position order, joined live to card/lane/board. Rows whose card was deleted, archived, moved to Done, or whose board access was lost are still returned with their live state (Done marking included, per PRIO-09) unless the card was deleted or the board is fully inaccessible — those rows are omitted.
+
+#### `POST /v1/priority/inbox/{cardId}`
+
+Adds the card to the user's prioritized section (PRIO-05). Body: none.
+
+- **200** — added, returns the new `position`.
+- Already-prioritized — **200 no-op** (idempotent), same `position`.
+- Card not assignable to the user / inaccessible board / card on a Done lane — **409** for Done-lane cards, **404** otherwise.
+
+#### `DELETE /v1/priority/inbox/{cardId}`
+
+Removes the card from the user's prioritized section (PRIO-05). It reappears in the inbox on the next `GET /v1/priority` if it still qualifies.
+
+- **204** — removed, or no-op if not a member.
+
+#### `PUT /v1/priority/position`
+
+Reorders a prioritized card relative to another card in the same user's list (PRIO-06).
+
+**Request:**
+```json
+{ "card_id": 42, "after_card_id": 7 }
+```
+
+`after_card_id: null` moves the card to the top. §4.2 gap logic applies (midpoint insert, full renumber when the gap collapses).
+
+- **200** — returns the new `position`.
+- Card not in the user's prioritized section — **404**.
+
+---
+
+### 5.14 Labels (Post-MVP)
 
 #### `GET /v1/boards/{boardId}/labels`
 
@@ -2710,7 +2812,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | RBAC-01 through RBAC-05 | 3.13, 6.7 |
 | BOARD-01 through BOARD-06 | 3.14, 3.15, 4.1 (boards, board_organizations), 5.5 |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
-| CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.13 |
+| CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.14 |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
@@ -2718,6 +2820,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | SEARCH-01 through SEARCH-05 | 3.15, 4.1 (cards FULLTEXT), 5.12 |
 | IMPORT-01 through IMPORT-10 | 3.15, 3.19, 8.3, 12.B |
 | RT-01 through RT-03 | 3.18, 4.3, 5.5 (version endpoint) |
+| PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
 | ONBOARD-01 through ONBOARD-11 | Future (Nice-to-have) |
 | PERF-01 through PERF-04 | 9.4, 10 (Phase 7) |
 | SEC-01 through SEC-08 | 6.1 through 6.8 |

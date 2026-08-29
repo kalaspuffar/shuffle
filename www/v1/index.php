@@ -117,6 +117,17 @@ $attachmentController = new Shuffle\Controller\AttachmentController($auth, $atta
 $searchService    = new Shuffle\Service\SearchService($db);
 $searchController = new Shuffle\Controller\SearchController($auth, $searchService);
 
+// Personal priority list (per-user "work on next" view, PRIO-01..11)
+$userPrioModel    = new Shuffle\Model\UserPrio($db);
+$priorityService  = new Shuffle\Service\PriorityService(
+    $userPrioModel,
+    $cardModel,
+    $laneModel,
+    $boardModel,
+    $auth
+);
+$priorityController = new Shuffle\Controller\PriorityController($auth, $priorityService);
+
 // Setup wizard (unauthenticated; guarded by admin-existence check inside controller)
 $setupController = new Shuffle\Controller\SetupController($db);
 
@@ -200,6 +211,12 @@ $router->delete('/notifications/{id}', [$notificationController, 'delete']);
 
 // Search routes
 $router->get('/search', [$searchController, 'search']);
+
+// Personal priority list routes (acting user only, PRIO-11)
+$router->get('/priority', [$priorityController, 'index']);
+$router->post('/priority/inbox/{cardId}', [$priorityController, 'prioritize']);
+$router->delete('/priority/inbox/{cardId}', [$priorityController, 'deprioritize']);
+$router->put('/priority/position', [$priorityController, 'reorder']);
 
 // Setup routes (unauthenticated, guarded internally)
 $router->post('/setup/test-smtp', [$setupController, 'testSmtp']);

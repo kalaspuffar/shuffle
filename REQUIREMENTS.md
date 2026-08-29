@@ -1,7 +1,7 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.2
-**Date:** 2026-02-12
+**Version:** 1.3
+**Date:** 2026-08-28
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
@@ -122,6 +122,7 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 - Setup documentation and README
 
 **Post-MVP / Should-Have:**
+- Personal priority list (per-user "work on next" view across all boards — see 7.15)
 - Labels/tags on cards
 - Due date notifications
 - File previews (image thumbnails, PDF preview)
@@ -370,6 +371,32 @@ A web-based setup wizard displayed on first visit when the application detects n
 | ONBOARD-09 | Wizard is only accessible when no configuration exists; once setup is complete, the wizard endpoint is disabled | Nice-to-have |
 | ONBOARD-10 | Each step validates input and provides clear error messages on failure (e.g., "Cannot connect to MySQL: Access denied") | Nice-to-have |
 | ONBOARD-11 | Wizard must be usable without JavaScript (progressive enhancement) to align with the server-rendered approach | Nice-to-have |
+
+### 7.15 Personal Priority List
+
+A per-user "what do I work on next" view, spanning all boards the user can access. The priority list is a **view and a personal ordering**, never a source of truth: cards live and change only in their own boards, and the list always reflects each card's live board state.
+
+**Design decisions (locked):**
+
+- **No mirroring, no copies.** The list stores only (user → card) membership and per-user order. Title, description, lane, assignees, comments — everything — is read live from the card's board.
+- **Per-user.** Each user maintains their own list independently; there is no shared state between users, and no concept of a "team priority list."
+- **Two sections:**
+  - **Inbox** — cards **assigned to the user** (across all accessible boards), **not in a Done lane**, that the user has **not** yet prioritized. Sorted by priority tier, then by the card's in-board order (see PRIO-04).
+  - **Prioritized** — cards the user has pulled from the inbox, in a **custom per-user order** that is persisted and reorderable.
+
+| ID | Requirement | Priority |
+|---|---|---|
+| PRIO-01 | Every authenticated user (Admin, Member, Viewer) can view a **personal priority list** spanning all boards they can access. The entry point is a top-level navigation item, not per-board | Must-have |
+| PRIO-02 | The priority list is **per-user**: each user's memberships and ordering are private to that user; one user's additions, removals, or reorderings never affect another user's list | Must-have |
+| PRIO-03 | **Inbox section**: contains exactly the cards that are (a) assigned to the current user, (b) on a board the user can access, (c) **not in a Done lane**, (d) **not already in the user's prioritized section**. Cards already prioritized do not appear in the inbox | Must-have |
+| PRIO-04 | Inbox ordering: **tier 1** = cards in an In Progress lane, **tier 2** = cards in an Inbox lane, **tier 3** = cards in any other non-Done lane. Within a tier, cards keep their **in-board position order** (lane order first, then position within lane); cards from different boards at the same tier/position are stable-merged in board-creation order. "In Progress" and "Inbox" are matched case-insensitively by lane title (lane icons are not used for matching; a lane named "In Progress (Web)" still counts) | Must-have |
+| PRIO-05 | Users can **add** an inbox card to their prioritized section and **remove** a card from it (revert to inbox). The card's board state is never modified by these actions | Must-have |
+| PRIO-06 | Users can **reorder** the prioritized section freely; the ordering is persisted per user and survives page reloads and logouts | Must-have |
+| PRIO-07 | Every item links to its **card on its board** (clicking opens the card's board view, not a copy). The item also shows the card's **live lane** with its emoji icon + title, and a **state emoji marker** derived from the live lane (In Progress → 🔨, Inbox → 📥, Done → ✅, others → the lane's own icon or a neutral marker) so list state is visible at a glance | Must-have |
+| PRIO-08 | **Read-only elsewhere**: the priority list provides no editing surface for card content (title, description, assignees, comments, checklists, attachments). All such edits happen on the board; the list re-reads live data on every load. Board-level mutations (card moved to Done, card deleted, board access removed) are reflected automatically: such cards vanish from both sections on next load, with no stale rows persisting in a way that breaks the page | Must-have |
+| PRIO-09 | Cards in **Done lanes never appear** in the inbox (v1); a card the user already prioritized that is later moved to a Done lane remains visible in the prioritized section marked as Done (the user may remove it), but no *new* Done cards ever surface in the inbox | Must-have |
+| PRIO-10 | The view is keyboard- and screen-reader-accessible (WCAG 2.1 AA): both sections announce their counts, all actions are reachable by keyboard with visible focus, reordering uses accessible controls (buttons or drag with a keyboard alternative) | Must-have |
+| PRIO-11 | API: the priority list is available over REST — `GET /v1/priority` (inbox + prioritized in one payload), `POST /v1/priority/inbox/{cardId}` (add to prioritized), `DELETE /v1/priority/inbox/{cardId}` (remove from prioritized), `PUT /v1/priority/position` ({cardId, afterCardId|null}) (reorder). All mutations CSRF-protected, all reads board-access-checked per item | Must-have |
 
 ---
 

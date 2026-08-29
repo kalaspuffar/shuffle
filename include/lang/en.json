@@ -452,5 +452,32 @@
 
     "welcome.title": "You're all set!",
     "welcome.message": "Your account is ready. Head over to your boards to get started.",
-    "welcome.go_to_boards": "Go to Boards"
+    "welcome.go_to_boards": "Go to Boards",
+
+    "priority.nav": "Priority",
+    "priority.title": "My Priority List",
+    "priority.intro": "Your personal 'work on next' list, across all your boards. Cards here are the live cards from their boards — edit them on the board; this list only tracks your order.",
+    "priority.inbox": "Inbox",
+    "priority.inbox_desc": "Everything assigned to you that you haven't prioritized yet (In Progress first, then Inbox, then the rest).",
+    "priority.prioritized": "Prioritized",
+    "priority.prioritized_desc": "The order you've chosen to work in. Drag, or use the arrows, to reorder.",
+    "priority.inbox_empty": "Your inbox is empty — nothing assigned to you is waiting.",
+    "priority.prioritized_empty": "Nothing prioritized yet. Pull a card from the inbox and set your own order.",
+    "priority.tier_in_progress": "In progress",
+    "priority.tier_inbox": "Inbox",
+    "priority.tier_other": "Other",
+    "priority.action_prioritize": "Prioritize",
+    "priority.action_remove": "Remove from list",
+    "priority.move_up": "Move up",
+    "priority.move_down": "Move down",
+    "priority.first": "First",
+    "priority.last": "Last",
+    "priority.due": "Due",
+    "priority.board": "Board: {0}",
+    "priority.lane": "Lane: {0}",
+    "priority.added": "Moved to prioritized.",
+    "priority.removed": "Moved back to inbox.",
+    "priority.moved": "Reordered.",
+    "priority.error_conflict": "That card is on a Done lane — move it out of Done first.",
+    "priority.error_failed": "Couldn't update your priority list. Please try again."
 }

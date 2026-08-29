@@ -380,11 +380,84 @@ class Card
     public function getBoardId(int $id): ?int
     {
         $row = $this->db->fetch(
-            'SELECT l.board_id FROM cards c JOIN lanes l ON c.lane_id = l.id WHERE c.id = ?',
+            'SELECT c.id, b.id AS board_id FROM cards c JOIN lanes l ON c.lane_id = l.id JOIN boards b ON l.board_id = b.id WHERE c.id = ?',
             [$id]
         );
 
         return $row !== null ? (int) $row['board_id'] : null;
+    }
+
+    /**
+     * Returns cards assigned to a user for the priority inbox
+     * (PRIO-03/04), pre-sorted in in-board position order:
+     * board position → lane position → card position.
+     *
+     * Board-level access filtering is the service's job (it has the
+     * acting user's Auth context); this query only guarantees the rows
+     * are assigned to the user, non-archived, and on an unarchived board.
+     *
+     * @param int   $userId          User ID
+     * @param int[] $excludedCardIds Cards to skip (the user's prioritized set)
+     * @return array Array of rows: card_id, title, due_date, board_id, board_title,
+     *               lane_id, lane_title, lane_icon (query order = display order)
+     */
+    public function findInboxCandidates(int $userId, array $excludedCardIds): array
+    {
+        $placeholders = '';
+        if ($excludedCardIds !== []) {
+            $placeholders = 'AND c.id NOT IN (' . implode(',', array_fill(0, count($excludedCardIds), '?')) . ') ';
+        }
+
+        return $this->db->fetchAll(
+            'SELECT c.id AS card_id, c.title, c.due_date,
+                    b.id AS board_id, b.title AS board_title,
+                    l.id AS lane_id, l.title AS lane_title, l.icon AS lane_icon
+             FROM cards c
+             JOIN card_assignments ca ON ca.card_id = c.id
+             JOIN lanes l ON c.lane_id = l.id
+             JOIN boards b ON l.board_id = b.id
+             WHERE ca.user_id = ? AND c.is_archived = 0 AND b.is_archived = 0 '
+            . $placeholders
+            . 'ORDER BY b.id ASC, l.position ASC, c.position ASC',
+            array_merge([$userId], array_map('intval', $excludedCardIds))
+        );
+    }
+
+    /**
+     * Batch-joins cards to their lane (icon + title) and board for the
+     * priority list view (PRIO-07). Cards whose lane/board is missing are
+     * omitted.
+     *
+     * @param int[] $cardIds Card IDs (any order; input order is not kept —
+     *                       caller sorts by position)
+     * @return array Map of card_id => row (card_id, title, due_date,
+     *               board_id, board_title, lane_id, lane_title, lane_icon)
+     */
+    public function findWithBoardForUserList(array $cardIds): array
+    {
+        if ($cardIds === []) {
+            return [];
+        }
+
+        $in = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            "SELECT c.id AS card_id, c.title, c.due_date, c.is_archived,
+                    b.id AS board_id, b.title AS board_title,
+                    l.id AS lane_id, l.title AS lane_title, l.icon AS lane_icon
+             FROM cards c
+             JOIN lanes l ON c.lane_id = l.id
+             JOIN boards b ON l.board_id = b.id
+             WHERE c.id IN ($in)
+             ORDER BY c.id ASC",
+            array_map('intval', $cardIds)
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']] = $row;
+        }
+
+        return $map;
     }
 
     /**
