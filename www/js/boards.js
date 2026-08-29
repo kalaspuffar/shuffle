@@ -66,7 +66,10 @@
 
     function openCreateModal(opener) {
         editingBoardId = null;
-        lastOpener = opener || openBtn;
+        // The create button's listener passes the raw MouseEvent as `opener`;
+        // only accept a real element so focus-return later can't throw and
+        // abort the (reload) code path after a successful save.
+        lastOpener = (opener && typeof opener.focus === 'function') ? opener : openBtn;
         if (modalTitle) modalTitle.textContent = LANG.create_title || modalTitle.textContent;
         setDeleteSlotVisible(false);
         modal.hidden = false;
@@ -148,9 +151,11 @@
         // Hide org group
         if (orgGroup) orgGroup.hidden = true;
 
-        // Return focus to the element that opened the modal
+        // Return focus to the element that opened the modal. Guard defensively:
+        // a throw here would abort the caller's post-success work (e.g. the
+        // list-reload after create/save) — seen in-browser 2026-08-29.
         if (lastOpener) {
-            lastOpener.focus();
+            try { lastOpener.focus && lastOpener.focus(); } catch (e) { /* focus is best-effort */ }
             lastOpener = null;
         }
     }
@@ -357,20 +362,54 @@
 
             api('/v1/boards/' + deletingBoardId, { method: 'DELETE' }).then(function (result) {
                 if (result.status === 204) {
-                    closeDeleteModal();
-                    // Close the edit modal if it's open (Delete was reached
-                    // from the edit footer)
-                    if (modal && !modal.hidden) closeModal();
-                    // Remove the board card from the grid for a snappy feel.
-                    var pencil = deleteOpener ? document.querySelector('.board-card-pencil[data-board-id="' + deletingBoardId + '"]') : null;
-                    var article = pencil ? pencil.closest('article') : null;
-                    if (article && article.parentNode) article.parentNode.removeChild(article);
-                    Shuffle.showFlash(LANG.delete_success || 'Board deleted', 'success');
-                    // Reload if the grid is empty so the empty-state shows.
-                    var grid = document.querySelector('.boards-grid');
-                    if (!grid || grid.querySelectorAll('article').length === 0) {
-                        window.location.reload();
+                    // Capture the id BEFORE closeDeleteModal() nulls
+                    // `deletingBoardId`. Removing the card first (before any
+                    // modal close runs) also guarantees the UI updates even
+                    // if a close handler later throws.
+                    var removedBoardId = deletingBoardId;
+                    var card = null;
+                    if (removedBoardId !== null) {
+                        var marker = document.querySelector(
+                            '.board-card-pencil[data-board-id="' + removedBoardId + '"]'
+                        );
+                        card = marker ? marker.closest('article') : null;
                     }
+                    if (!card) {
+                        // Fallback for callers that don't attach data-board-id
+                        // to the pencil (older markup) — walk all cards.
+                        var titles = document.querySelectorAll('.board-card-title');
+                        for (var ti = 0; ti < titles.length; ti++) {
+                            var art = titles[ti].closest('article');
+                            if (art && art.querySelector('.board-card-pencil[data-board-id]')) {
+                                var m2 = art.querySelector('.board-card-pencil');
+                                if (m2 && m2.dataset.boardId === String(removedBoardId)) { card = art; break; }
+                            }
+                        }
+                    }
+                    if (card && card.parentNode) card.parentNode.removeChild(card);
+
+                    Shuffle.showFlash(LANG.delete_success || 'Board deleted', 'success');
+
+                    // Show/empty-state if the grid is now empty. The server
+                    // only renders .boards-empty when the list was already
+                    // empty on load, so fall back to a reload for that edge
+                    // case (and to refresh the count on any stale state).
+                    var grid = document.querySelector('.boards-grid');
+                    if (grid && grid.querySelectorAll('article').length === 0) {
+                        var emptyEl = document.querySelector('.boards-empty');
+                        if (emptyEl) {
+                            grid.style.display = 'none';
+                            emptyEl.style.display = '';
+                        } else {
+                            window.location.reload();
+                        }
+                    }
+
+                    // Close modals last — after the DOM is updated.
+                    // (closeDeleteModal nulls `deletingBoardId`; we captured
+                    // `removedBoardId` above, so ordering is safe.)
+                    closeDeleteModal();
+                    if (modal && !modal.hidden) closeModal();
                 } else {
                     var msg = (result.data && result.data.error) ? result.data.error : (LANG.error_bad_request || 'Error');
                     Shuffle.showFlash(msg, 'error');

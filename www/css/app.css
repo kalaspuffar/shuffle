@@ -1208,6 +1208,19 @@ small,
     padding: var(--space-1) var(--space-2);
 }
 
+/* Footer text buttons (Cancel) that carry .modal-close for the JS close-hook
+   inherit the header "×" glyph sizing (padding 4px, font 1.25rem, line-height:1)
+   and render SHORTER than the adjacent Save/Delete .btn (padding 8px, font .875rem).
+   Reset those three properties in footer scope to the .btn base so Cancel matches
+   the neighbouring primary button exactly. Scope is limited to .modal-footer so the
+   header "×" glyph keeps its larger size. The .modal-close class is kept (JS binds
+   its close handler on it). */
+.modal-footer .btn.modal-close {
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-ui);
+}
+
 /* Card edit modal — larger than the default small modal */
 .modal--card {
     max-width: var(--modal-width-lg);
