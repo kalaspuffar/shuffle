@@ -908,6 +908,7 @@ small,
 }
 
 .board-card {
+    position: relative; /* containing block for .board-card-pencil (absolute) */
     background-color: var(--color-raised);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius-lg);
@@ -926,6 +927,42 @@ small,
     box-shadow: 0 0 0 2px rgba(167, 139, 250, 0.25);
 }
 
+/* Board card — edit (pencil) icon pinned to the top-right corner.
+   Deliberately quiet: icon-only, secondary color, no border. */
+.board-card-pencil {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-1);
+    background-color: transparent;
+    color: var(--color-text-secondary);
+    border: none;
+    border-radius: var(--border-radius-md);
+    cursor: pointer;
+    line-height: 0;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.board-card-pencil:hover {
+    background-color: var(--color-active-overlay);
+    color: var(--color-text);
+}
+
+.board-card-pencil:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 1px;
+}
+
+/* Modal footer: danger action (board delete) sits on the left,
+   Cancel + Save stay grouped on the right. */
+.modal-footer .modal-footer-danger {
+    margin-right: auto;
+}
+
 .board-card--archived {
     opacity: 0.65;
 }
@@ -933,6 +970,7 @@ small,
 .board-card-link {
     display: block;
     padding: var(--space-4);
+    padding-right: calc(var(--space-4) + var(--space-6)); /* reserve room for the pencil icon */
     text-decoration: none;
     color: inherit;
     border-radius: var(--border-radius-lg);
@@ -1168,6 +1206,19 @@ small,
     line-height: 1;
     min-width: auto;
     padding: var(--space-1) var(--space-2);
+}
+
+/* Footer text buttons (Cancel) that carry .modal-close for the JS close-hook
+   inherit the header "×" glyph sizing (padding 4px, font 1.25rem, line-height:1)
+   and render SHORTER than the adjacent Save/Delete .btn (padding 8px, font .875rem).
+   Reset those three properties in footer scope to the .btn base so Cancel matches
+   the neighbouring primary button exactly. Scope is limited to .modal-footer so the
+   header "×" glyph keeps its larger size. The .modal-close class is kept (JS binds
+   its close handler on it). */
+.modal-footer .btn.modal-close {
+    padding: var(--space-2) var(--space-4);
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-ui);
 }
 
 /* Card edit modal — larger than the default small modal */

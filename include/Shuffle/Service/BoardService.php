@@ -57,12 +57,34 @@ class BoardService
      */
     public function listBoards(array $currentUser, bool $includeArchived = false): array
     {
-        return $this->boardModel->findAccessible(
+        $boards = $this->boardModel->findAccessible(
             (int) $currentUser['id'],
             $currentUser['organization_id'] !== null ? (int) $currentUser['organization_id'] : null,
             $currentUser['role'],
             $includeArchived
         );
+
+        if (empty($boards)) {
+            return $boards;
+        }
+
+        // BOARD-06b: annotate each board with its total card count (archived
+        // included) in one grouped query — the board-delete confirmation
+        // (BOARD-06a) needs this to warn about the blast radius.
+        $boardIds = array_map(
+            static function ($board) {
+                return (int) $board['id'];
+            },
+            $boards
+        );
+        $counts = $this->boardModel->countCardsByBoard($boardIds);
+
+        foreach ($boards as &$board) {
+            $board['card_count'] = $counts[(int) $board['id']] ?? 0;
+        }
+        unset($board);
+
+        return $boards;
     }
 
     /**

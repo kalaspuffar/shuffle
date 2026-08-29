@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# HTTP E2E for BOARD-06a/06b — runs against live Apache (shuffle.ea.org).
+# Creates a fixture board, exercises API + render, deletes it, verifies cleanup.
+set -u
+H='-H Host:shuffle.ea.org'
+B=http://127.0.0.1
+
+# Resolve a live admin session + CSRF from the DB at runtime (no hardcoded
+# tokens). Requires a reachable local shuffle DB and user_id=1 = admin.
+SESS=$(cd ~/shuffle && php -r '
+  require "include/bootstrap.php";
+  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 1 ORDER BY last_activity DESC LIMIT 1");
+  if (!$row || !preg_match("/csrf_token\|s:64:\"([0-9a-f]{64})\"/", $row["data"], $m)) exit(3);
+  echo $row["id"] . "\n" . $m[1];') || { echo "no live admin session — run login first"; exit 1; }
+SID=$(printf '%s' "$SESS" | head -1)
+CSRF=$(printf '%s' "$SESS" | tail -1)
+COOKIE="shuffle_session=$SID"
+PASS=0; FAIL=0
+ck() { # ck <name> <cond:0=fail>
+  if [ "$2" -eq 0 ]; then PASS=$((PASS+1)); echo "PASS  $1";
+  else FAIL=$((FAIL+1)); echo "FAIL  $1"; fi
+}
+
+cd ~/shuffle
+SID2=$(cd ~/shuffle && php -r '
+  require "include/bootstrap.php";
+  $b = (new \Shuffle\Model\Board($db))->create(["title"=>"Mya HTTP E2E board","visibility"=>"private","created_by"=>1]);
+  $l = (new \Shuffle\Model\Lane($db))->create(["board_id"=>$b,"title"=>"Inbox","position"=>1000]);
+  (new \Shuffle\Model\Card($db))->create(["lane_id"=>$l,"title"=>"HTTP card","created_by"=>1]);
+  echo $b;')
+echo "fixture board id: $SID2"
+
+# 1. API: GET /v1/boards includes card_count = 1 for the fixture
+API=$(curl -s $H -b "$COOKIE" $B/v1/boards)
+echo "$API" | grep -q "\"card_count\"" ; ck "API GET /v1/boards has card_count" $?
+echo "$API" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+row=[b for b in d['boards'] if b['id']==$SID2][0]
+assert row['card_count']==1, row
+print('fixture card_count=1 OK')" ; ck "API fixture board card_count == 1" $?
+
+# 2. Admin render: pencil icon + delete slot in edit modal + data-card-count
+HTML=$(curl -s $H -b "$COOKIE" "$B/boards.php")
+echo "$HTML" | grep -q 'board-card-pencil' ; ck "render: pencil edit button present" $?
+echo "$HTML" | grep -q "id=\"board-modal-delete-slot\"" ; ck "render: modal delete slot present (admin)" $?
+echo "$HTML" | grep -q "id=\"board-modal-delete\"" ; ck "render: red Delete button in modal footer" $?
+echo "$HTML" | grep -q "data-card-count=\"1\"" ; ck "render: pencil carries data-card-count=1" $?
+echo "$HTML" | grep -q 'id="board-delete-overlay"' ; ck "render: delete confirmation dialog present" $?
+
+# 2b. CSS rendering regression (2026-08-29, Daniel: pencil invisible, card link
+#     covered it — .board-card-pencil is position:absolute but .board-card had no
+#     position, so the element escaped to the viewport-level containing block).
+#     Grep-level HTML tests cannot see this; assert the containing block exists.
+awk '/^\.board-card \{/{f=1} f{print} f&&/^}/{exit}' www/css/app.css \
+  | grep -q 'position: relative' ; ck "css: .board-card is a positioned containing block for the pencil" $?
+awk '/^\.board-card-pencil \{/{f=1} f&&/z-index/{z=1} f&&/^}/{exit} END{exit z?0:1}' www/css/app.css \
+  ; ck "css: .board-card-pencil has z-index above the card link" $?
+# 2026-08-29: footer Cancel must not inherit the header "x" glyph sizing
+# (.modal-close), otherwise it renders shorter than Save (Daniel: 'not the
+# same size as the other buttons').
+awk '/^\.modal-footer \.btn\.modal-close \{/{f=1} f&&/line-height/{lh=1} f&&/^}/{exit} END{exit lh?0:1}' www/css/app.css \
+  ; ck "css: footer .btn.modal-close resets line-height to the .btn base" $?
+# 2026-08-29: delete-204 handler must capture the board id BEFORE
+# closeDeleteModal() nulls it (the lookup used to query id 'null' and the
+# card stayed in the grid; Daniel: 'deleting a board will only change when
+# you reload'). Anchor on the executable statement (a bare comment mention
+# of closeDeleteModal() appears earlier and would false-positive).
+node -e '
+  const s = require("fs").readFileSync("www/js/boards.js", "utf8");
+  const i = s.indexOf("if (result.status === 204)");
+  if (i < 0) process.exit(1);
+  const seg = s.slice(i, i + 3000);
+  const cap = seg.indexOf("var removedBoardId = deletingBoardId");
+  const close = seg.indexOf("closeDeleteModal();");
+  if (cap === -1 || close === -1 || cap > close) process.exit(1);
+' ; ck "js: delete-204 captures board id before closeDeleteModal() nulls it" $?
+# 2026-08-29: create path — openCreateModal must not store a non-element
+# (the Create button listener passes a MouseEvent; closeModal's focus-return
+# then threw and skipped the post-success reload).
+node -e '
+  const s = require("fs").readFileSync("www/js/boards.js", "utf8");
+  if (s.indexOf("typeof opener.focus ===") === -1) process.exit(1);
+  if (s.indexOf("lastOpener.focus && lastOpener.focus()") === -1) process.exit(1);
+' ; ck "js: create-modal focus handling is guarded (no throw before reload)" $?
+
+# 3. DELETE /v1/boards/{id} as admin → 204, then board gone
+CODE=$(curl -s -o /dev/null -w '%{http_code}' $H -b "$COOKIE" -H "X-CSRF-Token: $CSRF" -X DELETE $B/v1/boards/$SID2)
+[ "$CODE" = "204" ]; ck "DELETE /v1/boards/$SID2 -> 204 (got $CODE)" $?
+GONE=$(curl -s $H -b "$COOKIE" $B/v1/boards/$SID2)
+echo "$GONE" | grep -q '"id"'; [ "$?" -ne 0 ]; ck "board no longer served after delete" $?
+
+# 4. Cleanup: any fixture lane/card residue
+LEFT=$(php -r '
+  require "include/bootstrap.php";
+  echo count((new \Shuffle\Model\Board($db))->countCardsByBoard(['$SID2']));')
+[ "$LEFT" = "0" ]; ck "no card residues for fixture board (got map size $LEFT)" $?
+
+echo ""
+echo "$PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]

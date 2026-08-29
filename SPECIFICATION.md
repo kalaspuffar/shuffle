@@ -1332,11 +1332,14 @@ Lists boards accessible to the current user.
             "version": 42,
             "created_by": 1,
             "organizations": [1, 2],
+            "card_count": 23,
             "created_at": "2026-02-01T10:00:00Z"
         }
     ]
 }
 ```
+
+**`card_count`** (BOARD-06b): total cards in the board across all lanes, archived cards included — the number the board-delete confirmation displays. Board rows are batch-annotated with one grouped query (no N+1).
 
 #### `GET /v1/boards/{id}`
 
@@ -1485,6 +1488,8 @@ Permanently deletes a board and all its contents. Cascades to lanes, cards, comm
 **Required role:** Admin.
 
 **Response (204):** No content.
+
+**UI surface (BOARD-06a):** the board listing page (`boards.php`) shows a quiet icon-only **Edit (pencil) button** at the top-right of each board card (visible to Admins and Members). The **Delete action is admin-only** and lives **inside the edit-board modal footer** as a red danger button (Cancel &middot; Save on the right, Delete on the left — never shown in create mode, never rendered to non-admins). It opens a confirmation dialog stating the board title and its `card_count`; boards with cards carry the stronger warning ("X cards will also be deleted permanently"). Confirmation calls this endpoint; success (204) closes the dialogs and removes the board card from the grid, error (404/403/500) shows a flash and keeps the page.
 
 ### 5.6 Lanes
 
@@ -2811,6 +2816,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | ORG-01 through ORG-04 | 3.14, 4.1 (organizations), 5.4 |
 | RBAC-01 through RBAC-05 | 3.13, 6.7 |
 | BOARD-01 through BOARD-06 | 3.14, 3.15, 4.1 (boards, board_organizations), 5.5 |
+| BOARD-06a / BOARD-06b | 5.5 (DELETE /v1/boards UI surface; `card_count` in GET /v1/boards), 3.15 (BoardService::listBoards), www/boards.php + www/js/boards.js |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.14 |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |

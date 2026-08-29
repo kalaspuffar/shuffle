@@ -174,16 +174,20 @@ require ROOT_DIR . '/include/templates/header.php';
             </a>
             <?php if ($canCreate): ?>
             <button type="button"
-                class="btn btn-ghost board-card-edit"
+                class="board-card-pencil btn-icon"
                 aria-label="<?= htmlspecialchars($lang->get('action.edit') . ': ' . $board['title'], ENT_QUOTES, 'UTF-8') ?>"
                 aria-haspopup="dialog"
                 data-board-id="<?= (int) $board['id'] ?>"
                 data-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>"
                 data-board-description="<?= htmlspecialchars($board['description'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
                 data-board-visibility="<?= htmlspecialchars($board['visibility'], ENT_QUOTES, 'UTF-8') ?>"
-                data-board-organizations="<?= htmlspecialchars(json_encode($board['organizations'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>">
-                <?php // $board['organizations'] is always an array — Board::findAccessible() batch-loads it from board_organizations ?>
-                <?= htmlspecialchars($lang->get('action.edit'), ENT_QUOTES, 'UTF-8') ?>
+                data-board-organizations="<?= htmlspecialchars(json_encode($board['organizations'] ?? [], JSON_HEX_TAG | JSON_HEX_AMP), ENT_QUOTES, 'UTF-8') ?>"
+                data-card-count="<?= (int) ($board['card_count'] ?? 0) ?>">
+                <!-- Pencil icon (edit board) -->
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M4 12L11 5l1.5 1.5L5.5 13.5H4v-1.5z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M10 6l1.5 1.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
             </button>
             <?php endif; ?>
         </article>
@@ -193,7 +197,9 @@ require ROOT_DIR . '/include/templates/header.php';
 </div>
 
 <?php if ($canCreate): ?>
-<!-- Create/Edit Board Modal -->
+<!-- Create/Edit Board Modal.
+     The Delete action inside the modal footer is rendered only for admins
+     (BOARD-06a). For non-admin editors the Delete button is absent. -->
 <div class="modal-overlay" id="board-modal-overlay" hidden>
     <div class="modal" role="dialog" aria-labelledby="board-modal-title" aria-modal="true" id="board-modal">
         <div class="modal-header">
@@ -230,10 +236,40 @@ require ROOT_DIR . '/include/templates/header.php';
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
-                <button type="submit" class="btn btn-primary"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+                <?php if ($isAdmin): ?>
+                <!-- BOARD-06a: Board delete — admin only; edit-mode only (toggled via JS);
+                     card_count (BOARD-06b) is read from the triggering pencil button. -->
+                <div class="modal-footer-danger" id="board-modal-delete-slot" aria-hidden="true" hidden>
+                    <button type="button" class="btn btn-danger" id="board-modal-delete" aria-haspopup="dialog">
+                        <?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?>
+                    </button>
+                </div>
+                <?php endif; ?>
+                <div class="modal-footer-actions">
+                    <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+                    <button type="submit" class="btn btn-primary" id="board-modal-save"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
+                </div>
             </div>
         </form>
+    </div>
+</div>
+<?php endif; ?>
+
+<?php if ($isAdmin): ?>
+<!-- BOARD-06a: Board delete confirmation (admin only) -->
+<div class="modal-overlay" id="board-delete-overlay" hidden>
+    <div class="modal" role="dialog" aria-labelledby="board-delete-title" aria-describedby="board-delete-warning" aria-modal="true" id="board-delete-modal">
+        <div class="modal-header">
+            <h2 id="board-delete-title"><?= htmlspecialchars($lang->get('board.delete_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="board-delete-warning" class="board-delete-warning" role="alert"></p>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-danger" id="board-delete-confirm" aria-disabled="false"><?= htmlspecialchars($lang->get('board.delete_delete'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
     </div>
 </div>
 <?php endif; ?>
@@ -246,6 +282,9 @@ $boardsLang = json_encode([
     'create_title'      => $lang->get('board.create'),
     'edit_title'        => $lang->get('board.edit_title'),
     'error_bad_request' => $lang->get('error.bad_request'),
+    'delete_warning'    => $lang->get('board.delete_warning'),
+    'delete_empty_warning' => $lang->get('board.delete_empty_warning'),
+    'delete_success'    => $lang->get('board.delete_success'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="boards-script" src="/js/boards.js" data-lang="<?= htmlspecialchars($boardsLang, ENT_QUOTES, 'UTF-8') ?>"></script>

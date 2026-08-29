@@ -177,6 +177,40 @@ class Board
     }
 
     /**
+     * Counts all cards (archived included) across a set of boards, in one query.
+     *
+     * Used by BoardService to attach `card_count` to board-listing rows
+     * (BOARD-06b) — the blast-radius number shown in the board-delete
+     * confirmation. Grouped per board, so an empty list yields no query.
+     *
+     * @param array $boardIds Board IDs to count for
+     * @return array<int, int> Map of boardId => total card count (missing = 0)
+     */
+    public function countCardsByBoard(array $boardIds): array
+    {
+        if (empty($boardIds)) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($boardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT l.board_id AS bid, COUNT(c.id) AS cnt
+             FROM lanes l
+             LEFT JOIN cards c ON c.lane_id = l.id
+             WHERE l.board_id IN (' . $placeholders . ')
+             GROUP BY l.board_id',
+            array_values(array_map('intval', $boardIds))
+        );
+
+        $counts = [];
+        foreach ($rows as $row) {
+            $counts[(int) $row['bid']] = (int) $row['cnt'];
+        }
+
+        return $counts;
+    }
+
+    /**
      * Deletes a board by ID.
      *
      * @param int $id Board ID
