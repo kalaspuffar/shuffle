@@ -19,8 +19,10 @@ use Shuffle\Core\Database;
  *
  * v1 event types:
  *   card_created | card_moved | card_edited | assigned | unassigned
- *   card_archived | card_restored | comment_created | comment_edited
- *   comment_deleted
+ *   card_archived | card_restored
+ *   attachment_added | attachment_removed
+ *   checklist_added | checklist_renamed | checklist_removed
+ *   comment_created | comment_edited | comment_deleted
  *
  * card_labels_changed and card_merged are reserved for later features
  * (labels are Post-MVP; merge is feature/card-merge).

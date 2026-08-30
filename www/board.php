@@ -18,6 +18,11 @@ if ($boardId < 1) {
     exit;
 }
 
+// "Show archived" toggle (mirrors boards.php for boards). Off by default —
+// archived cards are hidden and only revealed when the toggle is on.
+$includeArchived = isset($_GET['include_archived'])
+    && in_array($_GET['include_archived'], ['1', 'true'], true);
+
 // Verify board access
 if (!$auth->canAccessBoard($boardId)) {
     http_response_code(404);
@@ -34,7 +39,7 @@ $laneModel    = new Shuffle\Model\Lane($db);
 $cardModel    = new Shuffle\Model\Card($db);
 $boardService = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel);
 
-$board = $boardService->getBoardWithLanesAndCards($boardId);
+$board = $boardService->getBoardWithLanesAndCards($boardId, $includeArchived);
 
 if ($board === null) {
     header('Location: /boards.php');
@@ -69,6 +74,10 @@ require ROOT_DIR . '/include/templates/header.php';
             <?= htmlspecialchars($lang->get('board.back'), ENT_QUOTES, 'UTF-8') ?>
         </a>
         <h1 class="board-view-title"><?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?></h1>
+        <label class="boards-filter-label board-archived-toggle">
+            <input type="checkbox" id="toggle-archived-cards" class="boards-filter-checkbox" <?= $includeArchived ? 'checked' : '' ?>>
+            <span class="text-sm"><?= htmlspecialchars($lang->get('board.show_archived'), ENT_QUOTES, 'UTF-8') ?></span>
+        </label>
     </div>
 
     <div class="board-lanes-container" role="region" aria-label="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">
@@ -98,10 +107,14 @@ require ROOT_DIR . '/include/templates/header.php';
                     || ($card['checklist_progress']['total'] ?? 0) > 0
                     || ($card['attachment_count'] ?? 0) > 0
                     || !empty($card['assigned_users']);
+                $cardArchived = !empty($card['is_archived']);
                 $cardMetaId = $hasMeta ? 'card-meta-' . (int) $card['id'] : null;
                 ?>
-                <article class="card<?= $canEdit ? '' : ' card--readonly' ?>" draggable="<?= $canEdit ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" data-assigned="<?= htmlspecialchars(json_encode(array_map(fn($u) => (int) $u['id'], $card['assigned_users'] ?? []), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0"<?= $cardMetaId ? ' aria-describedby="' . $cardMetaId . '"' : '' ?>>
+                <article class="card<?= $canEdit ? '' : ' card--readonly' ?><?= $cardArchived ? ' card--archived' : '' ?>" draggable="<?= $canEdit && !$cardArchived ? 'true' : 'false' ?>" data-card-id="<?= (int) $card['id'] ?>" data-card-position="<?= (int) $card['position'] ?>" data-assigned="<?= htmlspecialchars(json_encode(array_map(fn($u) => (int) $u['id'], $card['assigned_users'] ?? []), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" role="listitem" aria-roledescription="<?= htmlspecialchars($canEdit ? $lang->get('card.draggable_card') : $lang->get('card.card'), ENT_QUOTES, 'UTF-8') ?>" tabindex="0"<?= $cardMetaId ? ' aria-describedby="' . $cardMetaId . '"' : '' ?>>
                     <a href="/card.php?id=<?= (int) $card['id'] ?>" class="card-link">
+                        <?php if ($cardArchived): ?>
+                        <span class="card-archived-badge"><?= htmlspecialchars($lang->get('card.archived'), ENT_QUOTES, 'UTF-8') ?></span>
+                        <?php endif; ?>
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($hasMeta): ?>
                         <div class="card-meta" id="<?= $cardMetaId ?>">
@@ -317,4 +330,19 @@ $laneTemplatesJson = json_encode(
 );
 ?>
 <script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
+<script>
+// "Show archived" cards — toggles ?include_archived=1 and reloads the
+// server-rendered board (same pattern as boards.php for boards; the board
+// view is server-rendered, so a full reload is the correct mechanism).
+(function () {
+    var t = document.getElementById('toggle-archived-cards');
+    if (!t) return;
+    t.addEventListener('change', function () {
+        var url = new URL(window.location);
+        if (this.checked) { url.searchParams.set('include_archived', '1'); }
+        else { url.searchParams.delete('include_archived'); }
+        window.location.href = url.toString();
+    });
+})();
+</script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

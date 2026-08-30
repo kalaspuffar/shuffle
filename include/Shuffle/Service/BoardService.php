@@ -253,7 +253,7 @@ class BoardService
      * @param int $id Board ID
      * @return array|null Board with lanes and cards, or null
      */
-    public function getBoardWithLanesAndCards(int $id): ?array
+    public function getBoardWithLanesAndCards(int $id, bool $includeArchived = false): ?array
     {
         $board = $this->boardModel->findById($id);
         if ($board === null) {
@@ -267,7 +267,7 @@ class BoardService
         }
 
         $lanes = $this->laneModel->findByBoard($id);
-        $allCards = $this->cardModel->findByBoard($id);
+        $allCards = $this->cardModel->findByBoard($id, $includeArchived);
 
         // Group cards by lane_id
         $cardsByLane = [];

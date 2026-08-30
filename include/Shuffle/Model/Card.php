@@ -188,21 +188,28 @@ class Card
     }
 
     /**
-     * Returns all non-archived cards for a board, grouped by lane.
+     * Returns all cards for a board, grouped by lane.
      *
-     * @param int $boardId Board ID
+     * Archived cards are excluded by default; pass $includeArchived=true to
+     * include them (the board view's "show archived" toggle, mirroring
+     * boards.php for boards).
+     *
+     * @param int  $boardId         Board ID
+     * @param bool $includeArchived Include archived cards
      * @return array Array of card rows with lane_id
      */
-    public function findByBoard(int $boardId): array
+    public function findByBoard(int $boardId, bool $includeArchived = false): array
     {
-        return $this->db->fetchAll(
-            'SELECT c.id, c.lane_id, c.title, c.description, c.due_date, c.position, c.is_archived, c.created_by, c.created_at, c.updated_at'
-            . ' FROM cards c'
-            . ' JOIN lanes l ON c.lane_id = l.id'
-            . ' WHERE l.board_id = ? AND c.is_archived = 0'
-            . ' ORDER BY c.lane_id, c.position ASC',
-            [$boardId]
-        );
+        $sql = 'SELECT c.id, c.lane_id, c.title, c.description, c.due_date, c.position, c.is_archived, c.created_by, c.created_at, c.updated_at'
+             . ' FROM cards c'
+             . ' JOIN lanes l ON c.lane_id = l.id'
+             . ' WHERE l.board_id = ?';
+        if (!$includeArchived) {
+            $sql .= ' AND c.is_archived = 0';
+        }
+        $sql .= ' ORDER BY c.lane_id, c.position ASC';
+
+        return $this->db->fetchAll($sql, [$boardId]);
     }
 
     /**

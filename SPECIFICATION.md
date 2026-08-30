@@ -688,9 +688,9 @@ Services contain business logic, orchestrate model calls, enforce business rules
 - Every read of a card is board-access-checked for the requesting user; a stale `user_prio` row pointing at an inaccessible/deleted card is surfaced as absent, never as an error page.
 
 **CardActivityService** (card history / audit log, ACTIVITY-01..03):
-- `log(cardId, event, actorId, payload)` — Appends one row to `card_activity` (via `CardActivity::insert()`). The model is **append-only**: no UPDATE, no DELETE. Lane and user names are snapshotted into `payload_json` at write time so the record survives later lane renames and user deletions. `log()` is the **single public write API** — services call it from their lifecycle hooks (CardService::createCard/moveCard/updateCard/assign/unassign/archive/restore, CommentService::create/update/delete). The log starts cold by design (no backfill of pre-feature history; `cards.updated_at` is unreliable).
+- `log(cardId, event, actorId, payload)` — Appends one row to `card_activity` (via `CardActivity::insert()`). The model is **append-only**: no UPDATE, no DELETE. Lane, user, attachment-file, and checklist-title names are snapshotted into `payload_json` at write time so the record survives later lane renames, user deletions, attachment removals, and checklist deletions. `log()` is the **single public write API** — services call it from their lifecycle hooks (CardService::createCard/moveCard/updateCard/assign/unassign/archive/restore, CommentService::create/update/delete, AttachmentService::upload/deleteAttachment, ChecklistService::createChecklist/updateChecklist/deleteChecklist). The log starts cold by design (no backfill of pre-feature history; `cards.updated_at` is unreliable).
 - `feed(cardId, limit, beforeId)` — Paginated read for the History tab (§5.14) and its backing API route. Default limit 50, hard cap 500; newest-first. Each entry is projected to `{id, event, actor:{id,name}, created_at, detail}` — `detail` is the event-specific projection of the payload (§5.14 table: `from_lane`/`to_lane` for moves, `fields_changed`+before/after for edits, `user` for assignments, `comment_id`+`author`+`body_excerpt` for comment events).
-- Failure policy (ACTIVITY-01): `CardService::moveCard()` calls `record()` inside a `try/catch` — a log-write failure on the drag-drop path writes to the PHP error log and the move still commits. Other hooks (edit, assign, archive, delete, comment lifecycle) use **hard-fail**: if the log write throws, the underlying action surfaces the error to the caller (a move that committed but has no log row is worse than a move that did not commit). `CommentService` comment hooks are additionally guarded by `?CardActivityService` injection so existing callers that don't wire it are unaffected (no-op path).
+- Failure policy (ACTIVITY-01): `CardService::moveCard()` calls `record()` inside a `try/catch` — a log-write failure on the drag-drop path writes to the PHP error log and the move still commits. Other hooks (edit, assign, archive, delete, comment lifecycle, attachment add/remove, checklist add/rename/remove) use **hard-fail**: if the log write throws, the underlying action surfaces the error to the caller (a move that committed but has no log row is worse than a move that did not commit). `CommentService`, `AttachmentService`, and `ChecklistService` hooks are additionally guarded by `?CardActivityService` injection so existing callers that don't wire it are unaffected (no-op path).
 
 ### 3.16 API Controllers
 
@@ -2265,9 +2265,13 @@ Append-only, per-card audit log (see §4.1 `card_activity`). The UI surface is a
 | `card_moved` | `{from_lane:{id,title,icon}, to_lane:{id,title,icon}}` |
 | `card_edited` | `{fields_changed:["title", ...], before?{...}, after?{...}}` — field names always; before/after values for title & due_date; description is a change flag only (no full-text diff stored) |
 | `assigned` / `unassigned` | `{user:{id,name}}` |
-| `card_archived` / `card_restored` / `card_created` | `{}` (event name carries the meaning) |
+| `card_archived` / `card_restored` / `card_created` | `null` (event name carries the meaning — projection returns `null`, not `{}`) |
 | `comment_created` / `comment_edited` | `{comment_id, author:{id,name}}` |
 | `comment_deleted` | `{comment_id, author:{id,name}, body_excerpt}` — 80-char body excerpt |
+| `attachment_added` | `{file:{name, size}}` |
+| `attachment_removed` | `{file:{name, size}, uploader?:{id,name}}` — uploader present so an admin removing another user's file is distinguishable |
+| `checklist_added` / `checklist_removed` | `{checklist:{title}}` |
+| `checklist_renamed` | `{before, after}` — the checklist's title before and after the rename (no-op renames do not log) |
 
 Name snapshots are captured **at write time** — later lane renames or user deletions do not mutate the log (append-only).
 

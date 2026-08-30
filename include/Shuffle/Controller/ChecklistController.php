@@ -54,7 +54,7 @@ class ChecklistController
         $body = $request->getBody();
 
         try {
-            $checklist = $this->checklistService->createChecklist($cardId, $body);
+            $checklist = $this->checklistService->createChecklist($cardId, $body, $this->auth->currentUser() ?? []);
             $response->json(['checklist' => $checklist], 201);
         } catch (\InvalidArgumentException $e) {
             $response->error($e->getMessage(), 400);
@@ -90,7 +90,7 @@ class ChecklistController
         $body = $request->getBody();
 
         try {
-            $checklist = $this->checklistService->updateChecklist($id, $body);
+            $checklist = $this->checklistService->updateChecklist($id, $body, $this->auth->currentUser() ?? []);
             $response->json(['checklist' => $checklist]);
         } catch (\InvalidArgumentException $e) {
             $response->error($e->getMessage(), 400);
@@ -126,7 +126,7 @@ class ChecklistController
         }
 
         try {
-            $this->checklistService->deleteChecklist($id);
+            $this->checklistService->deleteChecklist($id, $this->auth->currentUser() ?? []);
             $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);

@@ -1820,6 +1820,28 @@ small,
     cursor: default;
 }
 
+/* Archived card in the board view — revealed by the "Show archived" toggle.
+   Greyed + slightly faded so it reads as "out of the active board" but is
+   still clickable (opens the card page, which has the Restore action). */
+.card--archived {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.card-archived-badge {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    padding: 1px 6px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    background-color: var(--color-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
 /* Persistent selection highlight (keyboard arrows / Ctrl+click) — the
    "hover border" Daniel expects while driving the space-to-assign flow.
    Uses the primary color so it's visibly distinct from plain hover. */

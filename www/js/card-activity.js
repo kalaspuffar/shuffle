@@ -84,6 +84,11 @@
         unassigned:      '👤',
         card_archived:   '📦',
         card_restored:   '📤',
+        attachment_added:   '📎',
+        attachment_removed: '🗑️',
+        checklist_added:    '☑️',
+        checklist_renamed:  '✏️',
+        checklist_removed:  '🗑️',
         comment_created: '💬',
         comment_edited:  '↪️',
         comment_deleted: '🗑️'
@@ -140,6 +145,43 @@
             case 'card_restored':
                 out.push(el('span', t('act_restored')));
                 break;
+
+            case 'attachment_added': {
+                var fName = d.file ? d.file.name : '';
+                out.push(el('span', t('act_attachment_added', [fName])));
+                break;
+            }
+
+            case 'attachment_removed': {
+                var rName = d.file ? d.file.name : '';
+                // If the actor is NOT the original uploader, say whose file it was.
+                var up = d.uploader;
+                var sameOwner = up && item.actor && up.id === item.actor.id;
+                if (up && !sameOwner) {
+                    out.push(el('span', t('act_attachment_removed_other', [rName, up.name || ''])));
+                } else {
+                    out.push(el('span', t('act_attachment_removed', [rName])));
+                }
+                break;
+            }
+
+            case 'checklist_added': {
+                var cTitle = d.checklist ? d.checklist.title : '';
+                out.push(el('span', t('act_checklist_added', [cTitle])));
+                break;
+            }
+
+            case 'checklist_renamed': {
+                // Detail is {before, after} (flat) per the projection.
+                out.push(el('span', t('act_checklist_renamed', [d.before || '', d.after || ''])));
+                break;
+            }
+
+            case 'checklist_removed': {
+                var dTitle = d.checklist ? d.checklist.title : '';
+                out.push(el('span', t('act_checklist_removed', [dTitle])));
+                break;
+            }
 
             case 'comment_created':
                 out.push(el('span', t('act_comment_created')));

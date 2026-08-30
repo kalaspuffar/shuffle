@@ -271,6 +271,42 @@ class CardActivityService
                 }
                 return $out;
 
+            case 'attachment_added':
+                if (isset($payload['file']) && is_array($payload['file'])) {
+                    return ['file' => $payload['file']];
+                }
+                return [];
+
+            case 'attachment_removed':
+                $out = [];
+                if (isset($payload['file']) && is_array($payload['file'])) {
+                    $out['file'] = $payload['file'];
+                }
+                if (isset($payload['uploader']) && is_array($payload['uploader'])) {
+                    $out['uploader'] = $payload['uploader'];
+                }
+                return $out;
+
+            case 'checklist_added':
+            case 'checklist_removed':
+                if (isset($payload['checklist']) && is_array($payload['checklist'])) {
+                    return ['checklist' => $payload['checklist']];
+                }
+                return [];
+
+            case 'checklist_renamed':
+                if (isset($payload['checklist']) && is_array($payload['checklist'])) {
+                    $out = [];
+                    if (array_key_exists('before', $payload['checklist'])) {
+                        $out['before'] = $payload['checklist']['before'];
+                    }
+                    if (array_key_exists('after', $payload['checklist'])) {
+                        $out['after'] = $payload['checklist']['after'];
+                    }
+                    return $out;
+                }
+                return [];
+
             // No detail shape yet — keep the raw payload (v1: card_archived,
             // card_restored, card_created are empty; labels/merged are
             // reserved for later features)

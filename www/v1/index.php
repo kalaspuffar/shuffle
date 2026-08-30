@@ -161,6 +161,14 @@ $cardService->setCommentService($commentService);
 $cardService->setChecklistService($checklistService);
 $cardService->setAttachmentService($attachmentService);
 
+// Wire the shared activity log into the attachment + checklist services
+// (ACTIVITY-01: attachment_added/removed, checklist_added/renamed/removed).
+// The User DAO gives name snapshots when an admin removes another user's
+// file; null-safe if a service is built without the wiring (tests).
+$attachmentService->setActivityService($activityService);
+$attachmentService->setUserModel($userModelForLog);
+$checklistService->setActivityService($activityService);
+
 // Register routes
 $router = new Shuffle\Core\Router();
 

@@ -7,6 +7,7 @@ use Shuffle\Core\S3Client;
 use Shuffle\Model\Attachment;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Model\User;
 
 /**
  * Attachment business logic service.
@@ -22,6 +23,42 @@ class AttachmentService
     private S3Client $s3;
     private int $chunkSize;
     private int $maxFileSize;
+
+    /**
+     * User DAO (for uploader-name snapshots in the activity log). Optional —
+     * null when not wired (unit tests), in which case the log still records
+     * the uploader's id but not their name.
+     */
+    private ?User $userModel = null;
+
+    /**
+     * Card activity log (ACTIVITY-01). Injected by the front controller via
+     * setActivityService(); null-safe when the wiring is absent (e.g. unit
+     * tests that never attach it).
+     */
+    private ?CardActivityService $activityService = null;
+
+    /**
+     * Attach the shared CardActivityService for logging attachment add/remove
+     * (ACTIVITY-01). Idempotent.
+     *
+     * @param CardActivityService $activityService
+     */
+    public function setActivityService(CardActivityService $activityService): void
+    {
+        $this->activityService = $activityService;
+    }
+
+    /**
+     * Attach the User DAO for uploader-name snapshots in the activity log.
+     * Optional; null-safe.
+     *
+     * @param User $userModel
+     */
+    public function setUserModel(User $userModel): void
+    {
+        $this->userModel = $userModel;
+    }
 
     /** MIME types allowed for upload */
     private const ALLOWED_MIME_PREFIXES = [
@@ -177,6 +214,18 @@ class AttachmentService
             'mime_type' => $mimeType,
         ]);
 
+        // Activity log (ACTIVITY-01): attachment_added. Snapshot the filename
+        // + size so the record proves what was attached (the S3 object and DB
+        // row can both be removed later; the log keeps the trace).
+        if ($this->activityService !== null) {
+            $this->activityService->log(
+                $cardId,
+                'attachment_added',
+                (int) $userId,
+                ['file' => ['name' => $fileName, 'size' => (int) $fileSize]]
+            );
+        }
+
         $this->boardModel->incrementVersion($boardId);
 
         return $this->attachmentModel->findById($attachmentId);
@@ -211,17 +260,34 @@ class AttachmentService
      * to avoid blocking the user. Orphaned S3 objects can be cleaned up
      * by maintenance.
      *
-     * @param int $attachmentId Attachment ID
+     * @param int   $attachmentId Attachment ID
+     * @param array $currentUser  Acting user (for the activity log actor; empty = unresolvable, still logs with actor 0)
      * @throws \RuntimeException If attachment not found
      */
-    public function deleteAttachment(int $attachmentId): void
+    public function deleteAttachment(int $attachmentId, array $currentUser = []): void
     {
         $attachment = $this->attachmentModel->findById($attachmentId);
         if ($attachment === null) {
             throw new \RuntimeException('Attachment not found');
         }
 
-        $boardId = $this->cardModel->getBoardId((int) $attachment['card_id']);
+        $cardId = (int) $attachment['card_id'];
+        // Snapshot filename + size BEFORE deletion so the log can name the
+        // file (the DB row and S3 object are both gone afterwards).
+        $fileSnapshot = [
+            'name' => (string) ($attachment['file_name'] ?? ''),
+            'size' => (int) ($attachment['file_size'] ?? 0),
+        ];
+        // Snapshot the uploader (who added it) so an admin removing someone
+        // else's file is distinguishable from a user removing their own.
+        $uploaderId = (int) $attachment['user_id'];
+        $uploaderRow = ($this->userModel !== null && $uploaderId > 0)
+            ? $this->userModel->findById($uploaderId)
+            : null;
+        $uploaderSnapshot = $this->activityService !== null
+            ? $this->activityService->userSnapshot($uploaderRow)
+            : null;
+        $boardId = $this->cardModel->getBoardId($cardId);
 
         // Delete from S3 (best-effort)
         try {
@@ -232,6 +298,23 @@ class AttachmentService
 
         // Always remove DB record
         $this->attachmentModel->delete($attachmentId);
+
+        // Activity log (ACTIVITY-01): attachment_removed. The actor is the
+        // caller ($currentUser), which may differ from the uploader
+        // (uploader-or-admin rule permits an admin to delete someone else's
+        // file). Snapshot the file so the record names it.
+        $payload = ['file' => $fileSnapshot];
+        if ($uploaderSnapshot !== null) {
+            $payload['uploader'] = $uploaderSnapshot;
+        }
+        if ($this->activityService !== null) {
+            $this->activityService->log(
+                $cardId,
+                'attachment_removed',
+                (int) ($currentUser['id'] ?? 0),
+                $payload
+            );
+        }
 
         if ($boardId !== null) {
             $this->boardModel->incrementVersion($boardId);
