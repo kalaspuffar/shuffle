@@ -1820,6 +1820,28 @@ small,
     cursor: default;
 }
 
+/* Archived card in the board view — revealed by the "Show archived" toggle.
+   Greyed + slightly faded so it reads as "out of the active board" but is
+   still clickable (opens the card page, which has the Restore action). */
+.card--archived {
+    opacity: 0.6;
+    cursor: default;
+}
+
+.card-archived-badge {
+    display: inline-block;
+    margin-bottom: var(--space-1);
+    padding: 1px 6px;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-semibold);
+    color: var(--color-text-secondary);
+    background-color: var(--color-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-sm);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
 /* Persistent selection highlight (keyboard arrows / Ctrl+click) — the
    "hover border" Daniel expects while driving the space-to-assign flow.
    Uses the primary color so it's visibly distinct from plain hover. */
@@ -4001,4 +4023,165 @@ small,
     overflow: hidden;
     clip: rect(0 0 0 0);
     white-space: nowrap;
+}
+
+/* =====================================================================
+   CARD HISTORY TAB — ACTIVITY-02 (SPECIFICATION.md §5.14 / REQUIREMENTS §7.16)
+   Tab bar (Card / History), tab panels, and the activity feed list.
+   ===================================================================== */
+
+   override the attribute otherwise the hidden History panel leaks. */
+[hidden] {
+    display: none !important;
+}
+
+/* ---- Tab bar ----------------------------------------------------------- */
+
+.card-detail-tabs {
+    display: flex;
+    gap: 4px;
+    align-items: stretch;
+    border-bottom: 1px solid var(--color-border, rgba(148, 163, 184, 0.25));
+    margin-bottom: 20px;
+}
+
+.card-detail-tab {
+    appearance: none;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;          /* overlap the 1px container border so no gap */
+    color: var(--color-muted, rgba(203, 213, 225, 0.85));
+    font-family: inherit;
+    font-size: 0.95rem;
+    font-weight: 500;
+    padding: 10px 14px;
+    cursor: pointer;
+    border-radius: var(--border-radius-sm, 4px) var(--border-radius-sm, 4px) 0 0;
+    transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.card-detail-tab:hover {
+    color: var(--color-text, #f1f5f9);
+    background-color: var(--color-surface-2, rgba(148, 163, 184, 0.08));
+}
+
+.card-detail-tab:focus-visible {
+    outline: 2px solid var(--color-primary, #6D28D9);
+    outline-offset: 2px;
+}
+
+.card-detail-tab--active {
+    color: var(--color-text, #f1f5f9);
+    border-bottom-color: var(--color-primary, #6D28D9);
+}
+
+/* Tab panels: reset any section-level margin so the two panels sit on the
+   same baseline inside the tab structure. */
+.card-detail-panel {
+    margin: 0;
+}
+
+.card-detail-panel .card-detail-section {
+    margin-bottom: 20px;
+}
+
+/* History panel is intentionally minimal — a feed reads better unboxed */
+.card-panel-history .card-detail-section {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-bottom: 0;
+}
+.card-panel-history .card-detail-section > .card-detail-section-header {
+    margin-bottom: 12px;
+}
+
+/* ---- Activity feed ----------------------------------------------------- */
+
+.card-activity-feed {
+    margin: 0;
+}
+
+.card-activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 480px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.card-activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 2px;
+    border-bottom: 1px solid var(--color-border, rgba(148, 163, 184, 0.18));
+}
+.card-activity-item:last-child {
+    border-bottom: none;
+}
+
+.card-activity-item time {
+    flex: 0 0 76px;
+    color: var(--color-muted, rgba(203, 213, 225, 0.6));
+    font-size: 0.8rem;
+    padding-top: 1px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.card-activity-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    min-width: 0;
+}
+
+.card-activity-icon {
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+
+.card-activity-verb {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: var(--color-text, #f1f5f9);
+    overflow-wrap: anywhere;
+}
+
+/* Deleted-comment excerpt — quote-style, visually secondary */
+.card-activity-excerpt {
+    flex: 1 1 100%;
+    margin: 2px 0 0 22px;       /* aligns under the verb, past the icon */
+    color: var(--color-muted, rgba(203, 213, 225, 0.7));
+    font-style: italic;
+    overflow-wrap: anywhere;
+}
+
+/* "Load older" */
+.card-activity-loadmore {
+    margin-top: 14px;
+    text-align: center;
+}
+
+/* ---- Responsive --------------------------------------------------------
+   On narrow screens the timestamp wraps below the text and the excerpt
+   no longer indents (there is no room for the icon gutter). */
+@media (max-width: 560px) {
+    .card-activity-item {
+        flex-direction: column;
+        gap: 4px;
+    }
+    .card-activity-item time {
+        flex: none;
+        width: 100%;
+    }
+    .card-activity-excerpt {
+        margin-left: 0;
+    }
 }

@@ -192,7 +192,7 @@ class AttachmentController
         }
 
         try {
-            $this->attachmentService->deleteAttachment($id);
+            $this->attachmentService->deleteAttachment($id, $currentUser);
             $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);

@@ -20,6 +20,24 @@ class ChecklistService
     private Board $boardModel;
 
     /**
+     * Card activity log (ACTIVITY-01) — checklist container lifecycle
+     * (added / renamed / removed). Injected via setActivityService();
+     * null-safe when the wiring is absent (e.g. unit tests).
+     */
+    private ?CardActivityService $activityService = null;
+
+    /**
+     * Attach the shared CardActivityService for logging checklist
+     * add/rename/remove (ACTIVITY-01). Idempotent.
+     *
+     * @param CardActivityService $activityService
+     */
+    public function setActivityService(CardActivityService $activityService): void
+    {
+        $this->activityService = $activityService;
+    }
+
+    /**
      * @param Checklist     $checklistModel Checklist data access instance
      * @param ChecklistItem $itemModel      ChecklistItem data access instance
      * @param Card          $cardModel      Card data access instance (for board ID lookup)
@@ -62,7 +80,7 @@ class ChecklistService
      * @return array The created checklist with items
      * @throws \InvalidArgumentException If validation fails
      */
-    public function createChecklist(int $cardId, array $data): array
+    public function createChecklist(int $cardId, array $data, array $currentUser = []): array
     {
         $this->validateChecklistTitle($data);
 
@@ -70,6 +88,16 @@ class ChecklistService
             'card_id' => $cardId,
             'title'   => trim($data['title']),
         ]);
+
+        // Activity log (ACTIVITY-01): checklist_added, snapshot of the title.
+        if ($this->activityService !== null) {
+            $this->activityService->log(
+                $cardId,
+                'checklist_added',
+                (int) ($currentUser['id'] ?? 0),
+                ['checklist' => ['title' => trim($data['title'])]]
+            );
+        }
 
         $this->bumpBoardVersionForCard($cardId);
 
@@ -88,7 +116,7 @@ class ChecklistService
      * @throws \InvalidArgumentException If validation fails
      * @throws \RuntimeException If checklist not found
      */
-    public function updateChecklist(int $checklistId, array $data): array
+    public function updateChecklist(int $checklistId, array $data, array $currentUser = []): array
     {
         $checklist = $this->checklistModel->findById($checklistId);
         if ($checklist === null) {
@@ -97,9 +125,25 @@ class ChecklistService
 
         $this->validateChecklistTitle($data);
 
-        $this->checklistModel->update($checklistId, trim($data['title']));
+        $cardId = (int) $checklist['card_id'];
+        $oldTitle = (string) $checklist['title'];
+        $newTitle = trim($data['title']);
 
-        $this->bumpBoardVersionForCard((int) $checklist['card_id']);
+        $this->checklistModel->update($checklistId, $newTitle);
+
+        // Activity log (ACTIVITY-01): checklist_renamed — but ONLY on a real
+        // title change (a no-op PUT must not add a log row). Keep the old
+        // title in the payload so the record says what it was.
+        if ($this->activityService !== null && $oldTitle !== $newTitle) {
+            $this->activityService->log(
+                $cardId,
+                'checklist_renamed',
+                (int) ($currentUser['id'] ?? 0),
+                ['checklist' => ['before' => $oldTitle, 'after' => $newTitle]]
+            );
+        }
+
+        $this->bumpBoardVersionForCard($cardId);
 
         $updated = $this->checklistModel->findById($checklistId);
         $updated['items'] = $this->itemModel->findByChecklist($checklistId);
@@ -110,10 +154,11 @@ class ChecklistService
     /**
      * Deletes a checklist and all its items.
      *
-     * @param int $checklistId Checklist ID
+     * @param int   $checklistId Checklist ID
+     * @param array $currentUser Acting user (for the activity log actor)
      * @throws \RuntimeException If checklist not found
      */
-    public function deleteChecklist(int $checklistId): void
+    public function deleteChecklist(int $checklistId, array $currentUser = []): void
     {
         $checklist = $this->checklistModel->findById($checklistId);
         if ($checklist === null) {
@@ -121,7 +166,21 @@ class ChecklistService
         }
 
         $cardId = (int) $checklist['card_id'];
+        $titleSnapshot = (string) $checklist['title'];
         $this->checklistModel->delete($checklistId);
+
+        // Activity log (ACTIVITY-01): checklist_removed — snapshot the title
+        // BEFORE deletion so the log still names it (the row + its items are
+        // gone afterwards by cascade).
+        if ($this->activityService !== null) {
+            $this->activityService->log(
+                $cardId,
+                'checklist_removed',
+                (int) ($currentUser['id'] ?? 0),
+                ['checklist' => ['title' => $titleSnapshot]]
+            );
+        }
+
         $this->bumpBoardVersionForCard($cardId);
     }
 

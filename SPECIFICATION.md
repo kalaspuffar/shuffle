@@ -1,11 +1,24 @@
 # Project Specification: Shuffle
 
-**Version:** 1.0
-**Date:** 2026-02-12
-**Author:** Solution Architect
+**Version:** 1.5
+**Date:** 2026-08-29
+**Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v1.2
+**Based on:** REQUIREMENTS.md v1.5
 **License:** MIT
+
+## Changes since the 1.0 draft
+
+The spec header stayed at v1.0 during implementation; each feature branch appended its sections directly. This table records those updates (dates/sections per git history):
+
+| Date | Change |
+|---|---|
+| 2026-08-29 | **v1.5** — §4.1 `card_activity` schema; §3.14 `CardActivity` model; §3.15 `CardActivityService`; §5.14 Card Activity Log API + History-tab integration (Labels renumbered to §5.15); traceability ACTIVITY-01..03 (§7.16 of REQUIREMENTS.md v1.5). |
+| 2026-08-29 | Board archive/restore (BOARD-06c/06d): §5.5 archive/restore UI surface; §3.15 BoardService::archiveBoard + UserPrio::removeForBoard; §4.1 archived-board prio exclusion (BOARD-06d). |
+| 2026-08-29 | Board delete (BOARD-06a/06b): §5.5 delete UI surface + card_count + confirmation dialog; §3.15 BoardService::listBoards card_count. |
+| 2026-08-28 | Personal priority list (PRIO-01..11): §5.13 API + History/UX; §3.15 PriorityService; §4.1 `user_prio`; §3.18 js/priority.js. |
+| 2026-08-28 | Lanes: emoji icons + default 11-lane board set (LANE-07/08/09); lane add form emoji picker + lane-template dropdown (LANE-10/11). |
+| 2026-02-12 | v1.0 — initial drafting (design/specification phase). |
 
 ---
 
@@ -636,6 +649,7 @@ class Board {
 | `Notification` | `findByUser()`, `countUnread()`, `markRead()`, `dismiss()` |
 | `Label` | `findByBoard()`, `attachToCard()`, `detachFromCard()` |
 | `UserPrio` | `findByUser()`, `add()`, `remove()`, `reposition()`, `reorderByCardIds()` |
+| `CardActivity` | `insert()` (append-only write), `feedForCard()`, `feedForBoardEvent()`, `countForCard()` |
 
 ### 3.15 Services
 
@@ -672,6 +686,11 @@ Services contain business logic, orchestrate model calls, enforce business rules
 - `deprioritize(cardId)` — Removes the membership; the card reappears in the inbox (if it still qualifies). No-op if not a member.
 - `reorder(cardId, afterCardId|null)` — Moves a prioritized card relative to another (null = to top) using §4.2 gap logic; renumbers the user's container on a missing gap.
 - Every read of a card is board-access-checked for the requesting user; a stale `user_prio` row pointing at an inaccessible/deleted card is surfaced as absent, never as an error page.
+
+**CardActivityService** (card history / audit log, ACTIVITY-01..03):
+- `log(cardId, event, actorId, payload)` — Appends one row to `card_activity` (via `CardActivity::insert()`). The model is **append-only**: no UPDATE, no DELETE. Lane, user, attachment-file, and checklist-title names are snapshotted into `payload_json` at write time so the record survives later lane renames, user deletions, attachment removals, and checklist deletions. `log()` is the **single public write API** — services call it from their lifecycle hooks (CardService::createCard/moveCard/updateCard/assign/unassign/archive/restore, CommentService::create/update/delete, AttachmentService::upload/deleteAttachment, ChecklistService::createChecklist/updateChecklist/deleteChecklist). The log starts cold by design (no backfill of pre-feature history; `cards.updated_at` is unreliable).
+- `feed(cardId, limit, beforeId)` — Paginated read for the History tab (§5.14) and its backing API route. Default limit 50, hard cap 500; newest-first. Each entry is projected to `{id, event, actor:{id,name}, created_at, detail}` — `detail` is the event-specific projection of the payload (§5.14 table: `from_lane`/`to_lane` for moves, `fields_changed`+before/after for edits, `user` for assignments, `comment_id`+`author`+`body_excerpt` for comment events).
+- Failure policy (ACTIVITY-01): `CardService::moveCard()` calls `record()` inside a `try/catch` — a log-write failure on the drag-drop path writes to the PHP error log and the move still commits. Other hooks (edit, assign, archive, delete, comment lifecycle, attachment add/remove, checklist add/rename/remove) use **hard-fail**: if the log write throws, the underlying action surfaces the error to the caller (a move that committed but has no log row is worse than a move that did not commit). `CommentService`, `AttachmentService`, and `ChecklistService` hooks are additionally guarded by `?CardActivityService` injection so existing callers that don't wire it are unaffected (no-op path).
 
 ### 3.16 API Controllers
 
@@ -1015,6 +1034,24 @@ UNIQUE KEY (`user_id`, `card_id`)
 INDEX (`user_id`, `position`)
 
 Per-user priority list membership (PRIO-01..11). Stores **only** (user, card) pairs and the user's custom order — no other card data is duplicated here. `card_id` cascade-deletes with the card, `user_id` cascade-deletes with the user. The `position` column uses the same gap-based scheme as §4.2 (gap 1000) within the per-user container.
+
+#### `card_activity`
+
+| Column | Type | Constraints |
+|---|---|---|
+| `id` | INT UNSIGNED | PRIMARY KEY, AUTO_INCREMENT |
+| `card_id` | INT UNSIGNED | NOT NULL, FK → cards.id ON DELETE CASCADE |
+| `board_id` | INT UNSIGNED | NOT NULL (denormalized for the "Done yesterday" scan, PRIO-13 foundation) |
+| `event` | VARCHAR(32) | NOT NULL — `card_created`, `card_edited`, `assigned`, `unassigned`, `card_moved`, `card_archived`, `card_restored`, `comment_created`, `comment_edited`, `comment_deleted` |
+| `actor_id` | INT UNSIGNED | NOT NULL, FK → users.id ON DELETE CASCADE |
+| `payload_json` | JSON | NULL — event-specific payload (lane id+title+icon snapshots for moves, changed-field list for edits, user id+name for assignments, comment id + author + body excerpt on delete) |
+| `created_at` | DATETIME | NOT NULL, DEFAULT CURRENT_TIMESTAMP |
+
+INDEX (`card_id`, `id`) — feed reads, newest-first
+INDEX (`board_id`, `event`, `created_at`) — the "Done yesterday" query (`event=card_moved` within a board on a date range)
+INDEX (`actor_id`, `created_at`) — future per-user "my recent actions" views
+
+**Append-only** (ACTIVITY-01): no UPDATE or DELETE path exists anywhere in the codebase — the single write path is `CardActivity::insert()`. The log starts **cold** by design: no backfill of pre-feature history is attempted (cards.updated_at is unreliable, per the plan's decision §3).
 
 ### 4.2 Position Management Strategy
 
@@ -2179,7 +2216,74 @@ Reorders a prioritized card relative to another card in the same user's list (PR
 
 ---
 
-### 5.14 Labels (Post-MVP)
+### 5.14 Card Activity Log (ACTIVITY-01..03)
+
+Append-only, per-card audit log (see §4.1 `card_activity`). The UI surface is a **History tab** on the card detail page (ACTIVITY-02); the data contract is the single endpoint below (ACTIVITY-03).
+
+#### `GET /v1/cards/{cardId}/activity`
+
+**Required role:** any authenticated role that can access the card's board (read-only — Viewers included).
+
+**Query parameters:**
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `limit` | int | 50 | 1–500; values above 500 are clamped to 500 |
+| `before` | int | null | Activity row id — only return rows with `id < before` (scroll further back) |
+
+**Response (200):**
+```json
+{
+    "card_id": 42,
+    "items": [
+        {
+            "id": 310,
+            "event": "card_moved",
+            "actor": { "id": 1, "name": "Daniel Persson" },
+            "created_at": "2026-08-29 09:14:03",
+            "detail": {
+                "from_lane": { "id": 345, "title": "Inbox", "icon": null },
+                "to_lane": { "id": 346, "title": "In Progress", "icon": "🚀" }
+            }
+        },
+        { "id": 309, "event": "comment_deleted", "actor": { "id": 1, "name": "Daniel Persson" },
+          "created_at": "2026-08-29 09:11:41",
+          "detail": { "comment_id": 88, "author": { "id": 2, "name": "Olaf H." },
+                      "body_excerpt": "Can we move this to the 2nd sprint — I need it by Friday" } },
+        { "id": 308, "event": "assigned", "actor": { "id": 1, "name": "Daniel Persson" },
+          "created_at": "2026-08-29 09:10:12",
+          "detail": { "user": { "id": 2, "name": "Olaf H." } } }
+    ],
+    "has_more": true
+}
+```
+
+`detail` is **event-specific** (the log row's `payload_json`, projected):
+
+| event | `detail` shape |
+|---|---|
+| `card_moved` | `{from_lane:{id,title,icon}, to_lane:{id,title,icon}}` |
+| `card_edited` | `{fields_changed:["title", ...], before?{...}, after?{...}}` — field names always; before/after values for title & due_date; description is a change flag only (no full-text diff stored) |
+| `assigned` / `unassigned` | `{user:{id,name}}` |
+| `card_archived` / `card_restored` / `card_created` | `null` (event name carries the meaning — projection returns `null`, not `{}`) |
+| `comment_created` / `comment_edited` | `{comment_id, author:{id,name}}` |
+| `comment_deleted` | `{comment_id, author:{id,name}, body_excerpt}` — 80-char body excerpt |
+| `attachment_added` | `{file:{name, size}}` |
+| `attachment_removed` | `{file:{name, size}, uploader?:{id,name}}` — uploader present so an admin removing another user's file is distinguishable |
+| `checklist_added` / `checklist_removed` | `{checklist:{title}}` |
+| `checklist_renamed` | `{before, after}` — the checklist's title before and after the rename (no-op renames do not log) |
+
+Name snapshots are captured **at write time** — later lane renames or user deletions do not mutate the log (append-only).
+
+**Errors:** card/board not accessible → **404** (BOARD-04b, no existence leak); `limit` > 500 → clamped, not an error.
+
+**Card page integration (ACTIVITY-02):**
+- A **History** tab sits beside the card's main/Comments content on the card detail page; tabs are ARIA-compliant (`role=tablist`/`tab`/`tabpanel`, arrow-key navigation).
+- On activation the tab lazy-loads via the endpoint above (limit 50; "Load more" appends the next page using the last item's id as `before`).
+- Feed item: actor name, i18n action phrase with `detail` interpolated, relative time (exact time on hover/focus) using the same Markdown/trusted pipeline as the rest of the page (no raw HTML).
+- Empty log → honest empty state: no backfill, no fake history (the log started when the feature shipped).
+
+### 5.15 Labels (Post-MVP)
 
 #### `GET /v1/boards/{boardId}/labels`
 
@@ -2823,7 +2927,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | BOARD-06a / BOARD-06b | 5.5 (DELETE /v1/boards UI surface; `card_count` in GET /v1/boards), 3.15 (BoardService::listBoards), www/boards.php + www/js/boards.js |
 | BOARD-06c / BOARD-06d | 5.5 (archive/restore UI surface in the edit-board modal; `UserPrio::removeForBoard` + `Card::findWithBoardForUserList` archived-board exclusion in the prio prioritized lane), 3.15 (BoardService::archiveBoard, PriorityService::loadPrioritized), www/v1/index.php, www/boards.php + www/js/boards.js |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
-| CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.14 |
+| CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
@@ -2832,6 +2936,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | IMPORT-01 through IMPORT-10 | 3.15, 3.19, 8.3, 12.B |
 | RT-01 through RT-03 | 3.18, 4.3, 5.5 (version endpoint) |
 | PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
+| ACTIVITY-01 through ACTIVITY-03 | 3.14 (card_activity), 3.15 (CardActivityService), 3.18 (js/card.js History tab), 4.1 (card_activity), 5.14 |
 | ONBOARD-01 through ONBOARD-11 | Future (Nice-to-have) |
 | PERF-01 through PERF-04 | 9.4, 10 (Phase 7) |
 | SEC-01 through SEC-08 | 6.1 through 6.8 |
