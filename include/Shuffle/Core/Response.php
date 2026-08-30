@@ -51,6 +51,21 @@ class Response
     }
 
     /**
+     * Sends a plain-text response (e.g. text/markdown digests).
+     *
+     * @param string $body        Response body
+     * @param string $contentType MIME type
+     * @param int    $status      HTTP status code
+     */
+    public function text(string $body, string $contentType, int $status = 200): void
+    {
+        http_response_code($status);
+        header('Content-Type: ' . $contentType . '; charset=utf-8');
+        header('Cache-Control: no-cache');
+        echo $body;
+    }
+
+    /**
      * Streams a file to the client.
      *
      * @param resource $stream      Readable stream resource

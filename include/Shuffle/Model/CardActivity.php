@@ -148,4 +148,49 @@ class CardActivity
 
         return $this->db->fetchAll($sql, $params);
     }
+
+    /**
+     * Returns activity rows matching an event + optional time window,
+     * joined to the live card/board/actor names (no board predicate —
+     * for cross-board scans like the priority digest's "Done yesterday").
+     *
+     * The digest (feature/prio-digest, PRIO-14) queries for `card_moved`
+     * rows in a 24h window; the service then filters done-lane targets
+     * (case-insensitive in PHP — lane names vary by board) and board
+     * access per row. Rows whose card was deleted are already gone
+     * (FK ON DELETE CASCADE), so the INNER JOINs are safe.
+     *
+     * @param string      $event   Event filter (e.g. 'card_moved')
+     * @param string|null $since  'Y-m-d H:i:s' or null for unbounded
+     * @param string|null $until  'Y-m-d H:i:s' or null for unbounded
+     * @param int        $limit   Max rows (defensive cap; 24h moves are few)
+     * @return array Array of rows with card/board/actor titles inlined
+     */
+    public function eventBetween(string $event, ?string $since, ?string $until, int $limit = 500): array
+    {
+        $sql = 'SELECT a.id, a.card_id, a.board_id, a.actor_id, a.payload_json, a.created_at,
+                       c.title AS card_title,
+                       b.title AS board_title,
+                       u.name  AS actor_name
+                FROM card_activity a
+                JOIN cards  c ON c.id = a.card_id
+                JOIN boards b ON b.id = a.board_id
+                JOIN users  u ON u.id = a.actor_id
+                WHERE a.event = ?';
+
+        $params = [$event];
+
+        if ($since !== null) {
+            $sql .= ' AND a.created_at >= ?';
+            $params[] = $since;
+        }
+        if ($until !== null) {
+            $sql .= ' AND a.created_at <= ?';
+            $params[] = $until;
+        }
+
+        $sql .= ' ORDER BY a.created_at ASC, a.id ASC LIMIT ' . (int) $limit;
+
+        return $this->db->fetchAll($sql, $params);
+    }
 }

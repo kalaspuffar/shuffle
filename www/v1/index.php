@@ -118,6 +118,8 @@ $cardService->setActivityService($activityService);
 $cardService->setUserModel($userModelForLog);
 $cardService->setLaneModel($laneModel);
 $commentService->setActivityService($activityService);
+// Priority digest (PRIO-12..14): "Done yesterday" reads the activity log.
+// (The priority service is instantiated below; wire after wiring is done.)
 
 // Attachment system
 $attachmentModel   = new Shuffle\Model\Attachment($db);
@@ -145,6 +147,11 @@ $priorityService  = new Shuffle\Service\PriorityService(
     $auth
 );
 $priorityController = new Shuffle\Controller\PriorityController($auth, $priorityService);
+// Digest wiring (PRIO-14): activity log for "Done yesterday" + Lang for i18n headings.
+$priorityService->setActivityService($activityService);
+if (isset($lang)) {
+    $priorityService->setLang($lang);
+}
 
 // Card activity (ACTIVITY-03) — read-only feed over the card lifecycle
 $activityController = new Shuffle\Controller\CardActivityController(
@@ -251,6 +258,8 @@ $router->get('/priority', [$priorityController, 'index']);
 $router->post('/priority/inbox/{cardId}', [$priorityController, 'prioritize']);
 $router->delete('/priority/inbox/{cardId}', [$priorityController, 'deprioritize']);
 $router->put('/priority/position', [$priorityController, 'reorder']);
+// Priority digest (PRIO-12..14): top-N + "Done yesterday", json or markdown
+$router->get('/priority/digest', [$priorityController, 'digest']);
 
 // Setup routes (unauthenticated, guarded internally)
 $router->post('/setup/test-smtp', [$setupController, 'testSmtp']);

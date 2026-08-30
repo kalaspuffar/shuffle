@@ -86,6 +86,15 @@ class CardActivityService
     }
 
     /**
+     * Returns the underlying CardActivity DAO (for cross-board range scans
+     * like the priority digest's "Done yesterday", PRIO-14).
+     */
+    public function activity(): CardActivity
+    {
+        return $this->activity;
+    }
+
+    /**
      * Snapshots a lane row into the minimal shape a log payload needs.
      * (id + title + icon — enough for the feed to render "Inbox → In Progress".)
      *

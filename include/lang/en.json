@@ -525,5 +525,16 @@
     "priority.removed": "Moved back to inbox.",
     "priority.moved": "Reordered.",
     "priority.error_conflict": "That card is on a Done lane — move it out of Done first.",
-    "priority.error_failed": "Couldn't update your priority list. Please try again."
+    "priority.error_failed": "Couldn't update your priority list. Please try again.",
+    "priority.digest.title": "Digest",
+    "priority.digest.label": "Top N",
+    "priority.digest.desc": "Copy a short, chat-ready summary of your top items and what was done yesterday. The list is always recomputed live — what you see is what you copy.",
+    "priority.digest.top": "Top {0}",
+    "priority.digest.top_heading": "My top {0}",
+    "priority.digest.done_heading": "Done yesterday ({0})",
+    "priority.digest.copy": "Copy digest",
+    "priority.digest.copied": "Copied — paste it anywhere.",
+    "priority.digest.fallback": "Clipboard blocked — the digest is in the box below; select all and copy.",
+    "priority.digest.error": "Couldn't prepare the digest. Please try again.",
+    "priority.digest.empty": "Nothing to copy yet — no items in your digest."
 }
