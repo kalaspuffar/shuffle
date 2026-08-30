@@ -330,19 +330,4 @@ $laneTemplatesJson = json_encode(
 );
 ?>
 <script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
-<script>
-// "Show archived" cards — toggles ?include_archived=1 and reloads the
-// server-rendered board (same pattern as boards.php for boards; the board
-// view is server-rendered, so a full reload is the correct mechanism).
-(function () {
-    var t = document.getElementById('toggle-archived-cards');
-    if (!t) return;
-    t.addEventListener('change', function () {
-        var url = new URL(window.location);
-        if (this.checked) { url.searchParams.set('include_archived', '1'); }
-        else { url.searchParams.delete('include_archived'); }
-        window.location.href = url.toString();
-    });
-})();
-</script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

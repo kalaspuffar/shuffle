@@ -1770,4 +1770,26 @@
         return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    /* =============================================
+       "Show archived" cards toggle
+       =============================================
+       The board page is server-rendered, so toggling the filter is a
+       full page reload with ?include_archived=1 (the same pattern as the
+       boards list in boards.js). Kept in this external file because the
+       site CSP is `script-src 'self'` — inline <script> blocks are
+       rejected in dev and prod alike. */
+
+    var toggleArchived = document.getElementById('toggle-archived-cards');
+    if (toggleArchived) {
+        toggleArchived.addEventListener('change', function () {
+            var url = new URL(window.location);
+            if (this.checked) {
+                url.searchParams.set('include_archived', '1');
+            } else {
+                url.searchParams.delete('include_archived');
+            }
+            window.location.href = url.toString();
+        });
+    }
+
 })();
