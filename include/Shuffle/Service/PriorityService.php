@@ -324,13 +324,15 @@ class PriorityService
         $topHeading  = '**' . $this->langLabel('priority.digest.top_heading',  (string) count($digest['top'])) . '**';
         $doneHeading = '**' . $this->langLabel('priority.digest.done_heading', date('Y-m-d', strtotime('-1 day'))) . '**';
 
+        // Top items: `marker title — *board*`. The deep link stays in the JSON
+        // payload (card_html) but is NOT rendered into the chat markdown —
+        // a non-clickable path is noise in a chat client (Daniel, 2026-08-30).
         $topLines = array_map(
             static fn (array $item): string => sprintf(
-                '%s %s — *%s* — %s',
+                '%s %s — *%s*',
                 $item['state_marker'],
                 $item['card_title'],
-                $item['board_title'],
-                $item['card_html']
+                $item['board_title']
             ),
             $digest['top']
         );
@@ -344,16 +346,37 @@ class PriorityService
             $digest['done_yesterday']
         );
 
-        // Assemble a flat line list. A section with zero items renders its
-        // heading followed by "— (none)" on the same line (spec §5.16).
-        $lines = [];
-        $lines[] = $digest['top'] === [] ? $topHeading . ' — (none)' : $topHeading;
-        foreach ($topLines as $l)  { $lines[] = $l; }
-        $lines[] = '';
-        $lines[] = $digest['done_yesterday'] === [] ? $doneHeading . ' — (none)' : $doneHeading;
-        foreach ($doneLines as $l) { $lines[] = $l; }
-
-        return implode("\n", $lines) . "\n";
+        // Sections with zero items are OMITTED entirely: an empty "Done
+        // yesterday — (none)" heading is just noise in a chat (Daniel,
+        // 2026-08-30). If BOTH are empty the digest is the empty string and
+        // the page-level surface handles that (no clipboard, quiet hint).
+        $sections = [];
+        if ($digest['top'] !== []) {
+            $sections[] = array_merge(
+                [$topHeading],
+                array_values($topLines)
+            );
+        }
+        if ($digest['done_yesterday'] !== []) {
+            $sections[] = array_merge(
+                [$doneHeading],
+                array_values($doneLines)
+            );
+        }
+        if ($sections === []) {
+            return '';
+        }
+        $body = [];
+        foreach ($sections as $s) {
+            foreach ($s as $line) {
+                $body[] = $line;
+            }
+            $body[] = '';
+        }
+        // Trim the trailing blank separator and end with a single newline.
+        while (end($body) === '') { array_pop($body); }
+        if ($body === []) { return ''; }
+        return implode("\n", $body) . "\n";
     }
 
     /**

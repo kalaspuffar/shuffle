@@ -4195,9 +4195,10 @@ small,
 .priority-digest {
     margin: 0 0 20px;
     padding: 14px 16px;
-    border: 1px solid var(--border-color, #d1d5db);
+    border: 1px solid var(--color-border, #2A2A3C);
     border-radius: var(--border-radius-md, 6px);
-    background: var(--bg-secondary, #f9fafb);
+    background: var(--color-raised, #161625);
+    color: var(--color-text, #E2E2EC);
 }
 
 .priority-digest-controls {
@@ -4210,19 +4211,21 @@ small,
 .priority-digest-label {
     font-weight: 600;
     font-size: 0.9rem;
+    color: var(--color-text, #E2E2EC);
 }
 
 .priority-digest-n {
     width: 64px;
     padding: 4px 6px;
-    border: 1px solid var(--border-color, #d1d5db);
+    border: 1px solid var(--color-border, #2A2A3C);
     border-radius: var(--border-radius-sm, 4px);
     font-size: 0.9rem;
-    background: var(--bg-primary, #fff);
+    background: var(--color-base, #0D0D12);
+    color: var(--color-text, #E2E2EC);
 }
 
 .priority-digest-n:focus-visible {
-    outline: 2px solid var(--color-primary, #2563eb);
+    outline: 2px solid var(--color-primary, #6D28D9);
     outline-offset: 1px;
 }
 
@@ -4230,28 +4233,30 @@ small,
     font-size: 0.85rem;
     min-height: 1.2em;
     margin-left: 4px;
+    color: var(--color-text-secondary, #9898AC);
 }
 
 .priority-digest-status--ok {
-    color: var(--color-success, #15803d);
+    color: var(--color-success, #86EFAC);
 }
 
 .priority-digest-status--error {
-    color: var(--color-danger, #b91c1c);
+    color: var(--color-error, #F87171);
 }
 
 .priority-digest-desc {
     margin: 6px 0 0;
     font-size: 0.85rem;
-    color: var(--text-secondary, #4b5563);
+    color: var(--color-text-secondary, #9898AC);
 }
 
 .priority-digest-body {
     margin: 10px 0 0;
     padding: 10px 12px;
-    border: 1px dashed var(--border-color, #d1d5db);
+    border: 1px dashed var(--color-border, #2A2A3C);
     border-radius: var(--border-radius-sm, 4px);
-    background: var(--bg-primary, #fff);
+    background: var(--color-base, #0D0D12);
+    color: var(--color-text, #E2E2EC);
     font-size: 0.85rem;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -4263,9 +4268,9 @@ small,
 /* Clipboard-blocked state (PRIO-12): the <pre> becomes the copy surface —
    highlight it so the user knows to select-all + copy. */
 .priority-digest-body--fallback {
-    outline: 2px solid var(--color-warning, #b45309);
+    outline: 2px solid var(--color-warning, #FDBA74);
     outline-offset: 2px;
-    background: #fffbeb;
+    background: var(--color-warning-subtle, rgba(253, 186, 116, 0.12));
 }
 
 @media (max-width: 560px) {

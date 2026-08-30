@@ -535,5 +535,6 @@
     "priority.digest.copy": "Copy digest",
     "priority.digest.copied": "Copied — paste it anywhere.",
     "priority.digest.fallback": "Clipboard blocked — the digest is in the box below; select all and copy.",
-    "priority.digest.error": "Couldn't prepare the digest. Please try again."
+    "priority.digest.error": "Couldn't prepare the digest. Please try again.",
+    "priority.digest.empty": "Nothing to copy yet — no items in your digest."
 }

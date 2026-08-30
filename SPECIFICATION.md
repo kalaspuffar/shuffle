@@ -2398,27 +2398,35 @@ Returns the acting user's **priority digest** — their top-N prioritized cards 
 ```
 
 Field notes:
-- `top` items reuse the **exact item shape** of §5.13 `prioritized` items (PRIO-07: `state_marker` derived from the live lane — In Progress → 🔨, Inbox → 📥, Done → ✅, else the lane's own icon or `•`), truncated to `n` in the user's own order.
+- `top` items reuse the **exact item shape** of §5.13 `prioritized` items (PRIO-07: `state_marker` derived from the live lane — In Progress → 🔨, Inbox → 📥, Done → ✅, else the lane's own icon or `•`), truncated to `n` in the user's own order. `card_html` is included for programmatic consumers (API clients, future cron-posters); it is **not** rendered into the chat markdown (§5.16 markdown rules).
 - `done_yesterday` item: `actor` is the user who moved the card (name from the activity log row); `created_at` is when the card landed in the Done lane; ordering is oldest first within the window.
 - `window` is the exact "Done yesterday" range used (server local timezone: yesterday `00:00:00` → `23:59:59`).
-- The log is cold-start (ACTIVITY-01: no backfill), so `done_yesterday` is legitimately empty pre-feature-history; the UI renders an honest empty state, not fake data.
+- The log is cold-start (ACTIVITY-01: no backfill), so `done_yesterday` is legitimately empty pre-feature-history; **the markdown output omits the section entirely** (an empty "Done yesterday — (none)" heading is noise in a chat — Daniel, 2026-08-30). The JSON still carries `"done_yesterday": []` — structured consumers can distinguish "empty" from "absent".
 
 **Response (200, `format=markdown`)** — `Content-Type: text/markdown; charset=utf-8`, paste-ready for chat:
 
 ```markdown
 **My top 5**
-🔨 Ship the digest — *Shuffle* — /card.php?id=42
-📥 Fix the vhost ACL — *Shuffle* — /card.php?id=12
+🔨 Ship the digest — *Shuffle*
+📥 Fix the vhost ACL — *Shuffle*
 
 **Done yesterday (2026-08-29)**
 ✅ Rotate keys — *Ops* — Olaf
 ```
 
-Markdown rules: top items are `{state_marker} {title} — *{board}* — {card_html}` (deep link as a plain URL — strips cleanly in chat clients); Done-yesterday items are `✅ {title} — *{board}* — {actor name}`; a section with zero items renders its single-line heading plus `(none)` on the same line so the digest stays greppable and the sender knows it was checked.
+Markdown rules (Daniel, 2026-08-30, "keep it clean for chat"):
+- Top items: `{state_marker} {title} — *{board}*` — **no deep link in the chat body**. A non-clickable `/card.php?id=N` tail is dead noise in a chat client; the link stays in the JSON (`card_html`) for programmatic consumers.
+- Done-yesterday items: `✅ {title} — *{board}* — {actor name}`.
+- **Sections with zero items are OMITTED** (no heading, no `(none)` placeholder). The section that has items renders its heading + items; a section with none is not rendered at all, so an empty "Done yesterday — (none)" line never lands in a chat.
+- **Both sections empty → the markdown body is the empty string** (HTTP 200, empty `text/markdown`). The page-level Copy button treats an empty body as "nothing to copy", hides the `<pre>` fallback, and shows a quiet "Nothing to copy yet — no items in your digest." hint. The JSON still returns `"top": []` and `"done_yesterday": []` so structured consumers can distinguish.
 
 **Errors:** `401` when unauthenticated. (There is no per-card failure — inaccessible cards are omitted, per BOARD-04b.)
 
-**Priority-page UI surface (PRIO-12/13):** the priority page (`www/priority.php`) gains a **digest bar** under the page header: a top-N number input (default 5, min 1 max 50, step 1) + a **Copy digest** button. The button fetches `GET /v1/priority/digest?n=<value>&format=markdown` **client-side** (same `Shuffle.api` path every other page action uses), then copies it to the clipboard via the async Clipboard API; on failure (clipboard blocked/denied — the API is a same-origin GET and needs no CSRF) it falls back to a **selectable `<textarea>` prefill** with the markdown and an explicit "select all + copy" hint so the digest is never lost. A success flash ("Copied — paste it anywhere.") fires only after the clipboard write resolves. The button and input are keyboard-operable with visible focus (PRIO-10/AA). The bar is progressive-enhancement: without JS the user can still hit the API endpoint directly (PRIO-14).
+**Priority-page UI surface (PRIO-12/13):** the priority page (`www/priority.php`) gains a **digest bar** under the page header: a top-N number input (default 5, min 1 max 50, step 1) + a **Copy digest** button. The button fetches `GET /v1/priority/digest?n=<value>&format=markdown` **client-side** (same `Shuffle.api` path every other page action uses), then copies it to the clipboard via the async Clipboard API; on failure (clipboard blocked/denied — the API is a same-origin GET and needs no CSRF) it falls back to a **selectable `<pre>` display** of the same markdown and an explicit "select all + copy" hint so the digest is never lost. A success flash ("Copied — paste it anywhere.") fires only after the clipboard write resolves. The button and input are keyboard-operable with visible focus (PRIO-10/AA). The bar is progressive-enhancement: without JS the user can still hit the API endpoint directly (PRIO-14).
+
+**Empty-state handling (PRIO-12):** if `format=markdown` returns an empty body (both sections omitted — no top cards and no Done-yesterday items), the JS Copy handler **does not** copy the empty string to the clipboard; it clears the visible `<pre>`, hides it, and shows a quiet "Nothing to copy yet — no items in your digest." status (not an error). The page server-side renders the `<pre>` with `display:none` when the initial server-rendered markdown is empty, so no empty dashed box shows. The N-change refresher does the same (hide on empty, re-show on non-empty).
+
+**Visual contract (PRIO-12):** the digest bar uses the app's **dark-theme design tokens** (`--color-base` / `--color-raised` / `--color-border` / `--color-text` / `--color-text-secondary` / `--color-primary` / `--color-success` / `--color-error` / `--color-warning` / `--color-warning-subtle`) — the bar inherits the app's off-white-on-near-black palette exactly like the rest of the page. (Daniel, 2026-08-30: an early version of the bar referenced non-existent tokens that fell back to light values — a white box with light-grey text floating in the dark app — and had to be corrected to the real tokens.)
 
 **Wiring (www/v1/index.php):** `PriorityService` is extended with `CardActivityService` (and `Board`, already injected) for the digest; route `$router->get('/priority/digest', [$priorityController, 'digest'])`; `PriorityController` gains `digest(Request, Response, array): void`.
 

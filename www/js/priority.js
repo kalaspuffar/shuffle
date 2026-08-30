@@ -468,7 +468,8 @@
             label:    dLang.label    || 'Top items',
             copied:   dLang.copied   || 'Copied — paste it anywhere.',
             fallback: dLang.fallback || 'Clipboard blocked — the digest is in the box below; select all and copy.',
-            error:    dLang.error    || "Couldn't prepare the digest. Please try again."
+            error:    dLang.error    || "Couldn't prepare the digest. Please try again.",
+            empty:    dLang.empty    || "Nothing to copy yet — no items in your digest."
         };
 
         var nInput  = document.getElementById('priority-digest-n');
@@ -531,7 +532,19 @@
                     if (res.status !== 200 || md === null) {
                         throw new Error('digest-' + res.status);
                     }
-                    if (body) { body.textContent = md; } // keep the visible fallback in sync
+                    if (md.trim() === '') {
+                        // Empty digest (no top items AND no Done-yesterday
+                        // items): do not copy '' to the clipboard, and
+                        // surface a quiet hint. The <pre> is also cleared
+                        // so no empty dashed box is visible.
+                        if (body) { body.textContent = ''; body.style.display = 'none'; }
+                        setStatus(D.empty, false);
+                        return;
+                    }
+                    if (body) {
+                        body.textContent = md;      // keep the visible fallback in sync
+                        body.style.display = 'block'; // re-show if it was hidden by a prior empty state
+                    }
                     return copyText(md).then(function () {
                         setStatus(D.copied, true);
                     }, function (err) {
@@ -559,10 +572,15 @@
             nInput.value = n;
             api('/v1/priority/digest?n=' + encodeURIComponent(n) + '&format=markdown')
                 .then(function (res) {
-                    if (res && res.status === 200 && typeof res.data === 'string' && body) {
+                    if (!res || res.status !== 200 || typeof res.data !== 'string' || !body) { return; }
+                    if (res.data.trim() === '') {
+                        body.textContent = '';
+                        body.style.display = 'none'; // no empty dashed box
+                    } else {
                         body.textContent = res.data;
-                        body.classList.remove('priority-digest-body--fallback');
+                        body.style.display = 'block';
                     }
+                    body.classList.remove('priority-digest-body--fallback');
                 })
                 .catch(function () { /* keep the prior body; the copy button reports failures */ });
         });

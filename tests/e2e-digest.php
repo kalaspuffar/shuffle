@@ -222,21 +222,29 @@ echo "\n[3] markdown contract\n";
 $md = $svc->digestMarkdown($asUser, 50);
 check('markdown is a string', is_string($md) && $md !== '');
 check('top heading bold + rendered count', str_contains($md, '**My top ' . $expectedTotal . '**'), 'md=' . $md);
-check('done heading bold + yesterday date', str_contains($md, '**Done yesterday (' . date('Y-m-d', strtotime('-1 day')) . ')**'), 'md=' . $md);
-check('top item line: {marker} {title} — *{board}* — /card.php?id=N (plain URL)',
-    preg_match('/^\S+ E2E-DIG-top-1 — \*' . preg_quote($boardTitle, '/') . '\* — \/card\.php\?id=' . $topCards[0] . '/m', $md) === 1, 'md=' . $md);
+// At this point no card has a Done-lane move in yesterday's window yet, so
+// the 'Done yesterday' section must be OMITTED (Daniel 2026-08-30). Section
+// [4] below injects the rows and re-checks.
+check('empty Done-yesterday section is omitted at this point (no noise)',
+    !str_contains($md, 'Done yesterday') && !str_contains($md, '(none)'), 'md=' . $md);
+check('top item line: {marker} {title} — *{board}* (no link tail in chat markdown)',
+    preg_match('/^\S+ E2E-DIG-top-1 — \*' . preg_quote($boardTitle, '/') . '\*$/m', $md) === 1, 'md=' . $md);
+check('top item line in markdown does NOT contain a dead /card.php?id= path',
+    !preg_match('/\/card\.php\?id=\d+/m', $md), 'md=' . $md);
 check('markdown ends with newline', str_ends_with($md, "\n"));
 
 // Honest empty state: deny-all user (no boards) → both sections "(none)".
 $svcDeny = new \Shuffle\Service\PriorityService($userPrio, $card, $lane, $board,
     new HeadlessAuthDeny($asUser), $actSvc, $lang);
 $mdDeny = $svcDeny->digestMarkdown($asUser, 5);
-check('no access: top section renders heading + (none)',
-    str_contains($mdDeny, '**My top 0** — (none)'), 'md=' . $mdDeny);
-check('no access: done section renders heading + (none)',
-    str_contains($mdDeny, '**Done yesterday (' . date('Y-m-d', strtotime('-1 day')) . ')** — (none)'), 'md=' . $mdDeny);
-check('no access: no card title leaked from our temp board',
+// Empty digest: BOTH sections are omitted, and the whole markdown is the
+// empty string (no chat noise — Daniel 2026-08-30).
+check('deny-all user: markdown is empty (both sections omitted, no (none) noise)',
+    $mdDeny === '', 'md=' . var_export($mdDeny, true));
+check('deny-all user: no card title leaked from our temp board',
     !str_contains($mdDeny, 'E2E-DIG-top-1'), 'md=' . $mdDeny);
+check('deny-all user: no done heading leaks',
+    !str_contains($mdDeny, 'Done yesterday'), 'md=' . $mdDeny);
 
 // ---------------------------------------------------------------------------
 echo "\n[4] Done yesterday from the card_activity log\n";
@@ -291,11 +299,19 @@ check('second done item is the Done-ness card', (int) ($second['card_id'] ?? 0) 
 check('done items oldest-first', ($first['created_at'] ?? '') <= ($second['created_at'] ?? ''));
 
 $md = $svc->digestMarkdown($asUser, 50);
+// Top section: present (3 fixtures in the list), no dead links.
+check('markdown ✅ line (top heading present)', str_contains($md, '**My top'), 'md=' . $md);
+// Done-yesterday section: present now (we injected yesterday log rows).
+check('markdown Done-yesterday heading present (log rows exist)', str_contains($md, 'Done yesterday'), 'md=' . $md);
 check('markdown ✅ line: {title} — *{board}* — {actor}',
     preg_match('/^✅ E2E-DIG-hit-done — \*' . preg_quote($boardTitle, '/') . '\* — ' . preg_quote($asUser['name'], '/') . '/m', $md) === 1, 'md=' . $md);
 check('markdown lists Done-ness ✅ line', str_contains($md, '✅ E2E-DIG-hit-doneness'));
 check('markdown excludes Completed / no-op rows',
     !str_contains($md, 'E2E-DIG-not-completed') && !str_contains($md, '✅ E2E-DIG-noop-done-done'));
+// Section is OMITTED when empty — the deny-all user covered above. But also
+// verify no card on the top section has a /card.php?id= path in the chat md.
+check('markdown top items do NOT carry a dead /card.php?id= link',
+    !preg_match('/\\/card\\.php\?id=\d+/m', $md), 'md=' . $md);
 
 // Out-of-window moves are excluded: a card moved to Done TODAY (now) must not
 // appear even though the log row exists.

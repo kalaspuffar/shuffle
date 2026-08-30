@@ -137,6 +137,7 @@ require ROOT_DIR . '/include/templates/header.php';
         'copied'     => $lang->get('priority.digest.copied'),
         'fallback'   => $lang->get('priority.digest.fallback'),
         'error'      => $lang->get('priority.digest.error'),
+        'empty'      => $lang->get('priority.digest.empty'),
     ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
     ?>
     <div class="priority-digest" id="priority-digest"
@@ -154,7 +155,11 @@ require ROOT_DIR . '/include/templates/header.php';
             <span id="priority-digest-status" class="priority-digest-status" role="status" aria-live="polite"></span>
         </div>
         <p class="priority-digest-desc" id="priority-digest-desc"><?= htmlspecialchars($lang->get('priority.digest.desc'), ENT_QUOTES, 'UTF-8') ?></p>
+        <?php if (trim($digestMarkdown) !== ''): ?>
         <pre class="priority-digest-body" id="priority-digest-body"><?= htmlspecialchars($digestMarkdown, ENT_QUOTES, 'UTF-8') ?></pre>
+        <?php else: ?>
+        <pre class="priority-digest-body" id="priority-digest-body" style="display:none"></pre>
+        <?php endif; ?>
     </div>
 
     <div class="priority-columns">

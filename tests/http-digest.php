@@ -222,8 +222,13 @@ try {
     $md = $rMd['body'];
     check('markdown body non-empty', strlen(trim($md)) > 0);
     check('markdown has "My top" heading', str_contains($md, '**My top'), 'md=' . $md);
-    check('markdown has "Done yesterday" heading', str_contains($md, 'Done yesterday'), 'md=' . $md);
-    check('markdown done section has "(none)" (no yesterday log)', str_contains($md, '(none)'), 'md=' . $md);
+    // No Done-yesterday rows exist for the fixture (its moves are all
+    // today) so the section must be OMITTED entirely — no heading,
+    // no (none) placeholder (Daniel 2026-08-30: empty section is noise).
+    check('empty Done-yesterday section is omitted (no noise in chat)',
+        !str_contains($md, 'Done yesterday') && !str_contains($md, '(none)'), 'md=' . $md);
+    check('markdown top card line does NOT carry dead /card.php?id= link',
+        !preg_match('/\/card\.php\?id=\d+/m', $md), 'md=' . $md);
     check('markdown top card title visible', str_contains($md, 'Dig #1 ' . $runId), 'md=' . $md);
     check('markdown ends with newline', str_ends_with($md, "\n"));
 
@@ -234,6 +239,9 @@ try {
     check('markdown n=1 heading "My top 1"', str_contains($md1, '**My top 1**'), 'md=' . $md1);
     check('markdown n=1 shows Dig #1', str_contains($md1, 'Dig #1 ' . $runId));
     check('markdown n=1 does NOT show Dig #2 in top section', !preg_match('/Dig #2 ' . preg_quote($runId, '/') . ' — \*/m', $md1), 'md=' . $md1);
+    check('markdown n=1 is exactly top-1 + trailing newline (no Done section)',
+        substr_count($md1, "\n") === 2 // 2 lines: heading + 1 card + trailing \n
+        && substr_count($md1, 'Dig #') === 1, 'md=' . $md1);
 
     // [F] bad format
     echo "\n[F] Invalid format\n";
@@ -262,6 +270,10 @@ try {
     check('JS has navigator.clipboard', str_contains($rJs['body'], 'navigator.clipboard'));
     check('JS has initDigest IIFE', str_contains($rJs['body'], 'initDigest'));
     check('JS has copyBtn.addEventListener', str_contains($rJs['body'], 'copyBtn.addEventListener'));
+    check('JS is empty-digest-aware (md.trim() === "" guard)',
+          str_contains($rJs['body'], "md.trim() === ''"));
+    check('JS has empty hint (D.empty / dLang.empty)',
+          str_contains($rJs['body'], 'empty'));
 
     // [I] Response::text content-type override (spec: text/markdown;charset)
     echo "\n[I] Response::text contract\n";
