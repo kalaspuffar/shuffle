@@ -4,19 +4,26 @@ declare(strict_types=1);
 namespace Shuffle\Service;
 
 use Shuffle\Core\Auth;
+use Shuffle\Core\Lang;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
 use Shuffle\Model\Lane;
 use Shuffle\Model\UserPrio;
+use Shuffle\Service\CardActivityService;
 
 /**
- * Personal priority list service (PRIO-01..11).
+ * Personal priority list service (PRIO-01..14).
  *
  * The priority list is a per-user VIEW, never a source of truth (PRIO-02/08):
  * `user_prio` stores only (user, card) membership plus the user's custom
  * order. Every other field (title, lane, board, due date) is read live from
  * the board on each call. The inbox section is computed on the fly and is
  * never stored.
+ *
+ * The digest (PRIO-12..14) is built on the same live-read principle plus
+ * the card_activity log (ACTIVITY-01) for "Done yesterday" — the log is
+ * the single source of truth (the original `card_moves` table plan was
+ * superseded by it).
  *
  * Error conventions (matched to existing controllers):
  *   \RuntimeException — "not found / not accessible" (controller maps to 404)
@@ -35,18 +42,51 @@ class PriorityService
     private Board $board;
     private Auth $auth;
 
+    /** Digest (PRIO-12..14) — injected when the activity log is wired. */
+    private ?CardActivityService $activityService = null;
+    private ?Lang $lang = null;
+
+    /** Default top-N for the digest (PRIO-12/13/14). */
+    public const DIGEST_DEFAULT_N = 5;
+
+    /** Digest top-N bounds (PRIO-13: 1–50, clamped not rejected). */
+    public const DIGEST_MIN_N = 1;
+    public const DIGEST_MAX_N = 50;
+
     public function __construct(
         UserPrio $userPrio,
         Card $card,
         Lane $lane,
         Board $board,
-        Auth $auth
+        Auth $auth,
+        ?CardActivityService $activityService = null,
+        ?Lang $lang = null
     ) {
         $this->userPrio = $userPrio;
         $this->card = $card;
         $this->lane = $lane;
         $this->board = $board;
         $this->auth = $auth;
+        $this->activityService = $activityService;
+        $this->lang = $lang;
+    }
+
+    /**
+     * Attaches the card activity service for digest "Done yesterday"
+     * (PRIO-14). Optional — the list-only methods never need it.
+     */
+    public function setActivityService(CardActivityService $activityService): void
+    {
+        $this->activityService = $activityService;
+    }
+
+    /**
+     * Attaches the Lang instance so digest markdown headings follow i18n
+     * (no hardcoded strings — PRIO-12, repo doctrine).
+     */
+    public function setLang(Lang $lang): void
+    {
+        $this->lang = $lang;
     }
 
     /**
@@ -221,6 +261,228 @@ class PriorityService
      * @param array $user User row
      * @return array<int, array<string, mixed>>
      */
+    // ------------------------------------------------------------------
+    // Priority digest (PRIO-12..14)
+    // ------------------------------------------------------------------
+
+    /**
+     * Builds the acting user's digest (PRIO-12/14).
+     *
+     * Returns the user's top-N prioritized cards (live-read, their own
+     * order) plus the "Done yesterday" list — cards that moved to a Done
+     * lane during the previous calendar day (server local time), across
+     * all boards the user can access. Inaccessible cards are OMITTED,
+     * never revealed (BOARD-04b).
+     *
+     * Always live (PRIO-13): no caching, no stored digest.
+     *
+     * @param array $user Acting user row
+     * @param int   $n    Top-N (1–50; clamped here, not rejected)
+     * @return array{
+     *   n: int,
+     *   top: array<int, array>,
+     *   done_yesterday: array<int, array>,
+     *   window: array{since: string, until: string}
+     * }
+     *
+     * @throws \RuntimeException When the activity log is not wired (the digest
+     *                           needs it — controller 503s, the list still works)
+     */
+    public function digest(array $user, int $n = self::DIGEST_DEFAULT_N): array
+    {
+        if ($this->activityService === null) {
+            throw new \RuntimeException('Card activity log is not available for the digest');
+        }
+
+        $n = $this->clampDigestN($n);
+
+        // Window: yesterday 00:00:00 → 23:59:59 in the server's local TZ.
+        $since = date('Y-m-d 00:00:00', strtotime('-1 day'));
+        $until = date('Y-m-d 23:59:59', strtotime('-1 day'));
+
+        return [
+            'n'              => $n,
+            'top'            => $this->digestTop($user, $n),
+            'done_yesterday' => $this->digestDoneYesterday($user, $since, $until),
+            'window'         => ['since' => $since, 'until' => $until],
+        ];
+    }
+
+    /**
+     * Render the digest as paste-ready Markdown (PRIO-12 markdown contract).
+     *
+     * Headings come from i18n (digest.top_heading / digest.done_heading) so
+     * no hardcoded string ships (repo doctrine); the fallback is the
+     * English strings themselves (Lang::get returns the key when missing,
+     * so a missing key renders the key name — loud, not silent).
+     */
+    public function digestMarkdown(array $user, int $n = self::DIGEST_DEFAULT_N): string
+    {
+        $digest = $this->digest($user, $n);
+
+        // Headings (spec §5.16: bold lines, not ATX).
+        $topHeading  = '**' . $this->langLabel('priority.digest.top_heading',  (string) count($digest['top'])) . '**';
+        $doneHeading = '**' . $this->langLabel('priority.digest.done_heading', date('Y-m-d', strtotime('-1 day'))) . '**';
+
+        $topLines = array_map(
+            static fn (array $item): string => sprintf(
+                '%s %s — *%s* — %s',
+                $item['state_marker'],
+                $item['card_title'],
+                $item['board_title'],
+                $item['card_html']
+            ),
+            $digest['top']
+        );
+        $doneLines = array_map(
+            static fn (array $item): string => sprintf(
+                '✅ %s — *%s* — %s',
+                $item['card_title'],
+                $item['board_title'],
+                $item['actor']['name']
+            ),
+            $digest['done_yesterday']
+        );
+
+        // Assemble a flat line list. A section with zero items renders its
+        // heading followed by "— (none)" on the same line (spec §5.16).
+        $lines = [];
+        $lines[] = $digest['top'] === [] ? $topHeading . ' — (none)' : $topHeading;
+        foreach ($topLines as $l)  { $lines[] = $l; }
+        $lines[] = '';
+        $lines[] = $digest['done_yesterday'] === [] ? $doneHeading . ' — (none)' : $doneHeading;
+        foreach ($doneLines as $l) { $lines[] = $l; }
+
+        return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Clamps a digest N into 1–50 (PRIO-13: clamped, not rejected).
+     */
+    public static function clampDigestN(int $n): int
+    {
+        return max(self::DIGEST_MIN_N, min(self::DIGEST_MAX_N, $n));
+    }
+
+    /**
+     * Top-N prioritized cards (their own order), live state, access-filtered
+     * (PRIO-12). Reuses the same shape / filtering as getList()'s prioritized.
+     *
+     * @param array $user Acting user row
+     * @param int   $n    Already-clamped count
+     * @return array<int, array>
+     */
+    private function digestTop(array $user, int $n): array
+    {
+        $prioritized = $this->loadPrioritized($user);
+        return array_slice($prioritized, 0, $n);
+    }
+
+    /**
+     * Cards moved to a Done lane in the [since, until] window, across all
+     * boards the user can access, oldest first (PRIO-12/14).
+     *
+     * Filters:
+     *   - event = card_moved, to_lane (snapshot) matches a Done lane (the
+     *     same \bdone\b matcher as PRIO-04/09 — "Done-ness" excluded);
+     *     from_lane also matching Done is a no-op re-lane, skipped;
+     *   - board accessible to the acting user (BOARD-04b — omit, never reveal);
+     *   - cards on archived boards are omitted (BOARD-06d consistency with
+     *     the prioritized list, which dropped those cards entirely).
+     *
+     * @param array  $user  Acting user row
+     * @param string $since Window start (Y-m-d H:i:s)
+     * @param string $until Window end (Y-m-d H:i:s)
+     * @return array<int, array>
+     */
+    private function digestDoneYesterday(array $user, string $since, string $until): array
+    {
+        $rows = $this->activityService
+            ->activity()
+            ->eventBetween('card_moved', $since, $until);
+
+        $items = [];
+        $seenCards = [];
+        foreach ($rows as $row) {
+            $payload = null;
+            if ($row['payload_json'] !== null) {
+                $decoded = json_decode((string) $row['payload_json'], true);
+                if (is_array($decoded)) {
+                    $payload = $decoded;
+                }
+            }
+
+            $toLane   = $payload['to_lane'] ?? null;
+            $fromLane = $payload['from_lane'] ?? null;
+
+            // Must have landed in a Done lane, not just been sitting in one.
+            if (!is_array($toLane) || !$this->isDoneLane((string) ($toLane['title'] ?? ''))) {
+                continue;
+            }
+            if (is_array($fromLane) && $this->isDoneLane((string) ($fromLane['title'] ?? ''))) {
+                continue; // Moved between two Done lanes — not "done" on this one.
+            }
+
+            $boardId = (int) $row['board_id'];
+            $cardId  = (int) $row['card_id'];
+
+            if (!$this->auth->canAccessBoard($boardId)) {
+                continue; // BOARD-04b: omit, don't reveal.
+            }
+
+            if (isset($seenCards[$cardId])) {
+                continue; // Same card moved to Done twice — count it once.
+            }
+            $seenCards[$cardId] = true;
+
+            $items[] = [
+                'card_id'       => $cardId,
+                'card_title'    => (string) ($row['card_title'] ?? ''),
+                'board_id'      => $boardId,
+                'board_title'   => (string) ($row['board_title'] ?? ''),
+                'to_lane_title' => (string) ($toLane['title'] ?? ''),
+                'actor'         => [
+                    'id'   => (int) $row['actor_id'],
+                    'name' => (string) ($row['actor_name'] ?? ''),
+                ],
+                'created_at'    => (string) $row['created_at'],
+                'card_html'     => '/card.php?id=' . $cardId,
+            ];
+        }
+
+        return $items;
+    }
+
+    // ------------------------------------------------------------------
+    // Private helpers (unchanged from PRIO-01..11)
+    // ------------------------------------------------------------------
+
+    /**
+     * Resolves a digest markdown heading via Lang (i18n, {0} replaced with
+     * the parameter); falls back to the key when Lang is unwired (tests).
+     */
+    private function langLabel(string $key, ?string $param = null): string
+    {
+        if ($this->lang === null) {
+            return $key;
+        }
+
+        $value = $this->lang->get($key);
+        if ($param !== null) {
+            $value = str_replace('{0}', (string) $param, $value);
+        }
+        return $value;
+    }
+
+    /**
+     * Markdown heading (spec §5.16: `**bold**` line, not an ATX heading —
+     * chat clients render bold inline but swallow `##`).
+     */
+    private function markdownHeading(string $text): string
+    {
+        return '**' . $text . '**';
+    }
+
     private function loadPrioritized(array $user): array
     {
         $entries = $this->userPrio->findByUser((int) $user['id']);

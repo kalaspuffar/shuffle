@@ -132,4 +132,48 @@ class PriorityController
             $response->error($e->getMessage(), 404);
         }
     }
+
+    /**
+     * GET /v1/priority/digest
+     *
+     * The acting user's priority digest (PRIO-12..14, SPECIFICATION §5.16).
+     *
+     * Query: ?n (default 5, clamped to 1–50 — never a 400)
+     *        &format=json (default) | markdown
+     *
+     * Read-only: no CSRF (consistent with GET /v1/priority).
+     *
+     * `format=json`     → 200 {n, top, done_yesterday, window}
+     * `format=markdown` → 200 text/markdown paste-ready body
+     *
+     * Unknown `format` values 400 (it is an enum, not a filter — a typo
+     * should surface). Out-of-range `n` clamps (PRIO-13).
+     */
+    public function digest(Request $request, Response $response, array $params): void
+    {
+        $user = $this->auth->requireAuth();
+
+        $rawN = (int) ($request->getQuery('n') ?? PriorityService::DIGEST_DEFAULT_N);
+        $n = PriorityService::clampDigestN($rawN);
+
+        $rawFormat = $request->getQuery('format');
+        $format = $rawFormat === null || $rawFormat === '' ? 'json' : (string) $rawFormat;
+
+        if ($format !== 'json' && $format !== 'markdown') {
+            $response->error('format must be "json" or "markdown"', 400);
+            return;
+        }
+
+        try {
+            if ($format === 'markdown') {
+                $body = $this->priorityService->digestMarkdown($user, $n);
+                $response->text($body, 'text/markdown');
+            } else {
+                $response->json($this->priorityService->digest($user, $n));
+            }
+        } catch (\RuntimeException $e) {
+            // Activity log not wired (shouldn't happen on a wired install).
+            $response->error('Digest is not available', 503);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.5
-**Date:** 2026-08-29
+**Version:** 1.6
+**Date:** 2026-08-30
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
@@ -402,6 +402,9 @@ A per-user "what do I work on next" view, spanning all boards the user can acces
 | PRIO-09 | Cards in **Done lanes never appear** in the inbox (v1); a card the user already prioritized that is later moved to a Done lane remains visible in the prioritized section marked as Done (the user may remove it), but no *new* Done cards ever surface in the inbox | Must-have |
 | PRIO-10 | The view is keyboard- and screen-reader-accessible (WCAG 2.1 AA): both sections announce their counts, all actions are reachable by keyboard with visible focus, reordering uses accessible controls (buttons or drag with a keyboard alternative) | Must-have |
 | PRIO-11 | API: the priority list is available over REST — `GET /v1/priority` (inbox + prioritized in one payload), `POST /v1/priority/inbox/{cardId}` (add to prioritized), `DELETE /v1/priority/inbox/{cardId}` (remove from prioritized), `PUT /v1/priority/position` ({cardId, afterCardId|null}) (reorder). All mutations CSRF-protected, all reads board-access-checked per item | Must-have |
+| PRIO-12 | **Priority digest**: the priority list page offers a **copy-digest** action that produces a short, chat-pasteable Markdown summary: the user's **top N prioritized cards** (N user-selectable, default **5**), each rendered as `emoji title — board`, plus a **"Done yesterday"** section listing cards that **moved to a Done lane during the previous calendar day** (server local time), rendered as `✅ title — board (actor)`. Cards on boards the user cannot access never appear, in either section (BOARD-04b) | Must-have |
+| PRIO-13 | The **top-N size** is a page-level control next to the digest action (an editable count, default 5, valid range 1–50); the value is the **current page's value** for that digest and does not need to persist between visits in v1 (a persisted preference is a later enhancement). The digest is always recomputed live from the current prioritized list and the card activity log — never cached | Must-have |
+| PRIO-14 | **API**: `GET /v1/priority/digest?n=&format=json\|markdown` returns the acting user's digest. `format=json` (default) returns `{n, top:[…], done_yesterday:[…]}`; `format=markdown` returns the same content as a `text/markdown` body ready to paste. `n` clamps to 1–50 (default 5). Each item carries the card's deep link, board title, and state marker (PRIO-07 convention). Board access is enforced per item (inaccessible card = omitted, never revealed). The "Done yesterday" window is `yesterday 00:00:00` to `yesterday 23:59:59` in the server's local timezone | Must-have |
 
 ### 7.16 Card Activity Log
 

@@ -449,6 +449,126 @@
     });
 
     // ------------------------------------------------------------------
+    // Priority digest (PRIO-12..14)
+    // ------------------------------------------------------------------
+    // Server-rendered fallback: the <pre> already holds the digest at the
+    // default N, so the feature works with JS disabled (select + copy).
+    // With JS, "Copy digest" fetches ?format=markdown with the CURRENT N
+    // (recomputed live, PRIO-13), copies it to the clipboard, and shows
+    // a status. On clipboard failure the pre is refilled with the fetched
+    // markdown so nothing is lost (selectable fallback, PRIO-12).
+    // ------------------------------------------------------------------
+    (function initDigest() {
+        var digest = document.getElementById('priority-digest');
+        if (!digest) { return; }
+
+        var dLang = {};
+        try { dLang = JSON.parse(digest.dataset.lang || '{}'); } catch (e) { dLang = {}; }
+        var D = {
+            label:    dLang.label    || 'Top items',
+            copied:   dLang.copied   || 'Copied — paste it anywhere.',
+            fallback: dLang.fallback || 'Clipboard blocked — the digest is in the box below; select all and copy.',
+            error:    dLang.error    || "Couldn't prepare the digest. Please try again."
+        };
+
+        var nInput  = document.getElementById('priority-digest-n');
+        var copyBtn = document.getElementById('priority-digest-copy');
+        var status  = document.getElementById('priority-digest-status');
+        var body    = document.getElementById('priority-digest-body');
+        if (!nInput || !copyBtn) { return; }
+
+        var busy = false;
+
+        function clampN(value) {
+            var n = parseInt(value, 10);
+            if (isNaN(n) || n < 1) { return 1; }
+            if (n > 50) { return 50; }
+            return n;
+        }
+
+        function digestN() {
+            return clampN(nInput.value);
+        }
+
+        function setStatus(text, ok) {
+            if (!status) { return; }
+            status.textContent = text || '';
+            status.classList.toggle('priority-digest-status--error', !ok && !!text);
+            status.classList.toggle('priority-digest-status--ok', !!ok && !!text);
+        }
+
+        function copyText(text) {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                return navigator.clipboard.writeText(text);
+            }
+            // Older browsers / non-secure contexts: hidden-clipboard execCommand.
+            return new Promise(function (resolve, reject) {
+                var ta = document.createElement('textarea');
+                ta.value = text;
+                ta.setAttribute('readonly', '');
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                var ok = false;
+                try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+                document.body.removeChild(ta);
+                if (ok) { resolve(); } else { reject(new Error('copy-failed')); }
+            });
+        }
+
+        copyBtn.addEventListener('click', function () {
+            if (busy) { return; }
+            var n = digestN();
+            nInput.value = n; // normalize the field to the clamped value we send
+            busy = true;
+            copyBtn.disabled = true;
+            setStatus('', false);
+
+            api('/v1/priority/digest?n=' + encodeURIComponent(n) + '&format=markdown')
+                .then(function (res) {
+                    var md = (res && typeof res.data === 'string') ? res.data : null;
+                    if (res.status !== 200 || md === null) {
+                        throw new Error('digest-' + res.status);
+                    }
+                    if (body) { body.textContent = md; } // keep the visible fallback in sync
+                    return copyText(md).then(function () {
+                        setStatus(D.copied, true);
+                    }, function (err) {
+                        // Clipboard blocked → surface the selectable fallback (PRIO-12):
+                        // the digest is in the <pre> below; select-all + copy.
+                        if (body) {
+                            body.classList.add('priority-digest-body--fallback');
+                            if (typeof body.focus === 'function') { body.focus(); }
+                        }
+                        setStatus(D.fallback, false);
+                    });
+                })
+                .catch(function (err) {
+                    setStatus(D.error, false);
+                })
+                .then(function () {
+                    busy = false;
+                    copyBtn.disabled = false;
+                });
+        });
+
+        // N changes → refresh the visible fallback (cheap, server recomputes live).
+        nInput.addEventListener('change', function () {
+            var n = digestN();
+            nInput.value = n;
+            api('/v1/priority/digest?n=' + encodeURIComponent(n) + '&format=markdown')
+                .then(function (res) {
+                    if (res && res.status === 200 && typeof res.data === 'string' && body) {
+                        body.textContent = res.data;
+                        body.classList.remove('priority-digest-body--fallback');
+                    }
+                })
+                .catch(function () { /* keep the prior body; the copy button reports failures */ });
+        });
+    })();
+
+    // ------------------------------------------------------------------
     // Initial count refresh (counters are server-rendered but cheap to
     // recompute once here for safety after a partial client-side change).
     // ------------------------------------------------------------------

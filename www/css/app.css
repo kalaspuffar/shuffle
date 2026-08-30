@@ -4185,3 +4185,92 @@ small,
         margin-left: 0;
     }
 }
+
+/* ============================================================
+   Priority digest bar (PRIO-12..14)
+   A quiet utility under the page header: Top-N + Copy, plus a
+   server-rendered <pre> fallback that doubles as the clipboard-
+   blocked surface (select-all + copy).
+   ============================================================ */
+.priority-digest {
+    margin: 0 0 20px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: var(--border-radius-md, 6px);
+    background: var(--bg-secondary, #f9fafb);
+}
+
+.priority-digest-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.priority-digest-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.priority-digest-n {
+    width: 64px;
+    padding: 4px 6px;
+    border: 1px solid var(--border-color, #d1d5db);
+    border-radius: var(--border-radius-sm, 4px);
+    font-size: 0.9rem;
+    background: var(--bg-primary, #fff);
+}
+
+.priority-digest-n:focus-visible {
+    outline: 2px solid var(--color-primary, #2563eb);
+    outline-offset: 1px;
+}
+
+.priority-digest-status {
+    font-size: 0.85rem;
+    min-height: 1.2em;
+    margin-left: 4px;
+}
+
+.priority-digest-status--ok {
+    color: var(--color-success, #15803d);
+}
+
+.priority-digest-status--error {
+    color: var(--color-danger, #b91c1c);
+}
+
+.priority-digest-desc {
+    margin: 6px 0 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary, #4b5563);
+}
+
+.priority-digest-body {
+    margin: 10px 0 0;
+    padding: 10px 12px;
+    border: 1px dashed var(--border-color, #d1d5db);
+    border-radius: var(--border-radius-sm, 4px);
+    background: var(--bg-primary, #fff);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 220px;
+    overflow: auto;
+}
+
+/* Clipboard-blocked state (PRIO-12): the <pre> becomes the copy surface —
+   highlight it so the user knows to select-all + copy. */
+.priority-digest-body--fallback {
+    outline: 2px solid var(--color-warning, #b45309);
+    outline-offset: 2px;
+    background: #fffbeb;
+}
+
+@media (max-width: 560px) {
+    .priority-digest-controls {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+}

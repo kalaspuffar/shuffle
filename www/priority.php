@@ -18,12 +18,27 @@ $cardModel     = new Shuffle\Model\Card($db);
 $laneModel     = new Shuffle\Model\Lane($db);
 $boardModel    = new Shuffle\Model\Board($db);
 $userPrioModel = new Shuffle\Model\UserPrio($db);
+
+// Digest dependency (PRIO-12..14): "Done yesterday" reads the card_activity
+// log. CardService is not needed here (digest is pure read + activity scan),
+// so we wire the log service directly.
+$userModelForLog   = new Shuffle\Model\User($db);
+$activityModel     = new Shuffle\Model\CardActivity($db);
+$activityServiceDg = new Shuffle\Service\CardActivityService(
+    $activityModel,
+    $cardModel,
+    $laneModel,
+    $userModelForLog
+);
+
 $priorityService = new Shuffle\Service\PriorityService(
     $userPrioModel,
     $cardModel,
     $laneModel,
     $boardModel,
-    $auth
+    $auth,
+    $activityServiceDg,
+    $lang
 );
 
 $list = $priorityService->getList($currentUser);
@@ -100,6 +115,47 @@ require ROOT_DIR . '/include/templates/header.php';
         <h1 class="priority-page-title"><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?></h1>
         <p class="priority-page-intro"><?= htmlspecialchars($lang->get('priority.intro'), ENT_QUOTES, 'UTF-8') ?></p>
     </header>
+
+    <?php
+    // Priority digest bar (PRIO-12..14). Progressive enhancement: without JS
+    // the digest renders as a selectable pre block below; with JS the
+    // "Copy digest" button fetches ?format=markdown (recomputed live with
+    // the chosen N) and copies it to the clipboard.
+    $digestN = 5; // default top-N (PRIO-12/13); the input is page-local in v1
+    $digestMarkdown = '';
+    try {
+        $digestMarkdown = $priorityService->digestMarkdown($currentUser, $digestN);
+    } catch (\Throwable $e) {
+        // Activity log unavailable — the bar still renders; the copy button
+        // will report the error and the fallback body stays empty.
+    }
+    $digestLang = json_encode([
+        'label'      => $lang->get('priority.digest.label'),
+        'desc'       => $lang->get('priority.digest.desc'),
+        'top'        => $lang->get('priority.digest.top'),
+        'copy'       => $lang->get('priority.digest.copy'),
+        'copied'     => $lang->get('priority.digest.copied'),
+        'fallback'   => $lang->get('priority.digest.fallback'),
+        'error'      => $lang->get('priority.digest.error'),
+    ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE);
+    ?>
+    <div class="priority-digest" id="priority-digest"
+         data-digest-n="<?= (int) $digestN ?>"
+         data-lang="<?= htmlspecialchars($digestLang, ENT_QUOTES, 'UTF-8') ?>">
+        <div class="priority-digest-controls">
+            <label class="priority-digest-label" for="priority-digest-n"><?= htmlspecialchars($lang->get('priority.digest.label'), ENT_QUOTES, 'UTF-8') ?></label>
+            <input type="number" id="priority-digest-n" class="priority-digest-n"
+                   min="1" max="50" step="1" value="<?= (int) $digestN ?>"
+                   aria-describedby="priority-digest-desc" />
+            <button type="button" id="priority-digest-copy" class="btn btn-sm btn-primary"
+                    aria-describedby="priority-digest-desc">
+                <?= htmlspecialchars($lang->get('priority.digest.copy'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+            <span id="priority-digest-status" class="priority-digest-status" role="status" aria-live="polite"></span>
+        </div>
+        <p class="priority-digest-desc" id="priority-digest-desc"><?= htmlspecialchars($lang->get('priority.digest.desc'), ENT_QUOTES, 'UTF-8') ?></p>
+        <pre class="priority-digest-body" id="priority-digest-body"><?= htmlspecialchars($digestMarkdown, ENT_QUOTES, 'UTF-8') ?></pre>
+    </div>
 
     <div class="priority-columns">
         <?php if ($list['inbox'] === [] && $list['prioritized'] === []): ?>

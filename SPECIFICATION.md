@@ -4,7 +4,7 @@
 **Date:** 2026-08-29
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v1.5
+**Based on:** REQUIREMENTS.md v1.6
 **License:** MIT
 
 ## Changes since the 1.0 draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-08-30 | **v1.6** — §5.24 Priority Digest API (PRIO-12..14): `PriorityService::digest()`, `GET /v1/priority/digest` (json + markdown), priority-page digest bar (top-N control + copy to clipboard). No new tables — "Done yesterday" reads the `card_activity` log (PRIO-13 foundation) instead of a separate `card_moves` table; the top-N value is page-local in v1 (no `user_settings` table). Traceability PRIO-12..14 (§7.15 of REQUIREMENTS.md v1.6). |
 | 2026-08-29 | **v1.5** — §4.1 `card_activity` schema; §3.14 `CardActivity` model; §3.15 `CardActivityService`; §5.14 Card Activity Log API + History-tab integration (Labels renumbered to §5.15); traceability ACTIVITY-01..03 (§7.16 of REQUIREMENTS.md v1.5). |
 | 2026-08-29 | Board archive/restore (BOARD-06c/06d): §5.5 archive/restore UI surface; §3.15 BoardService::archiveBoard + UserPrio::removeForBoard; §4.1 archived-board prio exclusion (BOARD-06d). |
 | 2026-08-29 | Board delete (BOARD-06a/06b): §5.5 delete UI surface + card_count + confirmation dialog; §3.15 BoardService::listBoards card_count. |
@@ -2351,6 +2352,78 @@ Detaches a label from a card.
 
 **Response (204):** No content. Bumps board version.
 
+### 5.16 Priority Digest (PRIO-12..14)
+
+#### `GET /v1/priority/digest`
+
+Returns the acting user's **priority digest** — their top-N prioritized cards plus the "Done yesterday" list (PRIO-12/14). Read-only; all roles (Admin/Member/Viewer) may call it on their own data. The digest is **always recomputed live** (PRIO-13): prioritized cards come from the user's `user_prio` joined to live card/lane/board rows; "Done yesterday" is a range scan over the `card_activity` log (event `card_moved`, `to_lane.title` matched as a Done lane — the same case-insensitive, word-bounded matcher as PRIO-04/09).
+
+**Query parameters:**
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `n` | int | 5 | Number of top prioritized cards; **clamped to 1–50**, out-of-range values clamp (do not 400) |
+| `format` | enum | `json` | `json` (default) or `markdown` |
+
+**Access model (BOARD-04b semantics):** every item — top list *and* Done-yesterday — is filtered to boards the acting user can access; a card on an inaccessible board is **omitted** (its existence is not revealed), never returned. Prioritized cards whose board was archived leave the digest (BOARD-06d: `user_prio` rows were cleared on archive).
+
+**Response (200, `format=json`):**
+```json
+{
+    "n": 5,
+    "top": [
+        {
+            "card_id": 42,
+            "card_title": "Ship the digest",
+            "board_title": "Shuffle",
+            "lane_title": "In Progress",
+            "state_marker": "🔨",
+            "due_date": "2026-09-02",
+            "card_html": "/card.php?id=42"
+        }
+    ],
+    "done_yesterday": [
+        {
+            "card_id": 17,
+            "card_title": "Rotate keys",
+            "board_title": "Ops",
+            "to_lane_title": "Done",
+            "actor": { "id": 1, "name": "Olaf" },
+            "created_at": "2026-08-29 16:04:12",
+            "card_html": "/card.php?id=17"
+        }
+    ],
+    "window": { "since": "2026-08-29 00:00:00", "until": "2026-08-29 23:59:59" }
+}
+```
+
+Field notes:
+- `top` items reuse the **exact item shape** of §5.13 `prioritized` items (PRIO-07: `state_marker` derived from the live lane — In Progress → 🔨, Inbox → 📥, Done → ✅, else the lane's own icon or `•`), truncated to `n` in the user's own order.
+- `done_yesterday` item: `actor` is the user who moved the card (name from the activity log row); `created_at` is when the card landed in the Done lane; ordering is oldest first within the window.
+- `window` is the exact "Done yesterday" range used (server local timezone: yesterday `00:00:00` → `23:59:59`).
+- The log is cold-start (ACTIVITY-01: no backfill), so `done_yesterday` is legitimately empty pre-feature-history; the UI renders an honest empty state, not fake data.
+
+**Response (200, `format=markdown`)** — `Content-Type: text/markdown; charset=utf-8`, paste-ready for chat:
+
+```markdown
+**My top 5**
+🔨 Ship the digest — *Shuffle* — /card.php?id=42
+📥 Fix the vhost ACL — *Shuffle* — /card.php?id=12
+
+**Done yesterday (2026-08-29)**
+✅ Rotate keys — *Ops* — Olaf
+```
+
+Markdown rules: top items are `{state_marker} {title} — *{board}* — {card_html}` (deep link as a plain URL — strips cleanly in chat clients); Done-yesterday items are `✅ {title} — *{board}* — {actor name}`; a section with zero items renders its single-line heading plus `(none)` on the same line so the digest stays greppable and the sender knows it was checked.
+
+**Errors:** `401` when unauthenticated. (There is no per-card failure — inaccessible cards are omitted, per BOARD-04b.)
+
+**Priority-page UI surface (PRIO-12/13):** the priority page (`www/priority.php`) gains a **digest bar** under the page header: a top-N number input (default 5, min 1 max 50, step 1) + a **Copy digest** button. The button fetches `GET /v1/priority/digest?n=<value>&format=markdown` **client-side** (same `Shuffle.api` path every other page action uses), then copies it to the clipboard via the async Clipboard API; on failure (clipboard blocked/denied — the API is a same-origin GET and needs no CSRF) it falls back to a **selectable `<textarea>` prefill** with the markdown and an explicit "select all + copy" hint so the digest is never lost. A success flash ("Copied — paste it anywhere.") fires only after the clipboard write resolves. The button and input are keyboard-operable with visible focus (PRIO-10/AA). The bar is progressive-enhancement: without JS the user can still hit the API endpoint directly (PRIO-14).
+
+**Wiring (www/v1/index.php):** `PriorityService` is extended with `CardActivityService` (and `Board`, already injected) for the digest; route `$router->get('/priority/digest', [$priorityController, 'digest'])`; `PriorityController` gains `digest(Request, Response, array): void`.
+
+**Data access:** new `CardActivity::doneMovesBetween(?string $since, ?string $until): array` — cross-board range scan over `event='card_moved'` in a created window (uses `idx_card_activity_board_event_created`; the board-id predicate is omitted for the cross-board digest but the same index family serves it, and the row count for a 24h window is small by construction). No new tables (the `card_moves` + `user_settings` tables from the original PRIO-13 plan are **superseded**: the activity log already records every move, and the top-N value is page-local in v1).
+
 ---
 
 ## 6. Security Architecture
@@ -2936,6 +3009,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | IMPORT-01 through IMPORT-10 | 3.15, 3.19, 8.3, 12.B |
 | RT-01 through RT-03 | 3.18, 4.3, 5.5 (version endpoint) |
 | PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
+| PRIO-12 through PRIO-14 | 3.15 (PriorityService::digest), 5.16 (digest API), 5.16 (priority-page UI) |
 | ACTIVITY-01 through ACTIVITY-03 | 3.14 (card_activity), 3.15 (CardActivityService), 3.18 (js/card.js History tab), 4.1 (card_activity), 5.14 |
 | ONBOARD-01 through ONBOARD-11 | Future (Nice-to-have) |
 | PERF-01 through PERF-04 | 9.4, 10 (Phase 7) |
