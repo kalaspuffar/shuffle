@@ -1,6 +1,6 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-08-30
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
@@ -279,6 +279,10 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | CARD-07 | Cards can be **drag-and-drop moved between lanes** | Must-have |
 | CARD-08 | Cards can be archived or deleted | Must-have |
 | CARD-09 | Cards support **labels/tags** with colors for categorization | Should-have |
+| CARD-10 | Members can **merge two cards on the same board**: pick a destination (the survivor) and a source; the source card is **deleted** and everything about it is folded into the survivor — assignees are unioned (deduped), comments are appended (author, timestamps and order preserved), checklists are re-parented after the survivor's own (check state preserved), attachments are re-pointed to the same S3 objects (no file copies; an identical file is kept once), labels are unioned (when labels ship). **Irreversible** — no undo (Trello does the same). Scope v1: same-board only (cross-board merge is a v2 design, needs lane/position semantics) | Must-have |
+| CARD-11 | The merge surface is on the **card detail page** (member+ and up): a "Merge into…" action opens a modal listing the board's other cards (title + lane); an explicit confirmation states that the **source** card will be deleted and its content folded into the **destination**. A merge is never offered onto the card's own identity (same-card merges are rejected) | Must-have |
+| CARD-12 | A completed merge writes a **`card_merged`** row to the card's activity log (on the survivor), recording the source card's title — the audit trail shows where the merged content came from | Must-have |
+| CARD-13 | Merging a card removes it from **every user's personal priority list** (the `user_prio` rows referencing the deleted source are cleared); the survivor keeps its priority entries as-is | Must-have |
 
 ### 7.7 Comments
 

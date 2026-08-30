@@ -91,6 +91,15 @@ $checklistItemModel  = new Shuffle\Model\ChecklistItem($db);
 $checklistService    = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 $checklistController = new Shuffle\Controller\ChecklistController($auth, $checklistService, $cardService);
 
+// Card merge (CARD-10, §5.17) needs direct handles to the models it
+// re-parents + the Database for the fold transaction. Optional setters —
+// the legacy E2E harness that builds CardService by hand keeps working.
+// The comment/checklist models are already in scope above; the attachment
+// model is created on its own line later (below) so we reuse that instance.
+$cardService->setCommentModel($commentModel);
+$cardService->setChecklistModel($checklistModel);
+$cardService->setDatabase($db);
+
 // Notification system
 $notificationModel      = new Shuffle\Model\Notification($db);
 $notificationService    = new Shuffle\Service\NotificationService($notificationModel, $cardModel, $lang);
@@ -175,6 +184,9 @@ $cardService->setAttachmentService($attachmentService);
 $attachmentService->setActivityService($activityService);
 $attachmentService->setUserModel($userModelForLog);
 $checklistService->setActivityService($activityService);
+// Card merge (CARD-10, §5.17): the attachment model is the last model the
+// merge fold needs; wire it here where the existing attachment block lives.
+$cardService->setAttachmentModel($attachmentModel);
 
 // Register routes
 $router = new Shuffle\Core\Router();
@@ -224,6 +236,8 @@ $router->get('/cards/{id}', [$cardController, 'show']);
 $router->post('/boards/{boardId}/lanes/{laneId}/cards', [$cardController, 'create']);
 $router->put('/cards/{id}', [$cardController, 'update']);
 $router->put('/cards/{id}/move', [$cardController, 'move']);
+// Card merge (CARD-10..13): source = {id}, destination in the body.
+$router->post('/cards/{id}/merge', [$cardController, 'merge']);
 $router->post('/cards/{id}/archive', [$cardController, 'archive']);
 $router->post('/cards/{id}/restore', [$cardController, 'restore']);
 $router->delete('/cards/{id}', [$cardController, 'delete']);

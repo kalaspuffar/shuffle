@@ -3,9 +3,13 @@ declare(strict_types=1);
 
 namespace Shuffle\Service;
 
+use Shuffle\Core\Database;
 use Shuffle\Core\Markdown;
+use Shuffle\Model\Attachment;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Model\Checklist;
+use Shuffle\Model\Comment;
 use Shuffle\Model\Lane;
 use Shuffle\Model\User;
 use Shuffle\Service\AttachmentService;
@@ -31,6 +35,10 @@ class CardService
     private ?CardActivityService $activityService = null;
     private ?User $userModel = null;
     private ?Lane $laneModel = null;
+    private ?Comment $commentModel = null;
+    private ?Checklist $checklistModel = null;
+    private ?Attachment $attachmentModel = null;
+    private ?Database $db = null;
 
     /**
      * @param Card  $cardModel  Card data access instance
@@ -571,6 +579,210 @@ class CardService
         if ($boardId !== null) {
             $this->boardModel->incrementVersion($boardId);
         }
+    }
+
+    /**
+     * Injects the Comment model for merge (CARD-10, §5.17).
+     *
+     * @param Comment $commentModel Comment data access instance
+     */
+    public function setCommentModel(Comment $commentModel): void
+    {
+        $this->commentModel = $commentModel;
+    }
+
+    /**
+     * Injects the Checklist model for merge (CARD-10, §5.17).
+     *
+     * @param Checklist $checklistModel Checklist data access instance
+     */
+    public function setChecklistModel(Checklist $checklistModel): void
+    {
+        $this->checklistModel = $checklistModel;
+    }
+
+    /**
+     * Injects the Attachment model for merge (CARD-10, §5.17).
+     *
+     * @param Attachment $attachmentModel Attachment data access instance
+     */
+    public function setAttachmentModel(Attachment $attachmentModel): void
+    {
+        $this->attachmentModel = $attachmentModel;
+    }
+
+    /**
+     * Injects the shared Database handle for the merge transaction
+     * (CARD-10, §5.17).
+     *
+     * @param Database $db Database instance
+     */
+    public function setDatabase(Database $db): void
+    {
+        $this->db = $db;
+    }
+
+    /**
+     * Merges this (source) card into $destinationCardId (CARD-10..13, §5.17).
+     *
+     * The source card is DELETED; its content is folded into the survivor:
+     *   - assignees: union, deduped onto the survivor
+     *   - comments:  re-parented in place (author/timestamps/order preserved)
+     *   - checklists: re-parented after the survivor's own (items move with)
+     *   - attachments: re-pointed to the same S3 objects; an identical s3_key
+     *                  already on the survivor is dropped (no dup rows)
+     *   - user_prio rows on the source: cleared for every user
+     *     (FK user_prio.card_id → cards.id ON DELETE CASCADE, CARD-13)
+     * The survivor's card_activity gains one card_merged row with a
+     * snapshotted {source_card: {id, title}} payload (CARD-12).
+     *
+     * v1 scope: same-board only. Irreversible — no undo (CARD-10).
+     *
+     * @param int   $sourceCardId      Card being merged away (the page's card)
+     * @param int   $destinationCardId The surviving card
+     * @param array $currentUser       Acting user (for the activity row)
+     * @return array The merged card (the survivor) in the getCard() shape
+     * @throws \InvalidArgumentException If destination is missing, on another
+     *                                   board, or is the source itself (400)
+     * @throws \RuntimeException         If the source card does not exist (404)
+     */
+    public function mergeInto(int $sourceCardId, int $destinationCardId, array $currentUser = []): array
+    {
+        $source = $this->cardModel->findById($sourceCardId);
+        if ($source === null) {
+            throw new \RuntimeException('Card not found');
+        }
+        if ($destinationCardId < 1) {
+            throw new \InvalidArgumentException('destination_card_id is required');
+        }
+        if ($sourceCardId === $destinationCardId) {
+            throw new \InvalidArgumentException('A card cannot be merged into itself');
+        }
+
+        $destination = $this->cardModel->findById($destinationCardId);
+        if ($destination === null) {
+            // Same-board semantics: a destination on another board (or an
+            // inaccessible one) reads as "not found to you" — 400 per §5.17
+            // (never reveal whether it exists elsewhere, per BOARD-04b).
+            throw new \InvalidArgumentException('Destination card not found on this board');
+        }
+        $sourceBoard    = $this->cardModel->getBoardId($sourceCardId);
+        $destBoard      = $this->cardModel->getBoardId($destinationCardId);
+        if ($sourceBoard === null || $destBoard === null || (int) $sourceBoard !== (int) $destBoard) {
+            throw new \InvalidArgumentException('Destination card not found on this board');
+        }
+
+        // ---- read pre-merge state (outside the write transaction) --------
+        $sourceAssignees = $this->cardModel->getAssignedUsers($sourceCardId);
+        $destAssignees   = $this->cardModel->getAssignedUsers($destinationCardId);
+        $destAssigneeIdSet = array_flip(
+            array_map(static fn (array $u): int => (int) $u['id'], $destAssignees)
+        );
+        $newAssigneeIds = [];
+        foreach ($sourceAssignees as $u) {
+            $uid = (int) $u['id'];
+            if (!isset($destAssigneeIdSet[$uid])) {
+                $newAssigneeIds[] = $uid;
+            }
+        }
+
+        $destS3Keys = $this->attachmentModel !== null
+            ? $this->attachmentModel->findS3KeysByCard($destinationCardId)
+            : [];
+
+        // ---- transaction: fold + delete -----------------------------------
+        $this->db->beginTransaction();
+        try {
+            // (1) Assignees — union, deduped.
+            foreach ($newAssigneeIds as $uid) {
+                $this->db->execute(
+                    'INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)',
+                    [$destinationCardId, $uid]
+                );
+            }
+
+            // (2) Comments — re-parent in place (keeps created_at/updated_at).
+            if ($this->commentModel !== null) {
+                $this->commentModel->reparentTo($sourceCardId, $destinationCardId);
+            }
+
+            // (3) Checklists — re-parent after the survivor's own; items
+            //     move with their checklist (FK to `checklists`).
+            if ($this->checklistModel !== null) {
+                $this->checklistModel->reparentTo($sourceCardId, $destinationCardId);
+            }
+
+            // (4) Attachments — re-point (shared S3 object); an identical
+            //     s3_key on the survivor is dropped instead (§5.17 step 5).
+            if ($this->attachmentModel !== null) {
+                $this->attachmentModel->repointTo($sourceCardId, $destinationCardId, $destS3Keys);
+            }
+
+            // (5) Labels — union, idempotent (a duplicate label on the
+            //     survivor must not fail the merge). The `labels` feature
+            //     is Post-MVP so the live table is normally empty; the
+            //     check is what keeps the hot path free of a per-merge
+            //     table probe while still honoring CARD-10 step 6 when
+            //     rows do exist.
+            try {
+                $sourceLabelRows = $this->db->fetchAll(
+                    'SELECT label_id FROM card_labels WHERE card_id = ?',
+                    [$sourceCardId]
+                );
+                foreach ($sourceLabelRows as $srcLabelRow) {
+                    $labelId = (int) $srcLabelRow['label_id'];
+                    $existing = $this->db->fetch(
+                        'SELECT id FROM card_labels WHERE card_id = ? AND label_id = ?',
+                        [$destinationCardId, $labelId]
+                    );
+                    if ($existing === null) {
+                        $this->db->execute(
+                            'INSERT INTO card_labels (card_id, label_id) VALUES (?, ?)',
+                            [$destinationCardId, $labelId]
+                        );
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Table may be absent in pre-label-feature databases.
+                // The labels union is a no-op there by design (the whole
+                // labels feature is unshipped), so treat a schema miss
+                // as "nothing to union" and continue.
+                error_log('CardService::mergeInto labels union skipped: ' . $e->getMessage());
+            }
+
+            // (6) Source's user_prio rows: the card DELETE below cascades
+            //     them away (FK user_prio.card_id → cards.id ON DELETE
+            //     CASCADE) — every user's priority list loses the merged
+            //     card in the same atomic step (CARD-13).
+
+            // (7) Delete the source card.
+            $this->cardModel->delete($sourceCardId);
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+        $this->db->commit();
+
+        // ---- post-commit ---------------------------------------------------
+        $this->boardModel->incrementVersion((int) $destBoard);
+
+        // Activity row on the SURVIVOR, with the source's title snapshotted
+        // (CARD-12, §5.14 projection). Non-fatal catch: the fold already
+        // committed; a log-write flake must not un-commit it.
+        if ($this->activityService !== null && !empty($currentUser)) {
+            try {
+                $this->activityService->log(
+                    $destinationCardId,
+                    'card_merged',
+                    (int) $currentUser['id'],
+                    ['source_card' => ['id' => $sourceCardId, 'title' => (string) $source['title']]]
+                );
+            } catch (\Throwable $e) {
+                error_log('CardService::mergeInto activity log failed for card ' . $destinationCardId . ': ' . $e->getMessage());
+            }
+        }
+
+        return $this->getCard($destinationCardId);
     }
 
     /**

@@ -49,7 +49,7 @@ class CardActivityService
     private User $user;
 
     /**
-     * @param Activity $activity Activity DAO
+     * @param CardActivity $activity Activity DAO
      * @param Card     $card     Card DAO (board lookup)
      * @param Lane     $lane     Lane DAO (title/icon snapshot)
      * @param User     $user     User DAO (name snapshot)
@@ -316,9 +316,16 @@ class CardActivityService
                 }
                 return [];
 
+            // CARD-12: merge row on the survivor — {source_card: {id, title}}.
+            case 'card_merged':
+                if (isset($payload['source_card']) && is_array($payload['source_card'])) {
+                    return ['source_card' => $payload['source_card']];
+                }
+                return [];
+
             // No detail shape yet — keep the raw payload (v1: card_archived,
-            // card_restored, card_created are empty; labels/merged are
-            // reserved for later features)
+            // card_restored, card_created are empty; labels are a
+            // Post-MVP feature)
             default:
                 return $payload;
         }

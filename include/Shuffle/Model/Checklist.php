@@ -123,4 +123,58 @@ class Checklist
 
         return $row !== null ? (int) $row['card_id'] : null;
     }
+
+    /**
+     * Reparents every checklist on one card to another (CARD-10, §5.17).
+     *
+     * Positions on the destination are re-based to sit AFTER the
+     * destination's existing checklists (same POSITION_GAP gap scheme as
+     * Checklist::create). Checklist items, check state, and item
+     * assignees are untouched (they FK to `checklists`, not `cards`).
+     *
+     * @param int $fromCardId Source card
+     * @param int $toCardId   Destination card (survivor)
+     * @return int Number of checklists re-parented
+     */
+    public function reparentTo(int $fromCardId, int $toCardId): int
+    {
+        if ($fromCardId === $toCardId) {
+            return 0;
+        }
+
+        // Max position the destination already has (may be null if the
+        // destination has zero checklists).
+        $maxPosRow = $this->db->fetch(
+            'SELECT MAX(position) AS max_pos FROM checklists WHERE card_id = ?',
+            [$toCardId]
+        );
+        $destinationMax = ($maxPosRow !== null && $maxPosRow['max_pos'] !== null)
+            ? (int) $maxPosRow['max_pos']
+            : 0;
+
+        // Source checklists in their existing position order (preserves
+        // relative order when they are re-anchored on the destination).
+        $sourceRows = $this->db->fetchAll(
+            'SELECT id, position FROM checklists WHERE card_id = ? ORDER BY position ASC',
+            [$fromCardId]
+        );
+        // Re-anchor each source checklist in its existing position order
+        // (ORDER BY position ASC) so relative ordering is preserved.
+        $checklistIds = array_map(
+            static fn (array $row): int => (int) $row['id'],
+            $sourceRows
+        );
+        $count = 0;
+        $nextPos = $destinationMax + self::POSITION_GAP;
+        foreach ($checklistIds as $checklistId) {
+            $this->db->execute(
+                'UPDATE checklists SET card_id = ?, position = ? WHERE id = ?',
+                [$toCardId, $nextPos, $checklistId]
+            );
+            $nextPos += self::POSITION_GAP;
+            $count++;
+        }
+
+        return $count;
+    }
 }

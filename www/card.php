@@ -114,6 +114,32 @@ $assignedUserIds = array_map(
     $card['assigned_users'] ?? []
 );
 
+// Card merge (CARD-10..13, §5.17): the "Merge into…" surface lists the
+// OTHER cards on the same board (title + live lane, archived marked).
+// Loaded once server-side into a data attribute (same single-source
+// pattern as data-lane-templates on the board page) and only rendered
+// for editor roles that have more than one card to merge on.
+$mergeOptions = [];
+if ($canEdit) {
+    $laneModel = new Shuffle\Model\Lane($db);
+    $laneTitleById = [];
+    foreach ($laneModel->findByBoard($boardId) as $laneRow) {
+        $laneTitleById[(int) $laneRow['id']] = $laneRow['title'];
+    }
+    foreach ($cardModel->findByBoard($boardId, true) as $other) {
+        if ((int) $other['id'] === $cardId) {
+            continue;
+        }
+        $mergeOptions[] = [
+            'id'          => (int) $other['id'],
+            'title'       => (string) $other['title'],
+            'lane'        => $laneTitleById[(int) $other['lane_id']] ?? '',
+            'is_archived' => (bool) $other['is_archived'],
+        ];
+    }
+}
+$canMerge = $canEdit && count($mergeOptions) > 0;
+
 $pageTitle = $card['title'];
 $currentPage = 'boards';
 require ROOT_DIR . '/include/templates/header.php';
@@ -385,11 +411,47 @@ require ROOT_DIR . '/include/templates/header.php';
             <?php else: ?>
             <button type="button" class="btn btn-secondary" id="btn-archive-card"><?= htmlspecialchars($lang->get('action.archive'), ENT_QUOTES, 'UTF-8') ?></button>
             <?php endif; ?>
+            <?php if ($canMerge): ?>
+            <button type="button" class="btn btn-secondary" id="btn-merge-card" aria-haspopup="dialog"><?= htmlspecialchars($lang->get('card.merge_into'), ENT_QUOTES, 'UTF-8') ?></button>
+            <?php endif; ?>
             <button type="button" class="btn btn-danger" id="btn-delete-card"><?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?></button>
         </div>
     </div>
     <?php endif; ?>
 </div><!-- /card-panel-card -->
+
+<?php if ($canMerge): ?>
+<!-- CARD-11: merge modal. Server-rendered (works without JS beyond the
+     submit — the radio choice is a plain form control); js/card.js wires
+     the open/close/focus/Escape behavior + the API call. The options list
+     comes from $mergeOptions (single source: live cards + lane titles). -->
+<div class="card-merge-overlay modal-overlay" id="card-merge-overlay" hidden>
+    <div class="modal card-merge-modal" role="dialog" aria-labelledby="card-merge-title" aria-describedby="card-merge-warning" aria-modal="true" id="card-merge-modal">
+        <div class="modal-header">
+            <h2 id="card-merge-title"><?= htmlspecialchars($lang->get('card.merge_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close card-merge-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="card-merge-warning" id="card-merge-warning"><?= htmlspecialchars($lang->get('card.merge_warning', [$card['title']]), ENT_QUOTES, 'UTF-8') ?></p>
+            <div class="card-merge-options" role="radiogroup" aria-label="<?= htmlspecialchars($lang->get('card.merge_picked'), ENT_QUOTES, 'UTF-8') ?>">
+                <?php foreach ($mergeOptions as $option): ?>
+                <label class="card-merge-option">
+                    <input type="radio" name="merge-destination" value="<?= (int) $option['id'] ?>">
+                    <span class="card-merge-option-text">
+                        <?= htmlspecialchars($option['title'], ENT_QUOTES, 'UTF-8') ?>
+                        <span class="card-merge-option-lane">— <?= htmlspecialchars($option['lane'], ENT_QUOTES, 'UTF-8') ?><?= $option['is_archived'] ? ' ' . htmlspecialchars($lang->get('card.merge_archived'), ENT_QUOTES, 'UTF-8') : '' ?></span>
+                    </span>
+                </label>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close card-merge-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-primary" id="card-merge-confirm"><?= htmlspecialchars($lang->get('card.merge_picked'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 
 <!-- ACTIVITY-02: History tab — append-only activity feed for this card.
      Rendered for every role that can access the board (read-only for
@@ -420,6 +482,8 @@ $cardLang = json_encode([
     'restore_success'         => $lang->get('card.restore_success'),
     'delete_success'          => $lang->get('card.delete_success'),
     'delete_confirm'          => $lang->get('card.delete_confirm'),
+    'merge_into'              => $lang->get('card.merge_into'),
+    'merge_success'           => $lang->get('card.merge_success'),
     'error_bad_request'       => $lang->get('error.bad_request'),
     'comment_create_success'  => $lang->get('comment.create_success'),
     'comment_update_success'  => $lang->get('comment.update_success'),
@@ -474,6 +538,7 @@ $cardLang = json_encode([
     'act_comment_edited_other'   => $lang->get('activity.comment_edited_by_other'),
     'act_comment_deleted'        => $lang->get('activity.comment_deleted'),
     'act_comment_deleted_other'  => $lang->get('activity.comment_deleted_by_other'),
+    'act_merged'                 => $lang->get('activity.merged'),
     'act_excerpt'                => $lang->get('activity.comment_excerpt_prefix'),
     'act_field_title'            => $lang->get('activity.field_title'),
     'act_field_description'      => $lang->get('activity.field_description'),

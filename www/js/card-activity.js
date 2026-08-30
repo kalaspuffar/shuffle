@@ -91,7 +91,8 @@
         checklist_removed:  '🗑️',
         comment_created: '💬',
         comment_edited:  '↪️',
-        comment_deleted: '🗑️'
+        comment_deleted: '🗑️',
+        card_merged:      '🔀'
     };
 
     function fieldLabel(name) {
@@ -208,6 +209,13 @@
                     q.className = 'card-activity-excerpt';
                     out.push(q);
                 }
+                break;
+            }
+
+            case 'card_merged': {
+                // CARD-12: "merged {source title} into this card"
+                var srcTitle = d.source_card ? d.source_card.title : '';
+                out.push(el('span', t('act_merged', [srcTitle])));
                 break;
             }
 

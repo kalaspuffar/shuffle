@@ -190,6 +190,85 @@
     }
 
     /* ===================================================================
+       Merge into…  (CARD-10..13, §5.17)
+       Server-rendered modal (works without JS beyond the radio choice);
+       this wires open/close, focus, Escape, and the POST /merge call.
+       Source = this card (CARD_ID); destination = the picked radio.
+       =================================================================== */
+
+    var mergeBtn = document.getElementById('btn-merge-card');
+    var mergeOverlay = document.getElementById('card-merge-overlay');
+    if (mergeBtn && mergeOverlay) {
+        var mergeConfirmBtn = document.getElementById('card-merge-confirm');
+        var mergeCloseBtns = Array.prototype.slice.call(mergeOverlay.querySelectorAll('.card-merge-close'));
+        var mergeBusy = false;
+
+        function mergeClose() {
+            if (mergeBusy) return; // never close mid-flight
+            mergeOverlay.hidden = true;
+            mergeOverlay.setAttribute('aria-hidden', 'true');
+            // Focus returns to the Merge button (the opener).
+            mergeBtn.focus();
+        }
+
+        mergeBtn.addEventListener('click', function () {
+            // Opening: focus the first destination option directly.
+            mergeOverlay.hidden = false;
+            mergeOverlay.setAttribute('aria-hidden', 'false');
+            var firstRadio = mergeOverlay.querySelector('input[name="merge-destination"]');
+            if (firstRadio) firstRadio.focus();
+        });
+
+        mergeCloseBtns.forEach(function (btn) {
+            btn.addEventListener('click', mergeClose);
+        });
+
+        // Close on overlay click outside the modal box (boards.js pattern)
+        mergeOverlay.addEventListener('click', function (e) {
+            if (e.target === mergeOverlay) mergeClose();
+        });
+
+        // Escape closes (only while this modal is the visible one)
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && !mergeOverlay.hidden) mergeClose();
+        });
+
+        mergeConfirmBtn.addEventListener('click', function () {
+            if (mergeBusy) return;
+            var picked = mergeOverlay.querySelector('input[name="merge-destination"]:checked');
+            if (!picked) return; // the confirm is a no-op until a destination is chosen
+            var destinationCardId = parseInt(picked.value, 10);
+            if (isNaN(destinationCardId) || destinationCardId === CARD_ID) return;
+
+            mergeBusy = true;
+            Shuffle.api('/v1/cards/' + CARD_ID + '/merge', {
+                method: 'POST',
+                body: { destination_card_id: destinationCardId }
+            }).then(function (result) {
+                mergeBusy = false;
+                if (result.status === 200 && result.data && result.data.card) {
+                    // The source card is gone; the response IS the
+                    // survivor. Navigate to its page — that is the "undo
+                    // button" we do not need: the user is now ON the
+                    // merged card, seeing the unioned content.
+                    Shuffle.showFlash(LANG.merge_success || 'Merged', 'success');
+                    setTimeout(function () {
+                        window.location.href = '/card.php?id=' + result.data.card.id;
+                    }, 500);
+                } else {
+                    var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                    Shuffle.showFlash(msg, 'error');
+                }
+            }, function () {
+                // Network error — Shuffle.api rejects on non-2xx handled by
+                // callers; this catch keeps a flash on a hard failure path.
+                mergeBusy = false;
+                Shuffle.showFlash(LANG.error_bad_request || 'Error', 'error');
+            });
+        });
+    }
+
+    /* ===================================================================
        Comments
        =================================================================== */
 

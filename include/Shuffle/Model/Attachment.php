@@ -151,4 +151,54 @@ class Attachment
 
         return array_column($rows, 's3_key');
     }
+
+    /**
+     * Repoints every attachment on one card to another (CARD-10, §5.17).
+     *
+     * No S3 object is copied (the key is just a pointer to the same
+     * stored object — see AttachmentService::download for the stream
+     * path). When the destination already has an attachment with the
+     * **same s3_key**, the source row is dropped instead of re-pointed
+     * (no duplicate rows for one stored object).
+     *
+     * @param int   $fromCardId  Source card (whose attachments move)
+     * @param int   $toCardId    Destination card (the survivor)
+     * @param array $existingKeys Existing s3_keys on the destination
+     *                            (caller loads them once via
+     *                            findS3KeysByCard to avoid an N+1).
+     * @return array{repointed: int, dropped: int}
+     */
+    public function repointTo(int $fromCardId, int $toCardId, array $existingKeys = []): array
+    {
+        if ($fromCardId === $toCardId) {
+            return ['repointed' => 0, 'dropped' => 0];
+        }
+
+        $existingSet = array_flip(array_map('strval', $existingKeys));
+
+        $sourceRows = $this->db->fetchAll(
+            'SELECT id, s3_key FROM attachments WHERE card_id = ?',
+            [$fromCardId]
+        );
+
+        $repointed = 0;
+        $dropped = 0;
+        foreach ($sourceRows as $row) {
+            $id = (int) $row['id'];
+            if (isset($existingSet[(string) $row['s3_key']])) {
+                // Survivor already has this same object — kill the
+                // duplicate row, keep the S3 key on the survivor's row.
+                $this->db->execute('DELETE FROM attachments WHERE id = ?', [$id]);
+                $dropped++;
+            } else {
+                $this->db->execute(
+                    'UPDATE attachments SET card_id = ? WHERE id = ?',
+                    [$toCardId, $id]
+                );
+                $repointed++;
+            }
+        }
+
+        return ['repointed' => $repointed, 'dropped' => $dropped];
+    }
 }

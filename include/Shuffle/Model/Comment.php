@@ -117,4 +117,27 @@ class Comment
 
         return $row !== null ? (int) $row['card_id'] : null;
     }
+
+    /**
+     * Reparents every comment on one card to another (CARD-10, §5.17).
+     *
+     * Preserves author, body, created/updated timestamps in place (no
+     * re-insert, no re-stamp) — the comments keep their identity, only
+     * the card they live on changes. Checklist items / attachments /
+     * user_prio follow the same re-point pattern for their table.
+     *
+     * @param int $fromCardId Source card (whose comments move)
+     * @param int $toCardId   Destination card (the survivor)
+     * @return int Number of rows re-parented
+     */
+    public function reparentTo(int $fromCardId, int $toCardId): int
+    {
+        if ($fromCardId === $toCardId) {
+            return 0;
+        }
+        return $this->db->execute(
+            'UPDATE comments SET card_id = ? WHERE card_id = ?',
+            [$toCardId, $fromCardId]
+        );
+    }
 }
