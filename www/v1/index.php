@@ -102,6 +102,23 @@ $commentService->setNotificationService($notificationService);
 // Wire NotificationService into CardService for assignment notifications
 $cardService->setNotificationService($notificationService);
 
+// Card activity log (ACTIVITY-01) — the audit trail that prio-digest and
+// card-merge build on. Injected after the core services so it can be
+// attached to both CardService (move/edit/assign/archive) and
+// CommentService (comment lifecycle).
+$activityModel  = new Shuffle\Model\CardActivity($db);
+$userModelForLog = new Shuffle\Model\User($db);
+$activityService = new Shuffle\Service\CardActivityService(
+    $activityModel,
+    $cardModel,
+    $laneModel,
+    $userModelForLog
+);
+$cardService->setActivityService($activityService);
+$cardService->setUserModel($userModelForLog);
+$cardService->setLaneModel($laneModel);
+$commentService->setActivityService($activityService);
+
 // Attachment system
 $attachmentModel   = new Shuffle\Model\Attachment($db);
 $s3Client          = new Shuffle\Core\S3Client($config['s3'] ?? []);
@@ -128,6 +145,13 @@ $priorityService  = new Shuffle\Service\PriorityService(
     $auth
 );
 $priorityController = new Shuffle\Controller\PriorityController($auth, $priorityService);
+
+// Card activity (ACTIVITY-03) — read-only feed over the card lifecycle
+$activityController = new Shuffle\Controller\CardActivityController(
+    $auth,
+    $cardService,
+    $activityService
+);
 
 // Setup wizard (unauthenticated; guarded by admin-existence check inside controller)
 $setupController = new Shuffle\Controller\SetupController($db);
@@ -188,6 +212,7 @@ $router->put('/cards/{id}/move', [$cardController, 'move']);
 $router->post('/cards/{id}/archive', [$cardController, 'archive']);
 $router->post('/cards/{id}/restore', [$cardController, 'restore']);
 $router->delete('/cards/{id}', [$cardController, 'delete']);
+$router->get('/cards/{id}/activity', [$activityController, 'feed']);
 
 // Comment routes
 $router->post('/cards/{cardId}/comments', [$commentController, 'create']);

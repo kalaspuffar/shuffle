@@ -1,6 +1,6 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.4
+**Version:** 1.5
 **Date:** 2026-08-29
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
@@ -123,6 +123,7 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 
 **Post-MVP / Should-Have:**
 - Personal priority list (per-user "work on next" view across all boards — see 7.15)
+- Card activity log (per-card audit trail of moves/edits/assignments/comment lifecycle + History tab — see 7.16)
 - Labels/tags on cards
 - Due date notifications
 - File previews (image thumbnails, PDF preview)
@@ -401,6 +402,20 @@ A per-user "what do I work on next" view, spanning all boards the user can acces
 | PRIO-09 | Cards in **Done lanes never appear** in the inbox (v1); a card the user already prioritized that is later moved to a Done lane remains visible in the prioritized section marked as Done (the user may remove it), but no *new* Done cards ever surface in the inbox | Must-have |
 | PRIO-10 | The view is keyboard- and screen-reader-accessible (WCAG 2.1 AA): both sections announce their counts, all actions are reachable by keyboard with visible focus, reordering uses accessible controls (buttons or drag with a keyboard alternative) | Must-have |
 | PRIO-11 | API: the priority list is available over REST — `GET /v1/priority` (inbox + prioritized in one payload), `POST /v1/priority/inbox/{cardId}` (add to prioritized), `DELETE /v1/priority/inbox/{cardId}` (remove from prioritized), `PUT /v1/priority/position` ({cardId, afterCardId|null}) (reorder). All mutations CSRF-protected, all reads board-access-checked per item | Must-have |
+
+### 7.16 Card Activity Log
+
+**Motivation (2026-08-29):** cards are easy to mis-move or mis-assign in the
+UI; an append-only per-card audit log gives both a debugging aid and a
+"what happened to this card" answer, and is the **single source of truth**
+for derived features (the priority-list digest's "Done yesterday" list and
+the card-merge hook both read from it).
+
+| ID | Requirement | Priority |
+|---|---|---|
+| ACTIVITY-01 | A card's lifecycle events — **created, moved (from → to lane), edited (which fields), assigned, unassigned, archived, restored, comment created, comment edited, comment deleted** — are recorded in an **append-only card activity log** with the acting user and a timestamp. The log is written atomically with each action; a failed log write must not corrupt the underlying action. **Exception (deliberate):** a failed log write on a card *move* (the high-frequency drag-drop path) is non-fatal — the move still commits and the failure is written to the server error log. Name snapshots: lane titles and user names are captured **at the time of the event** so the log stays correct if lanes/users are later renamed or deleted. No-op card edits (a PUT that changes nothing) do **not** create a log row. Comment delete rows carry an **80-character excerpt of the deleted comment body** (proof the comment existed); comment edit rows carry **no text diff** (who/when only). | Must-have |
+| ACTIVITY-02 | The card detail page offers a **History** tab (separate from the card's main view) showing the card's activity as a chronological feed: actor, a human-readable action (i18n), the relevant detail (from→to lane, changed fields, user names, comment author, deleted-comment excerpt), and the time (relative display, exact time on hover). The tab is present for all authenticated roles who can access the board (read-only for viewers — the history is shared among board members, not per-user). The card page is the only place to view the history in v1; the API below is the data contract for other consumers. A card whose activity log is empty shows an honest empty state ("the log started when this feature shipped" — no backfilled/fake history). | Must-have |
+| ACTIVITY-03 | API: `GET /v1/cards/{id}/activity` returns the activity feed **newest first** (`?limit` default 50, capped at 500; `?before=<id>` pages further back). Each entry exposes: `id`, `event`, `actor {id, name}`, `created_at`, and a projected `detail` object (from/to lane for moves, changed fields for edits, user for assignments, comment id + author for comment events, body excerpt on delete). Access-controlled per BOARD-04b: a card on an inaccessible board is a **404** (its existence is not revealed), never a 403 or an empty 200. | Must-have |
 
 ---
 

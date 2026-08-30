@@ -71,6 +71,12 @@ $board = $boardModel->findById($boardId);
 
 $canEdit = in_array($currentUser['role'], ['admin', 'member'], true);
 
+// ACTIVITY-02: active tab — ?tab=history (shareable deep link) or the
+// default 'card' tab. Unknown values fall back to 'card'. The server
+// renders the correct panel visible and the JS honors this same state on
+// load, so a deep link works without JavaScript.
+$activeTab = (($_GET['tab'] ?? '') === 'history') ? 'history' : 'card';
+
 /**
  * Formats a file size in bytes to a human-readable string.
  */
@@ -180,6 +186,25 @@ require ROOT_DIR . '/include/templates/header.php';
         </div>
     </div>
 
+    <!-- ACTIVITY-02: ARIA tablist — Card (everything that was here before)
+         and History (the card's append-only activity feed). Tab state is
+         shareable via ?tab=history (URL is the source of truth; a deep link
+         to the History tab works without JS too — the server renders the
+         correct panel visible by default). -->
+    <div class="card-detail-tabs" role="tablist" aria-label="<?= htmlspecialchars($lang->get('card.tabs_aria'), ENT_QUOTES, 'UTF-8') ?>">
+        <button type="button" role="tab" id="card-tab-card" aria-selected="<?= $activeTab === 'card' ? 'true' : 'false' ?>"
+            aria-controls="card-panel-card" tabindex="<?= $activeTab === 'card' ? '0' : '-1' ?>"
+            class="card-detail-tab<?= $activeTab === 'card' ? ' card-detail-tab--active' : '' ?>">
+            <?= htmlspecialchars($lang->get('card.tab_card'), ENT_QUOTES, 'UTF-8') ?>
+        </button>
+        <button type="button" role="tab" id="card-tab-history" aria-selected="<?= $activeTab === 'history' ? 'true' : 'false' ?>"
+            aria-controls="card-panel-history" tabindex="<?= $activeTab === 'history' ? '0' : '-1' ?>"
+            class="card-detail-tab<?= $activeTab === 'history' ? ' card-detail-tab--active' : '' ?>">
+            <?= htmlspecialchars($lang->get('card.tab_history'), ENT_QUOTES, 'UTF-8') ?>
+        </button>
+    </div>
+
+    <div role="tabpanel" id="card-panel-card" aria-labelledby="card-tab-card" class="card-detail-panel"<?= $activeTab === 'card' ? '' : ' hidden' ?>>
     <div class="card-detail-section">
         <h2 class="card-detail-section-header"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></h2>
         <?php if ($canEdit): ?>
@@ -364,6 +389,28 @@ require ROOT_DIR . '/include/templates/header.php';
         </div>
     </div>
     <?php endif; ?>
+</div><!-- /card-panel-card -->
+
+<!-- ACTIVITY-02: History tab — append-only activity feed for this card.
+     Rendered for every role that can access the board (read-only for
+     viewers; the log is shared among board members, not per-user).
+     The feed is lazy-loaded by js/card-activity.js via GET /v1/cards/{id}/activity. -->
+<div role="tabpanel" id="card-panel-history" aria-labelledby="card-tab-history" class="card-detail-panel card-panel-history"<?= $activeTab === 'history' ? '' : ' hidden' ?>>
+    <div class="card-detail-section">
+        <div id="card-activity-feed" class="card-activity-feed" aria-live="polite"
+            data-card-id="<?= (int) $card['id'] ?>">
+            <p class="text-secondary card-activity-loading"><?= htmlspecialchars($lang->get('activity.loading'), ENT_QUOTES, 'UTF-8') ?></p>
+            <noscript>
+                <p class="text-secondary"><?= htmlspecialchars($lang->get('activity.noscript', [(int) $card['id']]), ENT_QUOTES, 'UTF-8') ?></p>
+            </noscript>
+        </div>
+        <div class="card-activity-loadmore" hidden>
+            <button type="button" class="btn btn-secondary btn-sm" id="btn-load-older-activity">
+                <?= htmlspecialchars($lang->get('activity.load_more'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+        </div>
+    </div>
+</div><!-- /card-panel-history -->
 </div>
 
 <?php
@@ -403,7 +450,35 @@ $cardLang = json_encode([
     'assignee_no_users'         => $lang->get('card.assignee_no_users'),
     'assignee_overflow_singular' => $lang->get('card.assignee_overflow_singular'),
     'assignee_overflow_plural'   => $lang->get('card.assignee_overflow_plural'),
+    // ACTIVITY-02 — History tab
+    'act_empty'                  => $lang->get('activity.empty'),
+    'act_load_more'              => $lang->get('activity.load_more'),
+    'act_by'                     => $lang->get('activity.by'),
+    'act_error'                  => $lang->get('activity.error'),
+    'act_created'                => $lang->get('activity.created'),
+    'act_moved'                  => $lang->get('activity.moved'),
+    'act_moved_unknown'          => $lang->get('activity.moved_unknown_lane'),
+    'act_edited'                 => $lang->get('activity.edited'),
+    'act_assigned'               => $lang->get('activity.assigned'),
+    'act_unassigned'             => $lang->get('activity.unassigned'),
+    'act_archived'               => $lang->get('activity.archived'),
+    'act_restored'               => $lang->get('activity.restored'),
+    'act_comment_created'        => $lang->get('activity.comment_created'),
+    'act_comment_edited'         => $lang->get('activity.comment_edited'),
+    'act_comment_edited_other'   => $lang->get('activity.comment_edited_by_other'),
+    'act_comment_deleted'        => $lang->get('activity.comment_deleted'),
+    'act_comment_deleted_other'  => $lang->get('activity.comment_deleted_by_other'),
+    'act_excerpt'                => $lang->get('activity.comment_excerpt_prefix'),
+    'act_field_title'            => $lang->get('activity.field_title'),
+    'act_field_description'      => $lang->get('activity.field_description'),
+    'act_field_due_date'         => $lang->get('activity.field_due_date'),
+    'act_field_unknown'          => $lang->get('activity.field_unknown'),
+    'act_time_now'               => $lang->get('activity.time_just_now'),
+    'act_time_min'               => $lang->get('activity.time_min_ago'),
+    'act_time_hour'              => $lang->get('activity.time_hour_ago'),
+    'act_time_day'               => $lang->get('activity.time_day_ago'),
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="card-script" src="/js/card.js" data-lang="<?= htmlspecialchars($cardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-current-user-id="<?= (int) $currentUser['id'] ?>" data-current-user-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>"></script>
+<script src="/js/card-activity.js"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

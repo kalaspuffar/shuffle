@@ -6,10 +6,13 @@ namespace Shuffle\Service;
 use Shuffle\Core\Markdown;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Model\Lane;
+use Shuffle\Model\User;
 use Shuffle\Service\AttachmentService;
 use Shuffle\Service\CommentService;
 use Shuffle\Service\ChecklistService;
 use Shuffle\Service\NotificationService;
+use Shuffle\Service\CardActivityService;
 
 /**
  * Card business logic service.
@@ -25,6 +28,9 @@ class CardService
     private ?ChecklistService $checklistService = null;
     private ?AttachmentService $attachmentService = null;
     private ?NotificationService $notificationService = null;
+    private ?CardActivityService $activityService = null;
+    private ?User $userModel = null;
+    private ?Lane $laneModel = null;
 
     /**
      * @param Card  $cardModel  Card data access instance
@@ -74,6 +80,42 @@ class CardService
     public function setNotificationService(NotificationService $notificationService): void
     {
         $this->notificationService = $notificationService;
+    }
+
+    /**
+     * Injects the CardActivityService for card lifecycle logging (ACTIVITY-01).
+     *
+     * The service is optional — if not injected, the log writes are skipped.
+     * This preserves backward compatibility with the legacy E2E harness
+     * that constructs CardService without the activity stack.
+     *
+     * @param CardActivityService $activityService Activity service instance
+     */
+    public function setActivityService(CardActivityService $activityService): void
+    {
+        $this->activityService = $activityService;
+    }
+
+    /**
+     * Injects the User model (used by assignment hooks to snapshot
+     * user names for the activity payload).
+     *
+     * @param User $user User data access instance
+     */
+    public function setUserModel(User $user): void
+    {
+        $this->userModel = $user;
+    }
+
+    /**
+     * Injects the Lane model (used by the move hook to snapshot from/to
+     * lane titles into the activity payload).
+     *
+     * @param Lane $lane Lane data access instance
+     */
+    public function setLaneModel(Lane $lane): void
+    {
+        $this->laneModel = $lane;
     }
 
     /**
@@ -165,8 +207,176 @@ class CardService
         }
 
         $this->boardModel->incrementVersion($boardId);
+        $this->logCardCreated($cardId, $currentUser);
 
         return $this->getCard($cardId);
+    }
+
+    /**
+     * Emits a card_created activity row (ACTIVITY-01) after a successful
+     * card creation. Skipped when the CardActivityService has not been
+     * injected (legacy E2E harness path).
+     *
+     * @param int   $cardId      Card ID that was created
+     * @param array $currentUser Actor
+     */
+    private function logCardCreated(int $cardId, array $currentUser): void
+    {
+        if ($this->activityService === null) {
+            return;
+        }
+
+        try {
+            $this->activityService->log($cardId, 'card_created', (int) $currentUser['id'], null);
+        } catch (\Throwable $e) {
+            // Hard-fail policy (decision §5.5): a card creation without its
+            // log row is a bug. But — to avoid the log write taking down
+            // an otherwise-successful card creation due to a DB quirk at
+            // this exact moment — we surface to error_log + rethrow.
+            error_log('CardService::logCardCreated failed for card ' . $cardId . ': ' . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Emits a card_moved activity row (ACTIVITY-01) with from/to lane snapshots.
+     *
+     * Decision §5.5: this is the ONE non-fatal hook — the caller (moveCard)
+     * catches the exception so a log-write failure never blocks a UI
+     * drag-drop. The from-lane snapshot is captured BEFORE the move.
+     */
+    private function logCardMoved(int $cardId, ?array $fromLane, array $toLane, array $currentUser): void
+    {
+        if ($this->activityService === null) {
+            return;
+        }
+
+        $payload = [
+            'from_lane' => $this->activityService->laneSnapshot($fromLane),
+            'to_lane'   => $this->activityService->laneSnapshot($toLane),
+        ];
+
+        $this->activityService->log($cardId, 'card_moved', (int) $currentUser['id'], $payload);
+    }
+
+    /**
+     * Emits card_edited / assigned / unassigned activity rows (ACTIVITY-01)
+     * based on the update payload. Only the fields that actually changed
+     * are recorded (title stored, description sha1 + changed flag, due_date
+     * stored as before/after).
+     */
+    private function logCardEdit(int $cardId, array $oldCard, array $updateData, array $currentUser): void
+    {
+        if ($this->activityService === null) {
+            return;
+        }
+
+        $changedFields = [];
+        $before = null;
+        $after = null;
+
+        $normalizedOldTitle = $oldCard['title'] ?? null;
+
+        if (array_key_exists('title', $updateData) && trim($updateData['title']) !== ($normalizedOldTitle ?? '')) {
+            $changedFields[] = 'title';
+            $before = ['title' => $normalizedOldTitle];
+            $after  = ['title' => trim($updateData['title'])];
+        }
+
+        if (array_key_exists('due_date', $updateData) && $updateData['due_date'] !== ($oldCard['due_date'] ?? null)) {
+            $changedFields[] = 'due_date';
+            $before = $before ?? [];
+            $after  = $after ?? [];
+            $before['due_date'] = $oldCard['due_date'] ?? null;
+            $after['due_date']  = $updateData['due_date'];
+        }
+
+        if (array_key_exists('description', $updateData)) {
+            $newDesc = $updateData['description'] !== null ? trim($updateData['description']) : null;
+            $oldDesc = $oldCard['description'] ?? null;
+            $oldNorm = $oldDesc !== null ? trim($oldDesc) : null;
+
+            if ($newDesc !== $oldNorm) {
+                $changedFields[] = 'description';
+                $before = $before ?? [];
+                $after  = $after ?? [];
+                $before['description_sha1'] = $oldDesc !== null ? sha1($oldDesc) : null;
+                $after['description_sha1']  = $newDesc !== null ? sha1($newDesc) : null;
+                $before['description_changed'] = true;
+            }
+        }
+
+        if ($changedFields === []) {
+            return; // no-op edit
+        }
+
+        $payload = ['fields_changed' => $changedFields];
+        if ($before !== null) {
+            $payload['before'] = $before;
+        }
+        if ($after !== null) {
+            $payload['after'] = $after;
+        }
+
+        $this->activityService->log($cardId, 'card_edited', (int) $currentUser['id'], $payload);
+    }
+
+    /**
+     * Emits assigned/unassigned rows based on the assignment delta.
+     *
+     * @param int         $cardId
+     * @param array|int[] $oldUserIds User IDs previously assigned
+     * @param array|int[] $newUserIds User IDs requested
+     * @param array       $currentUser Actor
+     */
+    private function logAssignments(int $cardId, array $oldUserIds, array $newUserIds, array $currentUser): void
+    {
+        if ($this->activityService === null) {
+            return;
+        }
+
+        $oldIds = array_map('intval', $oldUserIds);
+        $newIds = array_map('intval', $newUserIds);
+
+        $added   = array_values(array_diff($newIds, $oldIds));
+        $removed = array_values(array_diff($oldIds, $newIds));
+
+        foreach ($added as $uid) {
+            $snap = $this->userModel !== null ? $this->userModel->findById($uid) : null;
+            $this->activityService->log(
+                $cardId,
+                'assigned',
+                (int) $currentUser['id'],
+                ['user' => $this->activityService->userSnapshot($snap)]
+            );
+        }
+
+        foreach ($removed as $uid) {
+            $snap = $this->userModel !== null ? $this->userModel->findById($uid) : null;
+            $this->activityService->log(
+                $cardId,
+                'unassigned',
+                (int) $currentUser['id'],
+                ['user' => $this->activityService->userSnapshot($snap)]
+            );
+        }
+    }
+
+    /**
+     * Emits a card_archived / card_restored row.
+     */
+    private function logArchive(int $cardId, bool $archived, array $currentUser): void
+    {
+        if ($this->activityService === null) {
+            return;
+        }
+
+        $this->activityService->log(
+            $cardId,
+            $archived ? 'card_archived' : 'card_restored',
+            (int) $currentUser['id'],
+            null
+        );
     }
 
     /**
@@ -203,11 +413,24 @@ class CardService
 
         if (!empty($updateData)) {
             $this->cardModel->update($id, $updateData);
+            // Log AFTER the update commits (ACTIVITY-01: a failed action is
+            // not logged, and a logged action always happened).
+            $this->logCardEdit($id, $card, $updateData, $currentUser);
         }
 
         // Sync assignments and notify newly assigned users
         if (isset($data['assigned_user_ids']) && is_array($data['assigned_user_ids'])) {
+            $oldAssignedIds = array_map(
+                static fn (array $u): int => (int) $u['id'],
+                $card['assigned_users'] ?? []
+            );
+            $newAssignedIds = array_map('intval', array_values($data['assigned_user_ids']));
+
             $newlyAssigned = $this->cardModel->syncAssignments($id, $data['assigned_user_ids']);
+
+            // Log AFTER the assignment sync (ACTIVITY-01: a failed action
+            // is not logged, and a logged action always happened).
+            $this->logAssignments($id, $oldAssignedIds, $newAssignedIds, $currentUser);
 
             if (!empty($newlyAssigned) && $this->notificationService !== null) {
                 $cardTitle = $updateData['title'] ?? $card['title'];
@@ -233,17 +456,33 @@ class CardService
     /**
      * Moves a card to a new lane and/or position.
      *
+     * Activity log (ACTIVITY-01): records card_moved with from/to lane
+     * snapshots. This is the ONE non-fatal log hook (decision §5.5):
+     * a log-write failure is caught, written to the PHP error log, and
+     * the move still commits — drag-drop must never be blocked by the
+     * audit trail.
+     *
      * @param int      $id          Card ID
      * @param int      $laneId      Target lane ID
      * @param int|null $afterCardId Place after this card (null = top)
+     * @param array    $currentUser Acting user (for the log; [] = skip log)
      * @return array The moved card record
      * @throws \RuntimeException If card not found
      */
-    public function moveCard(int $id, int $laneId, ?int $afterCardId): array
+    public function moveCard(int $id, int $laneId, ?int $afterCardId, array $currentUser = []): array
     {
         $card = $this->cardModel->findById($id);
         if ($card === null) {
             throw new \RuntimeException('Card not found');
+        }
+
+        // Capture the from-lane BEFORE the move (it may differ from the
+        // target lane; the snapshot is what the feed renders).
+        $fromLane = null;
+        $toLane = null;
+        if ($this->laneModel !== null) {
+            $fromLane = $this->laneModel->findById((int) $card['lane_id']);
+            $toLane = $this->laneModel->findById($laneId);
         }
 
         $this->cardModel->move($id, $laneId, $afterCardId);
@@ -253,16 +492,26 @@ class CardService
             $this->boardModel->incrementVersion($boardId);
         }
 
+        // Non-fatal log hook (decision §5.5, the drag-drop exception).
+        if ($this->activityService !== null && !empty($currentUser)) {
+            try {
+                $this->logCardMoved($id, $fromLane, $toLane ?? [], $currentUser);
+            } catch (\Throwable $e) {
+                error_log('CardService::moveCard activity log failed for card ' . $id . ': ' . $e->getMessage());
+            }
+        }
+
         return $this->getCard($id);
     }
 
     /**
      * Archives a card.
      *
-     * @param int $id Card ID
+     * @param int   $id          Card ID
+     * @param array $currentUser Acting user (for the activity log)
      * @throws \RuntimeException If card not found
      */
-    public function archiveCard(int $id): void
+    public function archiveCard(int $id, array $currentUser = []): void
     {
         $card = $this->cardModel->findById($id);
         if ($card === null) {
@@ -270,6 +519,8 @@ class CardService
         }
 
         $this->cardModel->archive($id);
+
+        $this->logArchive($id, true, $currentUser);
 
         $boardId = $this->cardModel->getBoardId($id);
         if ($boardId !== null) {
@@ -280,10 +531,11 @@ class CardService
     /**
      * Restores an archived card.
      *
-     * @param int $id Card ID
+     * @param int   $id          Card ID
+     * @param array $currentUser Acting user (for the activity log)
      * @throws \RuntimeException If card not found
      */
-    public function restoreCard(int $id): void
+    public function restoreCard(int $id, array $currentUser = []): void
     {
         $card = $this->cardModel->findById($id);
         if ($card === null) {
@@ -291,6 +543,8 @@ class CardService
         }
 
         $this->cardModel->restore($id);
+
+        $this->logArchive($id, false, $currentUser);
 
         $boardId = $this->cardModel->getBoardId($id);
         if ($boardId !== null) {

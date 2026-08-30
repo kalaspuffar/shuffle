@@ -302,4 +302,32 @@ CREATE TABLE IF NOT EXISTS `user_prio` (
         REFERENCES `cards` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------------
+-- card_activity (card history / audit log, ACTIVITY-01..03)
+-- Append-only per-card event log. One row per notable card
+-- event (move, edit, assign, archive, comment lifecycle, ...)
+-- with actor + timestamp. Lane/user names are snapshotted
+-- into payload_json at write time so the record survives
+-- later renames and deletions (Trello/Linear pattern).
+-- The log starts cold by design: no backfill of pre-feature
+-- history (cards.updated_at is unreliable).
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `card_activity` (
+    `id`             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `card_id`        INT UNSIGNED NOT NULL,
+    `board_id`       INT UNSIGNED NOT NULL,
+    `event`          VARCHAR(32)  NOT NULL,
+    `actor_id`       INT UNSIGNED NOT NULL,
+    `payload_json`   JSON         NULL,
+    `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_card_activity_card_id_id` (`card_id`, `id`),
+    KEY `idx_card_activity_board_event_created` (`board_id`, `event`, `created_at`),
+    KEY `idx_card_activity_actor_created` (`actor_id`, `created_at`),
+    CONSTRAINT `fk_card_activity_card` FOREIGN KEY (`card_id`)
+        REFERENCES `cards` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_card_activity_actor` FOREIGN KEY (`actor_id`)
+        REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

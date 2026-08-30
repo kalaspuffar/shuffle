@@ -148,7 +148,8 @@ class CardController
         }
 
         try {
-            $card = $this->cardService->moveCard($id, $laneId, $afterCardId);
+            $currentUser = $this->auth->currentUser() ?? [];
+            $card = $this->cardService->moveCard($id, $laneId, $afterCardId, $currentUser);
             $response->json(['card' => $card]);
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);
@@ -176,7 +177,8 @@ class CardController
         }
 
         try {
-            $this->cardService->archiveCard($id);
+            $currentUser = $this->auth->currentUser() ?? [];
+            $this->cardService->archiveCard($id, $currentUser);
             $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);
@@ -204,7 +206,8 @@ class CardController
         }
 
         try {
-            $this->cardService->restoreCard($id);
+            $currentUser = $this->auth->currentUser() ?? [];
+            $this->cardService->restoreCard($id, $currentUser);
             $response->noContent();
         } catch (\RuntimeException $e) {
             $response->error($e->getMessage(), 404);
