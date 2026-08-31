@@ -23,9 +23,10 @@ use Shuffle\Core\Database;
  *   attachment_added | attachment_removed
  *   checklist_added | checklist_renamed | checklist_removed
  *   comment_created | comment_edited | comment_deleted
+ *   card_merged (CARD-10..13; written on the SURVIVOR card, payload
+ *   {source_card: {id, title}})
  *
- * card_labels_changed and card_merged are reserved for later features
- * (labels are Post-MVP; merge is feature/card-merge).
+ * card_labels_changed is reserved for the Labels feature (Post-MVP).
  *
  * Index usage:
  *   (card_id, id DESC)         — feed hot path (newest first)

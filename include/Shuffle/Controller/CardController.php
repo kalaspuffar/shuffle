@@ -157,6 +157,40 @@ class CardController
     }
 
     /**
+     * POST /v1/cards/{id}/merge  (CARD-10..13, §5.17)
+     *
+     * Merges card `{id}` (the source) into `destination_card_id` from the
+     * request body (the survivor). Same-board only; irreversible.
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function merge(Request $request, Response $response, array $params): void
+    {
+        $currentUser = $this->auth->requireRole('member');
+        $sourceCardId = (int) ($params['id'] ?? 0);
+        $destinationCardId = (int) ($request->getBody()['destination_card_id'] ?? 0);
+
+        // Access + visibility on the source card's board first. If the
+        // caller cannot see the source's board at all, 404 (don't leak).
+        $boardId = $this->cardService->getBoardIdForCard($sourceCardId);
+        if ($boardId === null || !$this->auth->canAccessBoard($boardId)) {
+            $response->error('Card not found', 404);
+            return;
+        }
+
+        try {
+            $card = $this->cardService->mergeInto($sourceCardId, $destinationCardId, $currentUser);
+            $response->json(['card' => $card]);
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            $response->error($e->getMessage(), 404);
+        }
+    }
+
+    /**
      * POST /v1/cards/{id}/archive
      *
      * Archives a card.

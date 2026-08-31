@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-08-30 | **v1.7** — §5.17 Card Merge (CARD-10..13): `POST /v1/cards/{id}/merge` (destination = the surviving card, source = this card — the merge is initiated from the source card's page), `CardService::mergeInto()`, activity event `card_merged` (reserved slot in the v1 event list, §5.14), `user_prio` cleanup on delete (FK cascade), card-detail-page merge modal (www/card.php + www/js/card.js). Same-board v1 scope (CARD-11); irreversible. |
 | 2026-08-30 | **v1.6** — §5.24 Priority Digest API (PRIO-12..14): `PriorityService::digest()`, `GET /v1/priority/digest` (json + markdown), priority-page digest bar (top-N control + copy to clipboard). No new tables — "Done yesterday" reads the `card_activity` log (PRIO-13 foundation) instead of a separate `card_moves` table; the top-N value is page-local in v1 (no `user_settings` table). Traceability PRIO-12..14 (§7.15 of REQUIREMENTS.md v1.6). |
 | 2026-08-29 | **v1.5** — §4.1 `card_activity` schema; §3.14 `CardActivity` model; §3.15 `CardActivityService`; §5.14 Card Activity Log API + History-tab integration (Labels renumbered to §5.15); traceability ACTIVITY-01..03 (§7.16 of REQUIREMENTS.md v1.5). |
 | 2026-08-29 | Board archive/restore (BOARD-06c/06d): §5.5 archive/restore UI surface; §3.15 BoardService::archiveBoard + UserPrio::removeForBoard; §4.1 archived-board prio exclusion (BOARD-06d). |
@@ -2432,6 +2433,41 @@ Markdown rules (Daniel, 2026-08-30, "keep it clean for chat"):
 
 **Data access:** new `CardActivity::doneMovesBetween(?string $since, ?string $until): array` — cross-board range scan over `event='card_moved'` in a created window (uses `idx_card_activity_board_event_created`; the board-id predicate is omitted for the cross-board digest but the same index family serves it, and the row count for a 24h window is small by construction). No new tables (the `card_moves` + `user_settings` tables from the original PRIO-13 plan are **superseded**: the activity log already records every move, and the top-N value is page-local in v1).
 
+### 5.17 Card Merge (CARD-10..13)
+
+Two cards that are actually the same work item (e.g. two tickets from different emails) are consolidated: one is deleted and its content is folded into the survivor. **The merge is irreversible** — there is no undo (Trello does the same). **v1 scope is same-board only**: cross-board merges need lane/position renumbering semantics and are a v2 design.
+
+#### `POST /v1/cards/{id}/merge`
+
+**Semantics:** `{id}` is the **source** card (the one merged away — the request is initiated from the source card's page). The request body names the **destination** (the surviving card):
+
+| Field | Type | Notes |
+|---|---|---|
+| `destination_card_id` | int | The surviving card. Required. Must be on the **same board** as the source, must not be the source itself |
+
+**Access:** `requireRole('member')` + `canAccessBoard()` on the source card's board (the destination's board must be the same one — a cross-board pair is rejected as 400, per BOARD-04b the existence of both is never revealed: the destination must be validated *within* the accessible board's card set).
+
+**Behavior (one transaction, CARD-10):**
+1. Validate: source exists, destination exists on the same board, source ≠ destination (400 otherwise).
+2. **Assignees** — union, deduped: every `card_assignments` row on the source that the survivor does not already have is added to the survivor; the rest cascade away with the source.
+3. **Comments** — re-parented in place: `UPDATE comments SET card_id = destination WHERE card_id = source`. Author, `created_at`/`updated_at` and ordering preserved literally (no re-insert, no re-stamp).
+4. **Checklists** — each source checklist re-parented to the survivor with a position **after** the survivor's existing checklists (gap scheme, same `POSITION_GAP` strategy as `Checklist::create`); checklist items move with their checklist (FK to `checklists`, not `cards`). Check state, item assignees, ordering preserved.
+5. **Attachments** — re-pointed, not copied: `UPDATE attachments SET card_id = destination`. When the survivor already has an attachment with the **same `s3_key`**, the source row is dropped instead (no duplicate rows for one stored object; the S3 object is shared either way).
+6. **Labels** — unioned (both sides' `card_labels` deduped onto the survivor) once the Labels feature ships; v1 cards carry none, the hook is a no-op.
+7. **Priority list (CARD-13)** — the source card's `user_prio` rows are cleared for **every** user (FK `user_prio.card_id → cards.id ON DELETE CASCADE` handles it atomically; `UserPrio::removeForBoard` is the admin-side equivalent already used by board archive). The survivor is untouched — its priority entries survive.
+8. **Activity (CARD-12)** — a `card_merged` row is written **on the survivor** after the move, payload `{source_card: {id, title}}` (title snapshotted — the row persists after the source card's row is gone). This is the event slot the `CardActivity` model already reserved ("merge is feature/card-merge").
+9. **Delete the source** — `cards` row deleted; `card_assignments`, `card_activity` (source card's own log), `card_labels` cascade away. The source card's own activity history is not preserved — the survivor's new `card_merged` row carries its title.
+10. Board version bump (the board's polling/ETag path, §4.3).
+11. No assignment-merge notifications: the survivor keeps its own assignments; a source-only assignee gains the survivor's content but the *card* they are assigned to is the survivor — notifying them is a v2 nicety (Trello does not either).
+
+**Response (200):** the full merged card (same `GET /v1/cards/{id}` shape, `id` = destination) — the client needs it to render the survivor's new comment/checklist/attachment counts without a second fetch.
+
+**Errors:** `401` unauthenticated · `403` bad CSRF · `404` source card not found / board not accessible · `400` missing `destination_card_id`, destination on another board, or destination = source.
+
+**Data model:** none new. The `card_merged` event is the one addition to the `card_activity` vocabulary (§5.14 feed projection: `card_merged` → `detail: {source_card: {id, title}}`).
+
+**Card-page UI (CARD-11):** on the card detail page, `canEdit` users (member/admin) get a **"Merge into…"** button in the actions row (left of the red Delete — merge is a soft-ish action, Delete is the hard one). Clicking it opens a modal listing the **other cards of the same board** (title + lane name, archived cards included and marked) as radio options, plus an explicit warning block: *"The card "{source title}" will be deleted and its comments, checklists, attachments and assignees folded into the card you pick. This cannot be undone."* (i18n: `card.merge.*`). Confirmation calls `POST /v1/cards/{sourceId}/merge` with the picked destination; on 200 the flash fires and the browser navigates to the survivor's card page. Error flashes surface the 400/404/403 message. The modal is keyboard-operable (focus moves into the dialog, Escape closes without action, radio semantics), `aria-modal` like the board modals — WCAG 2.1 AA consistent with the existing board modal contract.
+
 ---
 
 ## 6. Security Architecture
@@ -3009,6 +3045,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | BOARD-06c / BOARD-06d | 5.5 (archive/restore UI surface in the edit-board modal; `UserPrio::removeForBoard` + `Card::findWithBoardForUserList` archived-board exclusion in the prio prioritized lane), 3.15 (BoardService::archiveBoard, PriorityService::loadPrioritized), www/v1/index.php, www/boards.php + www/js/boards.js |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
+| CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-page UI), www/card.php + www/js/card.js |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
