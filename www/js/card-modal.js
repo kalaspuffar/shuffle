@@ -1521,11 +1521,27 @@
             }).then(function (result) {
                 state.mergeBusy = false;
                 if (result.status === 200 && result.data && result.data.card) {
-                    // The source card is gone — the response IS the survivor.
-                    // Land on its modal (the "undo" we don't need).
-                    closeMerge();
-                    flash(t('card_merge_success') || 'Merged', 'success');
-                    openByCardId(result.data.card.id);
+                    // The source card is gone (and its board-grid <article>
+                    // element is still in the DOM). A full reload both removes
+                    // the deleted card's element from the lane and re-renders
+                    // the merged survivor (merged comments/checklists/
+                    // attachments/labels are the authoritative post-state;
+                    // patching it in-place from the merge response is the
+                    // same content re-derived from the DB). The board
+                    // version is the single source of truth post-merge,
+                    // so a reload is the honest UX — same trade-off as
+                    // the save-close-success path.
+                    //
+                    // Build the URL fresh (preserving ?id/… non-card params)
+                    // so we replace any stale ?card= / ?tab= / ?comment=
+                    // that was deep-linked BEFORE the merge. URLSearchParams
+                    // would otherwise return the FIRST match if we naively
+                    // appended another card= key.
+                    var url = new URL(window.location.href);
+                    url.searchParams.set('card', String(result.data.card.id));
+                    url.searchParams.delete('tab');       // start on Card tab
+                    url.searchParams.delete('comment');   // no highlight
+                    window.location.replace(url.href);
                 } else {
                     flashErr(result);
                 }
@@ -1595,4 +1611,27 @@
         /** Currently active card id (0 = none). */
         getCardId: function () { return state.cardId; }
     };
+
+    // ---- deep-link bootstrap (CARD-15) ---------------------------------
+    // The shareable card surface is /board.php?id=B&card=C[&tab=…&comment=…].
+    // board.js does NOT auto-open the modal — that's this module's job. On
+    // load, if the URL carries ?card= (and the board page actually has that
+    // card element), open it now. `open()` reads the tab/comment params for
+    // the initial focus, so a comment deep link lands scrolled + highlighted.
+    // This is also what makes the post-merge redirect land on the survivor.
+    function deepLinkOpen() {
+        if (typeof document.readyState === 'string' &&
+            document.readyState !== 'complete' &&
+            document.readyState !== 'interactive') {
+            document.addEventListener('DOMContentLoaded', deepLinkOpen);
+            return;
+        }
+        var qp = new URLSearchParams(window.location.search);
+        var cardId = parseInt(qp.get('card'), 10);
+        if (!cardId) return;
+        var el = document.querySelector('.card[data-card-id="' + cardId + '"]');
+        if (!el) return; // card not in this board (or already merged away)
+        open(el);
+    }
+    deepLinkOpen();
 })();

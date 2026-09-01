@@ -1021,6 +1021,13 @@ small,
     font-weight: var(--font-weight-medium);
 }
 
+/* The `hidden` attribute must hide the badge — a bare `display: inline-flex`
+   otherwise overrides it and the "Archived" label shows on every card.
+   (Same convention as .user-dropdown[hidden], .modal-overlay[hidden].) */
+.board-card-badge[hidden] {
+    display: none !important;
+}
+
 .board-card-badge--archived {
     background-color: var(--color-warning-subtle);
     color: var(--color-warning);
@@ -1289,6 +1296,13 @@ small,
     display: flex;
     flex-direction: column;
     gap: var(--space-5);
+}
+
+/* The `hidden` attribute must hide an inactive tab panel — otherwise
+   all three panels (Card / Comments / History) show stacked at once and
+   tabs appear to "do nothing". (Same convention as .modal-overlay[hidden].) */
+.modal--card .card-detail-panel[hidden] {
+    display: none !important;
 }
 
 /* Comments section — the tab panel content (was previously inline in the
