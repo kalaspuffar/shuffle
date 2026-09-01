@@ -72,8 +72,15 @@ function check(string $name, bool $ok, string $detail = ''): void
 
 $restored = false;
 try {
-    // Snapshot for restore
-    $snapshotUserPrio = $db->fetchAll('SELECT * FROM user_prio');
+    // Snapshot for restore.
+    // Deterministic baseline: the assertions below assume an empty
+    // prioritized list at start (the test's own contract), so clear the
+    // test user's existing user_prio rows BEFORE the snapshot. Cleanup
+    // restores the (empty) baseline, so any pre-existing rows the user
+    // had are intentionally wiped by the test — the restore step is the
+    // only place they'd come back from, and they should not.
+    $db->execute('DELETE FROM user_prio WHERE user_id = ?', [$asUserId]);
+    $snapshotUserPrio = $db->fetchAll('SELECT * FROM user_prio WHERE user_id = ?', [$asUserId]);
 
     $asUser = $db->fetch('SELECT id, name, role, status, organization_id FROM users WHERE id = ?', [$asUserId]);
     if ($asUser === null) {
@@ -84,8 +91,9 @@ try {
         global $restored;
         if ($restored) return;
         $restored = true;
-        // Remove any user_prio row we added (restore snapshot exactly)
-        foreach ($db->fetchAll('SELECT id FROM user_prio') as $row) {
+        // Restore this test user's user_prio to the snapshot baseline.
+        // (Other users' rows are left untouched.)
+        foreach ($db->fetchAll('SELECT id FROM user_prio WHERE user_id = ?', [(int)$asUser['id']]) as $row) {
             $keep = false;
             foreach ($snapshotUserPrio as $s) {
                 if ((int)$s['id'] === (int)$row['id']) { $keep = true; break; }
@@ -133,7 +141,8 @@ try {
         foreach (['card_id','card_title','board_id','board_title','lane_id','lane_title','lane_icon','state_marker','due_date','card_html'] as $k) {
             if (!array_key_exists($k, $item)) { $shapeOk = false; break; }
         }
-        if (!str_starts_with($item['card_html'] ?? '', '/card.php?id=')) { $shapeOk = false; }
+        if (!preg_match('#^/board\.php\?id=\d+&amp?;card=\d+$#', $item['card_html'] ?? '')
+            && !preg_match('#^/board\.php\?id=\d+&card=\d+$#', $item['card_html'] ?? '')) { $shapeOk = false; }
         if (!is_string($item['state_marker'] ?? '')) { $shapeOk = false; }
     }
     check('item shape complete (all keys + card_html + state_marker)', $shapeOk);

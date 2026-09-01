@@ -7,7 +7,8 @@ namespace Shuffle\Core;
  * Wraps Parsedown with safe mode enabled to prevent XSS.
  *
  * SECURITY-CRITICAL: Safe mode MUST remain enabled. The rendered HTML output
- * is injected via innerHTML in client-side JavaScript (card.js). Disabling
+ * is injected via innerHTML in client-side JavaScript (js/card-modal.js,
+ * js/card-activity.js, js/notifications.js). Disabling
  * safe mode would create an XSS vector through Markdown input. The trust
  * chain is: user input → Parsedown (safe mode) → DB → API → innerHTML.
  */

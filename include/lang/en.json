@@ -135,6 +135,7 @@
     "comment.empty": "No comments yet.",
 
     "card.tab_card": "Card",
+    "card.tab_comments": "Comments {0}",
     "card.tab_history": "History",
     "card.tabs_aria": "Card views",
     "activity.empty": "No activity recorded yet — the log started when this feature shipped.",
@@ -214,6 +215,8 @@
     "notification.view_card": "View card",
     "notification.assigned_to": "You were assigned to ''{0}''",
     "notification.commented_on": "{0} commented on ''{1}''",
+    "notification.creator_commented_on": "{0} commented on your card ''{1}''",
+    "notification.creator_done": "{0} moved your card ''{1}'' to {2}",
     "notification.today": "Today",
     "notification.yesterday": "Yesterday",
     "notification.older": "Older",

@@ -1,1 +1,5 @@
 .hermes/
+.claude/
+.serena/
+# Real per-host config (Ceph keys, DB credentials) — never commit
+etc/config.php

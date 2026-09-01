@@ -111,7 +111,9 @@ class CommentService
             'author'     => ['id' => (int) $currentUser['id'], 'name' => $currentUser['name'] ?? null],
         ]);
 
-        // Notify all users assigned to the card (except the comment author)
+        // Notify all users assigned to the card (except the comment author);
+        // v1.8: also notify the creator (NOTIF-07) and stamp the new
+        // comment's id on every row (NOTIF-09 deep link).
         if ($this->notificationService !== null) {
             $card = $this->cardModel->findById($cardId);
             if ($card !== null) {
@@ -119,7 +121,9 @@ class CommentService
                     $cardId,
                     (int) $currentUser['id'],
                     $card['title'],
-                    $currentUser['name']
+                    $currentUser['name'],
+                    $commentId,
+                    $card
                 );
             }
         }

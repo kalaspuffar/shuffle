@@ -509,6 +509,27 @@ class CardService
             }
         }
 
+        // v1.8 NOTIF-08: when a card lands in a Done lane, notify the CREATOR
+        // (unless the creator made the move). Non-fatal — a notification
+        // failure must never block or corrupt the move. Same \bdone\b
+        // matcher as the priority digest (PRIO-13).
+        if ($this->notificationService !== null && $toLane !== null && !empty($currentUser)) {
+            try {
+                $toTitle = (string) ($toLane['title'] ?? '');
+                if (preg_match('/\bdone\b/iu', trim($toTitle)) === 1) {
+                    $this->notificationService->notifyCreatorDoneMove(
+                        (int) $card['id'],
+                        (int) $currentUser['id'],
+                        (string) ($currentUser['name'] ?? ''),
+                        $toTitle,
+                        $card
+                    );
+                }
+            } catch (\Throwable $e) {
+                error_log('CardService::moveCard creator notify failed for card ' . $id . ': ' . $e->getMessage());
+            }
+        }
+
         return $this->getCard($id);
     }
 

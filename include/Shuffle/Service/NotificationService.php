@@ -33,16 +33,36 @@ class NotificationService
     }
 
     /**
-     * Returns notifications for a user.
+     * Returns notifications for a user, enriched with the card's board_id
+     * (for the NOTIF-09 deep link /board.php?id={boardId}&card={cardId}).
      *
      * @param int  $userId     User ID
      * @param bool $unreadOnly Filter to unread only
      * @param int  $limit      Maximum results
-     * @return array Array of notifications
+     * @return array Array of notifications, each row with an added `board_id`
+     *               key (int or null if the card / lane / board was removed).
      */
     public function getNotificationsForUser(int $userId, bool $unreadOnly = false, int $limit = 50): array
     {
-        return $this->notificationModel->findByUser($userId, $unreadOnly, $limit);
+        $rows = $this->notificationModel->findByUser($userId, $unreadOnly, $limit);
+        if ($rows === []) {
+            return $rows;
+        }
+
+        $cardIds = [];
+        foreach ($rows as $row) {
+            $cardIds[(int) $row['reference_id']] = true;
+        }
+
+        $boardByCard = $this->cardModel->boardsForCards(array_keys($cardIds));
+
+        foreach ($rows as &$row) {
+            $cardId = (int) $row['reference_id'];
+            $row['board_id'] = isset($boardByCard[$cardId]) ? (int) $boardByCard[$cardId] : null;
+        }
+        unset($row);
+
+        return $rows;
     }
 
     /**
@@ -143,17 +163,29 @@ class NotificationService
      * Called when a comment is posted. Notifies all assigned users
      * except the comment author.
      *
-     * @param int    $cardId       Card ID
-     * @param int    $authorUserId Comment author's user ID
-     * @param string $cardTitle    Card title for the notification message
-     * @param string $authorName   Comment author's display name
+     * v1.8 (NOTIF-07): also creates a creator-scope notification for the
+     * card's author — unless the author is the creator, or the creator
+     * is already in the assignee set (in which case they get ONE
+     * 'comment'-type row, not a duplicate). All rows produced by this
+     * call share the new comment's id (`comment_id`) so the bell panel
+     * can deep-link to it (NOTIF-09).
+     *
+     * @param int     $cardId        Card ID
+     * @param int     $authorUserId  Comment author's user ID
+     * @param string  $cardTitle     Card title for the notification message
+     * @param string  $authorName    Comment author's display name
+     * @param int|null $commentId    New comment's id (NOTIF-09 anchor)
+     * @param array|null $card       Full card row (provides created_by for NOTIF-07);
+     *                               read by reference only — no extra query
      */
-    public function notifyComment(int $cardId, int $authorUserId, string $cardTitle, string $authorName): void
+    public function notifyComment(int $cardId, int $authorUserId, string $cardTitle, string $authorName, ?int $commentId = null, ?array $card = null): void
     {
         $assignedUsers = $this->cardModel->getAssignedUsers($cardId);
+        $assignedIds = [];
 
         foreach ($assignedUsers as $user) {
             $userId = (int) $user['id'];
+            $assignedIds[] = $userId;
 
             // Don't notify the comment author
             if ($userId === $authorUserId) {
@@ -167,8 +199,62 @@ class NotificationService
                 'user_id'      => $userId,
                 'type'         => 'comment',
                 'reference_id' => $cardId,
+                'comment_id'   => $commentId,
                 'message'      => $message,
             ]);
         }
+
+        // NOTIF-07: the card's creator also gets notified — but only if they
+        // aren't the commenter AND aren't already on the assignee list (to
+        // avoid double-notifying).
+        $creatorId = ($card !== null && isset($card['created_by'])) ? (int) $card['created_by'] : null;
+        if ($creatorId !== null
+            && $creatorId !== $authorUserId
+            && in_array($creatorId, $assignedIds, true) === false) {
+            $truncatedTitle = mb_substr($cardTitle, 0, 100, 'UTF-8');
+            $this->notificationModel->create([
+                'user_id'      => $creatorId,
+                'type'         => 'creator',
+                'reference_id' => $cardId,
+                'comment_id'   => $commentId,
+                'message'      => $this->lang->get('notification.creator_commented_on', [$authorName, $truncatedTitle]),
+            ]);
+        }
+    }
+
+    /**
+     * Creates a creator-scope notification that a card moved into a Done
+     * lane (NOTIF-08 — "your card shipped").
+     *
+     * No-op when the actor IS the creator or the creator is unknown.
+     * Uses the same `\bdone\b` (case-insensitive, word-bounded) matcher
+     * as the priority digest (PRIO-13) — "Done-ness" never matches,
+     * "Done — v2" does.
+     *
+     * @param int    $cardId        Card ID
+     * @param int    $actorUserId   Acting user's ID (mover)
+     * @param string $actorName     Acting user's display name
+     * @param string $toLaneTitle   Lane the card landed in (Done-lane)
+     * @param array|null $card      Full card row (for created_by + title)
+     */
+    public function notifyCreatorDoneMove(int $cardId, int $actorUserId, string $actorName, string $toLaneTitle, ?array $card = null): void
+    {
+        if ($card === null) {
+            return;
+        }
+
+        $creatorId = isset($card['created_by']) ? (int) $card['created_by'] : null;
+        if ($creatorId === null || $creatorId === $actorUserId) {
+            return;
+        }
+
+        $truncatedTitle = mb_substr((string) ($card['title'] ?? ''), 0, 100, 'UTF-8');
+        $this->notificationModel->create([
+            'user_id'      => $creatorId,
+            'type'         => 'creator',
+            'reference_id' => $cardId,
+            'comment_id'   => null,
+            'message'      => $this->lang->get('notification.creator_done', [$actorName, $truncatedTitle, $toLaneTitle]),
+        ]);
     }
 }

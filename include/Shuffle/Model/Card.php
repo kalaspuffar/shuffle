@@ -395,6 +395,44 @@ class Card
     }
 
     /**
+     * Resolves a set of card ids to their board ids (cards → lanes → boards)
+     * in a single query. Returns [cardId => boardId]; cards whose chain
+     * was broken (card/lane/board deleted) are simply absent.
+     *
+     * Batched form of getBoardId() — used by NotificationService to
+     * enrich a page of notifications without N+1 (NOTIF-09).
+     *
+     * @param int[] $cardIds Card IDs (may contain duplicates / zero ids)
+     * @return array<int, int> [cardId => boardId]
+     */
+    public function boardsForCards(array $cardIds): array
+    {
+        $cardIds = array_values(array_unique(array_filter(array_map('intval', $cardIds))));
+
+        if (count($cardIds) === 0) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+
+        $rows = $this->db->fetchAll(
+            "SELECT c.id AS card_id, b.id AS board_id
+             FROM cards c
+             JOIN lanes l  ON c.lane_id = l.id
+             JOIN boards b ON l.board_id = b.id
+             WHERE c.id IN ($placeholders)",
+            $cardIds
+        );
+
+        $map = [];
+        foreach ($rows as $row) {
+            $map[(int) $row['card_id']] = (int) $row['board_id'];
+        }
+
+        return $map;
+    }
+
+    /**
      * Returns cards assigned to a user for the priority inbox
      * (PRIO-03/04), pre-sorted in in-board position order:
      * board position → lane position → card position.

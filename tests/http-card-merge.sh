@@ -79,15 +79,19 @@ CODE=$(curl -s -o /tmp/merge-r3 -w '%{http_code}' $H -b "$COOKIE" \
 [ "$CODE" = "400" ]; ck "cross-board → 400 (got $CODE)" $?
 
 # ---------------------------------------------------------------------------
-# [5] Card-page render: the 2-card board shows the merge button BEFORE the
-#     happy-path merge consumes the source card (render order matters —
-#     after the merge the board has one card and the button correctly
-#     disappears, which is its own assertion below)
+# [5] Board-page modal surface (v1.8 CARD-15): the merge destination is
+#     server-staged on the board page via the merge overlay's
+#     data-merge-options JSON (the single card.php "merge into" list).
+#     Viewing C2 on a 2-card board must list the OTHER card (C1); the
+#     overlay + (JS-revealed) merge button are always present in the DOM.
+#     (The radio list itself is populated client-side by card-modal.js, so
+#      the stable HTTP assertion is the data surface, not the radio.)
 # ---------------------------------------------------------------------------
-HTML=$(curl -s $H -b "$COOKIE" "$B/card.php?id=$C2")
-echo "$HTML" | grep -q 'btn-merge-card'; ck "card.php (2-card board) renders merge button" $?
-echo "$HTML" | grep -q 'card-merge-overlay'; ck "card.php renders merge modal overlay" $?
-echo "$HTML" | grep -q 'name="merge-destination"'; ck "card.php modal lists a destination radio" $?
+HTML=$(curl -s $H -b "$COOKIE" "$B/board.php?id=$MAIN&card=$C2")
+MOPTS=$(echo "$HTML" | grep -oE 'data-merge-options="[^"]*"' | head -1 | sed 's/^data-merge-options="//; s/"$//')
+echo "$MOPTS" | grep -q "$C1"; ck "board modal (2-card board): merge-options lists the other card ($C1)" $?
+echo "$HTML" | grep -q 'card-merge-overlay'; ck "board modal renders merge overlay" $?
+echo "$HTML" | grep -q 'cm-btn-merge-card'; ck "board modal server-renders the merge button (JS reveals it)" $?
 
 # ---------------------------------------------------------------------------
 # [4] Happy path (source = C1, destination = C2)
@@ -122,16 +126,31 @@ assert item[0]['detail']['source_card']['id']==$C1, item[0]
 " ; ck "history feed: card_merged event present on survivor with source id" $?
 
 # ---------------------------------------------------------------------------
-# [5b] Post-merge: the survivor's board is down to 1 card, so the merge
-#      surface correctly disappears from the survivor's page
+# [5b] The merge destination list is the card's WHOLE board (the modal JS
+#     excludes the current card client-side). So after the merge, the
+#     survivor's board has one card and data-merge-options lists exactly
+#     that one (itself) — never a second destination. A 1-card fixture board
+#     likewise lists exactly its own single card.
+#     data-merge-options is HTML-escaped JSON: [{&quot;id&quot;:N,...}, ...];
+#     each option carries exactly one &quot;id&quot; key.
 # ---------------------------------------------------------------------------
-HTML=$(curl -s $H -b "$COOKIE" "$B/card.php?id=$C2")
-echo "$HTML" | grep -q 'btn-merge-card'; [ "$?" -eq 1 ]; ck "card.php: merge button gone once board is down to 1 card" $?
+count_opts() { echo "$1" | grep -oE '&quot;id&quot;:' | wc -l | tr -d ' '; }
 
-# A single-card board (fresh fixture) should NOT render the merge button
-read -r SINGLE SINGLEBOARD < <(php tests/_fixture-single-card.php)
-HTML=$(curl -s $H -b "$COOKIE" "$B/card.php?id=$SINGLE")
-echo "$HTML" | grep -q 'btn-merge-card'; [ "$?" -eq 1 ]; ck "card.php (1-card board) does NOT render merge button" $?
+# Re-fetch the board with the post-merge card (survivor C2, same board MAIN).
+HTML=$(curl -s $H -b "$COOKIE" "$B/board.php?id=$MAIN&card=$C2")
+MOPTS=$(echo "$HTML" | grep -oE 'data-merge-options="[^"]*"' | head -1)
+N=$(count_opts "$MOPTS")
+[ "$N" = "1" ]; ck "board modal: exactly 1 merge-option (survivor itself, no 2nd card) — got $N" $?
+
+# A single-card board (fresh fixture) lists exactly its one card.
+# Fixture echoes "card\nboard" (two lines) — split via IFS, not `read -r A B`.
+FIX1=$(php tests/_fixture-single-card.php)
+SINGLE=$(printf '%s\n' "$FIX1" | head -1)
+SINGLEBOARD=$(printf '%s\n' "$FIX1" | tail -1)
+HTML=$(curl -s $H -b "$COOKIE" "$B/board.php?id=$SINGLEBOARD&card=$SINGLE")
+MOPTS=$(echo "$HTML" | grep -oE 'data-merge-options="[^"]*"' | head -1)
+N=$(count_opts "$MOPTS")
+[ "$N" = "1" ]; ck "board modal (1-card board): lists its own single card, no second — got $N" $?
 
 # cleanup single-card fixture board
 php -r '
