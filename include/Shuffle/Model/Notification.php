@@ -33,7 +33,7 @@ class Notification
     public function findById(int $id): ?array
     {
         return $this->db->fetch(
-            'SELECT id, user_id, type, reference_id, message, is_read, created_at
+            'SELECT id, user_id, type, reference_id, comment_id, message, is_read, created_at
              FROM notifications WHERE id = ?',
             [$id]
         );
@@ -49,7 +49,7 @@ class Notification
      */
     public function findByUser(int $userId, bool $unreadOnly = false, int $limit = 50): array
     {
-        $sql = 'SELECT id, user_id, type, reference_id, message, is_read, created_at
+        $sql = 'SELECT id, user_id, type, reference_id, comment_id, message, is_read, created_at
                 FROM notifications
                 WHERE user_id = ?';
 
@@ -84,18 +84,21 @@ class Notification
     /**
      * Creates a new notification.
      *
-     * @param array $data Notification data: user_id, type, reference_id, message
+     * @param array $data Notification data: user_id, type, reference_id, message,
+     *                    [comment_id] (v1.8 NOTIF-09 — the comment id to anchor
+     *                    the deep link; NULL for assignment / creator-Done events)
      * @return int The new notification's ID
      */
     public function create(array $data): int
     {
         $this->db->execute(
-            'INSERT INTO notifications (user_id, type, reference_id, message)
-             VALUES (?, ?, ?, ?)',
+            'INSERT INTO notifications (user_id, type, reference_id, comment_id, message)
+             VALUES (?, ?, ?, ?, ?)',
             [
                 $data['user_id'],
                 $data['type'],
                 $data['reference_id'],
+                isset($data['comment_id']) ? $data['comment_id'] : null,
                 $data['message'],
             ]
         );

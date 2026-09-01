@@ -1,7 +1,7 @@
 # Project Specification: Shuffle
 
-**Version:** 1.5
-**Date:** 2026-08-29
+**Version:** 1.8
+**Date:** 2026-08-31
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
 **Based on:** REQUIREMENTS.md v1.6
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-08-31 | **v1.8** — Single card view (CARD-14/15): the board-page modal becomes the only card surface — feature-complete (checklists, attachments, comment edit/delete, archive/merge/delete), vertically scrollable body, three ARIA tabs (Card / Comments {N} / History) with the shareable deep link `/board.php?id={boardId}&card={cardId}[&tab=comments\|history]`; `www/card.php` + `www/js/card.js` removed and all link re-targeted (search, priority `card_html`, notification panel). Creator notifications (NOTIF-07/08): `notifications` gains `comment_id` (INT NULL) + `creator` type; `NotificationService::notifyCreator()`; `GET /v1/notifications` rows gain `board_id` + `comment_id`; bell-panel click routes per NOTIF-09 (comment → Comments tab @ comment anchor; creator-Done → History tab; assignment → Card tab). |
 | 2026-08-30 | **v1.7** — §5.17 Card Merge (CARD-10..13): `POST /v1/cards/{id}/merge` (destination = the surviving card, source = this card — the merge is initiated from the source card's page), `CardService::mergeInto()`, activity event `card_merged` (reserved slot in the v1 event list, §5.14), `user_prio` cleanup on delete (FK cascade), card-detail-page merge modal (www/card.php + www/js/card.js). Same-board v1 scope (CARD-11); irreversible. |
 | 2026-08-30 | **v1.6** — §5.24 Priority Digest API (PRIO-12..14): `PriorityService::digest()`, `GET /v1/priority/digest` (json + markdown), priority-page digest bar (top-N control + copy to clipboard). No new tables — "Done yesterday" reads the `card_activity` log (PRIO-13 foundation) instead of a separate `card_moves` table; the top-N value is page-local in v1 (no `user_settings` table). Traceability PRIO-12..14 (§7.15 of REQUIREMENTS.md v1.6). |
 | 2026-08-29 | **v1.5** — §4.1 `card_activity` schema; §3.14 `CardActivity` model; §3.15 `CardActivityService`; §5.14 Card Activity Log API + History-tab integration (Labels renumbered to §5.15); traceability ACTIVITY-01..03 (§7.16 of REQUIREMENTS.md v1.5). |
@@ -186,7 +187,7 @@ shuffle/
 │   ├── login.php                   # Login page
 │   ├── logout.php                  # Logout handler
 │   ├── board.php                   # Board view (lanes + cards)
-│   ├── card.php                    # Card detail view
+│   ├── (card detail removed in v1.8 — the board-page modal is the single card surface, CARD-14)
 │   ├── boards.php                  # Board listing
 │   ├── profile.php                 # User profile / settings
 │   ├── admin/                      # Admin pages
@@ -677,7 +678,8 @@ Services contain business logic, orchestrate model calls, enforce business rules
 
 **NotificationService:**
 - `notifyAssignment()` — Creates notification when user is assigned to a card
-- `notifyComment()` — Creates notifications for all assigned users when a comment is added
+- `notifyComment()` — Creates notifications for all assigned users when a comment is added; **also notifies the card's creator** unless the creator is the comment author or already in the assignee set (NOTIF-07). The created comment's id is stored on every notification row it produces (`comment_id`) for the NOTIF-09 deep link.
+- `notifyCreator(cardId, cardTitle, actorName)` — Creator-scope notification (type `creator`): fires when a card moves **into a Done lane** (NOTIF-08; same `\bdone\b` case-insensitive matcher as the priority digest, PRIO-13) and when someone comments on it (NOTIF-07, via `notifyComment`). No-op when the actor is the creator, the creator is unknown, or the creator was already notified for the same event.
 
 **ImportService:**
 - `importTrelloBoard()` — Parses Trello JSON, maps to Shuffle entities, creates placeholder users
@@ -777,6 +779,12 @@ All JS files are vanilla JavaScript (ES6+), no build step, loaded with `<script>
 - Checklist item toggling
 - User assignment autocomplete
 - Due date picker
+
+> **v1.8 (CARD-14/15):** `www/card.js` and the standalone `www/card.php` page are **removed**.
+> All of the above now lives in the board-page card modal (`www/j/card.js` → modal markup in
+> `www/board.php` + handlers in `www/js/board.js`), and the History-tab interaction
+> (`www/js/card-activity.js`) renders inside the modal's third tab. The card modal opens
+> via plain card click or the deep link `/board.php?id={boardId}&card={cardId}[&tab=]`.
 
 **`js/upload.js`** — File upload:
 - `XMLHttpRequest` with `upload.onprogress` for progress tracking
@@ -980,13 +988,16 @@ INDEX (`card_id`)
 |---|---|---|
 | `id` | INT UNSIGNED | PRIMARY KEY, AUTO_INCREMENT |
 | `user_id` | INT UNSIGNED | NOT NULL, FK → users.id ON DELETE CASCADE |
-| `type` | ENUM('assignment', 'comment') | NOT NULL |
-| `reference_id` | INT UNSIGNED | NOT NULL |
+| `type` | ENUM('assignment', 'comment', 'creator') | NOT NULL — `comment` = someone commented on a card you are assigned to (NOTIF-02); `creator` = creator-scope event (comment on your card, NOTIF-07, **or** your card moved to a Done lane, NOTIF-08 — disambiguated by `comment_id` presence); `assignment` = NOTIF-01 |
+| `reference_id` | INT UNSIGNED | NOT NULL — always the card id |
+| `comment_id` | INT UNSIGNED | NULL, FK → comments.id ON DELETE CASCADE — set for comment-type notifications (types `comment` and `creator` with a comment event) so the notification can deep-link to that specific comment (NOTIF-09); NULL for assignment and creator-Done-moved events |
 | `message` | VARCHAR(512) | NOT NULL |
 | `is_read` | TINYINT(1) | NOT NULL, DEFAULT 0 |
 | `created_at` | DATETIME | NOT NULL, DEFAULT CURRENT_TIMESTAMP |
 
 INDEX (`user_id`, `is_read`, `created_at`)
+
+Migration (v1.8, idempotent): `ALTER TABLE notifications ADD COLUMN comment_id INT UNSIGNED NULL AFTER reference_id, ADD CONSTRAINT fk_notifications_comment FOREIGN KEY (comment_id) REFERENCES comments(id) ON DELETE CASCADE;` + enum extension `MODIFY COLUMN type ENUM('assignment','comment','creator') NOT NULL` — delivered as `bin/add-notification-comment-id.php` (pattern: existing `bin/add-*.php`).
 
 #### `labels`
 
@@ -2060,6 +2071,8 @@ Returns notifications for the current user.
             "id": 1,
             "type": "assignment",
             "reference_id": 42,
+            "comment_id": null,
+            "board_id": 3,
             "message": "You were assigned to 'Implement login'",
             "is_read": false,
             "created_at": "2026-02-12T10:00:00Z"
@@ -2068,6 +2081,11 @@ Returns notifications for the current user.
     "unread_count": 3
 }
 ```
+
+- `reference_id` is always the **card id**.
+- `comment_id` (v1.8, NOTIF-09) — the comment id for comment-scope notifications (`type=comment`, and `type=creator` with a comment event); `null` otherwise. Used by the client to deep-link `/board.php?id={boardId}&card={referenceId}&tab=comments#comment-{commentId}`.
+- `board_id` (v1.8, NOTIF-09) — the card's board, resolved server-side (cards → lanes → boards), so the notification panel can build the modal deep link without an extra request.
+- Routing contract (client, `www/js/notifications.js`): `type=comment` → Comments tab at the comment anchor; `type=creator` with `comment_id` → same; `type=creator` without `comment_id` (Done-lane move) → History tab; `type=assignment` → Card tab (default).
 
 #### `GET /v1/notifications/count`
 
@@ -2163,12 +2181,12 @@ All endpoints are for the **authenticated user only** — there is no `user_id` 
     "lane_icon": "🔨",
     "state_marker": "🔨",
     "due_date": "2026-09-01",
-    "card_html": "/card.php?id=42",
+    "card_html": "/board.php?id=3&card=42",
     "tier": 1
 }
 ```
 
-- `card_html` is the deep link to the card on its board (PRIO-07); the card page enforces board access itself.
+- `card_html` is the deep link to the card's **modal on its board** (PRIO-07, CARD-15) — format `/board.php?id={boardId}&card={cardId}`; the board page enforces board access itself and opens the modal on that card.
 - `state_marker` is derived from the live lane (PRIO-07): In Progress → 🔨, Inbox → 📥, Done → ✅, anything else → the lane's own icon when it has one, or a neutral marker when it does not.
 - `tier` is present only on inbox items (1/2/3, per PRIO-04).
 
@@ -2280,7 +2298,7 @@ Name snapshots are captured **at write time** — later lane renames or user del
 **Errors:** card/board not accessible → **404** (BOARD-04b, no existence leak); `limit` > 500 → clamped, not an error.
 
 **Card page integration (ACTIVITY-02):**
-- A **History** tab sits beside the card's main/Comments content on the card detail page; tabs are ARIA-compliant (`role=tablist`/`tab`/`tabpanel`, arrow-key navigation).
+- A **History** tab sits beside the card's Card/Comments content **in the board-page card modal** (v1.8, CARD-15); tabs are ARIA-compliant (`role=tablist`/`tab`/`tabpanel`, arrow-key navigation).
 - On activation the tab lazy-loads via the endpoint above (limit 50; "Load more" appends the next page using the last item's id as `before`).
 - Feed item: actor name, i18n action phrase with `detail` interpolated, relative time (exact time on hover/focus) using the same Markdown/trusted pipeline as the rest of the page (no raw HTML).
 - Empty log → honest empty state: no backfill, no fake history (the log started when the feature shipped).
@@ -2380,7 +2398,7 @@ Returns the acting user's **priority digest** — their top-N prioritized cards 
             "lane_title": "In Progress",
             "state_marker": "🔨",
             "due_date": "2026-09-02",
-            "card_html": "/card.php?id=42"
+            "card_html": "/board.php?id=3&card=42"
         }
     ],
     "done_yesterday": [
@@ -2391,7 +2409,7 @@ Returns the acting user's **priority digest** — their top-N prioritized cards 
             "to_lane_title": "Done",
             "actor": { "id": 1, "name": "Olaf" },
             "created_at": "2026-08-29 16:04:12",
-            "card_html": "/card.php?id=17"
+            "card_html": "/board.php?id=3&card=17"
         }
     ],
     "window": { "since": "2026-08-29 00:00:00", "until": "2026-08-29 23:59:59" }
@@ -2466,7 +2484,7 @@ Two cards that are actually the same work item (e.g. two tickets from different 
 
 **Data model:** none new. The `card_merged` event is the one addition to the `card_activity` vocabulary (§5.14 feed projection: `card_merged` → `detail: {source_card: {id, title}}`).
 
-**Card-page UI (CARD-11):** on the card detail page, `canEdit` users (member/admin) get a **"Merge into…"** button in the actions row (left of the red Delete — merge is a soft-ish action, Delete is the hard one). Clicking it opens a modal listing the **other cards of the same board** (title + lane name, archived cards included and marked) as radio options, plus an explicit warning block: *"The card "{source title}" will be deleted and its comments, checklists, attachments and assignees folded into the card you pick. This cannot be undone."* (i18n: `card.merge.*`). Confirmation calls `POST /v1/cards/{sourceId}/merge` with the picked destination; on 200 the flash fires and the browser navigates to the survivor's card page. Error flashes surface the 400/404/403 message. The modal is keyboard-operable (focus moves into the dialog, Escape closes without action, radio semantics), `aria-modal` like the board modals — WCAG 2.1 AA consistent with the existing board modal contract.
+**Card-page UI (CARD-11):** on the card surface — v1.8: the board-page card modal (CARD-14; the standalone card page is removed) — `canEdit` users (member/admin) get a **"Merge into…"** button in the actions row (left of the red Delete — merge is a soft-ish action, Delete is the hard one). Clicking it opens a modal listing the **other cards of the same board** (title + lane name, archived cards included and marked) as radio options, plus an explicit warning block: *"The card "{source title}" will be deleted and its comments, checklists, attachments and assignees folded into the card you pick. This cannot be undone."* (i18n: `card.merge.*`). Confirmation calls `POST /v1/cards/{sourceId}/merge` with the picked destination; on 200 the flash fires and the browser lands on the survivor's modal on the same board. Error flashes surface the 400/404/403 message. The merge dialog is keyboard-operable (focus moves into the dialog, Escape closes without action, radio semantics), `aria-modal` like the board modals — WCAG 2.1 AA consistent with the existing board modal contract.
 
 ---
 
@@ -3045,11 +3063,14 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | BOARD-06c / BOARD-06d | 5.5 (archive/restore UI surface in the edit-board modal; `UserPrio::removeForBoard` + `Card::findWithBoardForUserList` archived-board exclusion in the prio prioritized lane), 3.15 (BoardService::archiveBoard, PriorityService::loadPrioritized), www/v1/index.php, www/boards.php + www/js/boards.js |
 | LANE-01 through LANE-06 | 3.14, 4.1 (lanes), 4.2, 5.6 |
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
-| CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-page UI), www/card.php + www/js/card.js |
+| CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-modal UI), www/board.php (card modal) + www/js/board.js (v1.8: the standalone www/card.php + www/js/card.js are removed) |
+| CARD-14 / CARD-15 | 3.17 (board-page card modal), 3.18 (js/board.js + js/card-activity.js render in the modal), www/board.php — modal markup + deep-link `/board.php?id=&card=&tab=`; www/card.php + www/js/card.js removed |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
 | NOTIF-01 through NOTIF-06 | 3.15, 4.1 (notifications), 5.11 |
+| NOTIF-07 / NOTIF-08 | 3.15 (NotificationService::notifyCreator + notifyComment creator branch), 4.1 (notifications.enum `creator` + `comment_id`), 5.11 (board_id + comment_id in response), www/js/notifications.js routing |
+| NOTIF-09 | 5.11 (routing contract), www/js/notifications.js, www/js/board.js (Comments-tab `#comment-{id}` anchor + highlight) |
 | SEARCH-01 through SEARCH-05 | 3.15, 4.1 (cards FULLTEXT), 5.12 |
 | IMPORT-01 through IMPORT-10 | 3.15, 3.19, 8.3, 12.B |
 | RT-01 through RT-03 | 3.18, 4.3, 5.5 (version endpoint) |

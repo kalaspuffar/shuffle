@@ -469,7 +469,9 @@ class PriorityService
                     'name' => (string) ($row['actor_name'] ?? ''),
                 ],
                 'created_at'    => (string) $row['created_at'],
-                'card_html'     => '/card.php?id=' . $cardId,
+                // v1.8 CARD-15 / NOTIF-09: deep-link to the board-page modal
+                // (card.php is retired); the JS opens & renders the modal.
+                'card_html'     => '/board.php?id=' . (int) $boardId . '&card=' . (int) $cardId,
             ];
         }
 
@@ -571,7 +573,10 @@ class PriorityService
             'lane_icon' => $laneIcon,
             'state_marker' => $stateMarker,
             'due_date' => $row['due_date'] !== null ? (string) $row['due_date'] : null,
-            'card_html' => '/card.php?id=' . (int) $row['card_id'],
+            // v1.8 CARD-15: the card.php page is retired; the board-page
+            // modal is the surface (the ?card= param makes card-modal.js
+            // open it automatically on load).
+            'card_html' => '/board.php?id=' . (int) $row['board_id'] . '&card=' . (int) $row['card_id'],
         ];
 
         if ($tier !== null) {

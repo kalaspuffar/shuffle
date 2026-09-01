@@ -186,7 +186,10 @@ try {
     check('top has 2 cards (fixture)', count($top) === 2, 'count=' . count($top));
     check('top card_id[0] in fixture set', in_array((int) ($top[0]['card_id'] ?? 0), array_map('intval', $created['cards']), true));
     check('top card_title matches', isset($top[0]['card_title']) && str_starts_with((string) $top[0]['card_title'], 'Dig #1'), 'title=' . ($top[0]['card_title'] ?? ''));
-    check('top card_html is deep link', str_starts_with((string) ($top[0]['card_html'] ?? ''), '/card.php?id='));
+    check('top card_html is deep link (board modal, v1.8 CARD-15)',
+        preg_match('#^/board\.php\?id=\d+&amp?;card=\d+$#', (string) ($top[0]['card_html'] ?? '')) === 1
+        || preg_match('#^/board\.php\?id=\d+&card=\d+$#', (string) ($top[0]['card_html'] ?? '')) === 1,
+        'card_html=' . ($top[0]['card_html'] ?? ''));
     check('state_marker string present', is_string($top[0]['state_marker'] ?? null));
     check('done_yesterday is array (empty is fine — no yesterday log)', is_array($done));
     check('window present with since/until', isset($data['window']['since'], $data['window']['until']));

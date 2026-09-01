@@ -243,7 +243,9 @@ try {
     check('page 200', $pStatus === 200, "got {$pStatus} url=$pUrl");
     check('page has priority-page div', str_contains($page, 'priority-page'));
     check('page has "My Priority List"', str_contains($page, 'My Priority List'));
-    check('page includes c1 link card.php?id=' . $c1, str_contains($page, 'card.php?id=' . $c1));
+    check('page includes c1 link (board modal deep-link, v1.8 CARD-15)',
+        preg_match('#/board\.php\?id=\d+&amp;card=' . $c1 . '#', $page) === 1
+        || preg_match('#/board\.php\?id=\d+&card=' . $c1 . '#', $page) === 1);
     check('page includes c2', str_contains($page, 'id="' . $c2 . '"') || str_contains($page, 'data-card-id="' . $c2 . '"'));
     check('page has prioritize button on inbox item', str_contains($page, 'data-priority-action="prioritize"'));
     check('page has remove button on prioritized item', str_contains($page, 'data-priority-action="remove"'));

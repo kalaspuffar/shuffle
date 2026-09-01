@@ -190,8 +190,9 @@ check('top ends with our 3 fixture cards, in user order',
 check('top item shape (card_id, card_title, board_title, state_marker, card_html)',
     isset($d['top'][0]['card_id'], $d['top'][0]['card_title'], $d['top'][0]['board_title'],
           $d['top'][0]['state_marker'], $d['top'][0]['card_html']));
-check('deep link format /card.php?id=N',
-    str_starts_with($d['top'][0]['card_html'] ?? '', '/card.php?id='));
+check('deep link format /board.php?id=B&card=C (v1.8 modal deep-link)',
+    preg_match('#^/board\.php\?id=\d+&amp?;card=\d+$#', $d['top'][0]['card_html'] ?? '') === 1
+    || preg_match('#^/board\.php\?id=\d+&card=\d+$#', $d['top'][0]['card_html'] ?? '') === 1);
 check('state_marker non-empty string', is_string($d['top'][0]['state_marker'] ?? '') && $d['top'][0]['state_marker'] !== '');
 check('window is yesterday 00:00:00 → 23:59:59 (server local TZ)',
     ($d['window']['since']  ?? '') === date('Y-m-d 00:00:00', strtotime('-1 day'))
@@ -222,11 +223,17 @@ echo "\n[3] markdown contract\n";
 $md = $svc->digestMarkdown($asUser, 50);
 check('markdown is a string', is_string($md) && $md !== '');
 check('top heading bold + rendered count', str_contains($md, '**My top ' . $expectedTotal . '**'), 'md=' . $md);
-// At this point no card has a Done-lane move in yesterday's window yet, so
-// the 'Done yesterday' section must be OMITTED (Daniel 2026-08-30). Section
-// [4] below injects the rows and re-checks.
-check('empty Done-yesterday section is omitted at this point (no noise)',
-    !str_contains($md, 'Done yesterday') && !str_contains($md, '(none)'), 'md=' . $md);
+// At this point the SEEDED fixture board has no Done-lane moves in
+// yesterday's window yet (section [4] below injects them). The "empty section
+// is omitted" contract for a truly empty digest is asserted via the deny-all
+// user a few lines down. Here we scope to our board so a real "→ Done" move
+// on the acting user's other boards doesn't break the check.
+$_seedDoneNow = array_values(array_filter(
+    $svc->digest($asUser, 50)['done_yesterday'],
+    static fn ($i) => (int) ($i['board_id'] ?? 0) === (int) $boardId
+));
+check('seeded board has no Done-yesterday entries yet (section [4] adds them)',
+    $_seedDoneNow === [], 'count=' . count($_seedDoneNow));
 check('top item line: {marker} {title} — *{board}* (no link tail in chat markdown)',
     preg_match('/^\S+ E2E-DIG-top-1 — \*' . preg_quote($boardTitle, '/') . '\*$/m', $md) === 1, 'md=' . $md);
 check('top item line in markdown does NOT contain a dead /card.php?id= path',
@@ -284,15 +291,34 @@ check('Alpha→Done-ness card listed (matcher)', in_array($doneNessCard, $doneId
 check('Alpha→Completed card NOT listed',        !in_array($completedCard, $doneIds, true));
 check('Done→Done — v2 no-op NOT listed',        !in_array($noopCard, $doneIds, true));
 check('doneHitCard counted exactly once',       count(array_keys($doneIds, $doneHitCard, true)) === 1, 'ids=' . json_encode($doneIds));
-check('done section has exactly 2 entries',     count($d['done_yesterday']) === 2, 'count=' . count($d['done_yesterday']));
+// The 2 seeded cards MUST land in the list, with all the negative/positive
+// matcher asserts above. We do NOT assert an exact count of 2, because the
+// log is global and any real "→ Done" moves on admin's other boards during
+// yesterday's window legitimately appear (that's correct behaviour).
+check('done section is non-empty',              count($d['done_yesterday']) >= 2, 'count=' . count($d['done_yesterday']));
+check('seeded doneNessCard present (matcher)',  in_array($doneNessCard,  $doneIds, true), 'ids=' . json_encode($doneIds));
+check('seeded doneHitCard present',             in_array($doneHitCard,   $doneIds, true), 'ids=' . json_encode($doneIds));
 
-$first = $d['done_yesterday'][0] ?? [];
+// done_yesterday is a GLOBAL feed: it also includes real "→ Done" moves on
+// the acting user's OTHER boards from within the window (correct behaviour
+// in production). The order/shape/dedup assertions below are a property of
+// the SEEDED fixture board, so filter the global result down to our board's
+// cards and re-sort by created_at before asserting.
+$boardDone = array_values(array_filter(
+    $d['done_yesterday'],
+    static fn ($i) => (int) ($i['board_id'] ?? 0) === (int) $boardId
+));
+usort($boardDone, static fn ($a, $b) => strcmp((string)($a['created_at'] ?? ''), (string)($b['created_at'] ?? ''))
+);
+$first  = $boardDone[0] ?? [];
+$second = $boardDone[1] ?? [];
 check('done item: card_title',                ($first['card_title'] ?? '') === 'E2E-DIG-hit-done');
 check('done item: to_lane_title = Done',      ($first['to_lane_title'] ?? '') === 'Done');
 check('done item: actor.name = acting user',  ($first['actor']['name'] ?? '') === $asUser['name']);
 check('done item: created_at in yesterday window', stripos($first['created_at'] ?? '', $yest) === 0);
-check('done item: deep link',                 str_starts_with($first['card_html'] ?? '', '/card.php?id=' . $doneHitCard));
-$second = $d['done_yesterday'][1] ?? [];
+check('done item: deep link (v1.8 modal form, card matches)',
+    preg_match('#^/board\.php\?id=\d+&amp?;card=' . $doneHitCard . '$#', $first['card_html'] ?? '') === 1
+    || preg_match('#^/board\.php\?id=\d+&card=' . $doneHitCard . '$#', $first['card_html'] ?? '') === 1);
 check('second done item is the Done-ness card', (int) ($second['card_id'] ?? 0) === (int) $doneNessCard);
 
 // Ordering: oldest first within the window.

@@ -176,6 +176,46 @@
         return header;
     }
 
+    /**
+     * NOTIF-09 routing contract (v1.8): the bell panel opens the card's
+     * modal on its board (never the retired card page). The deep link is
+     * the shareable CARD-15 form, which js/card-modal.js parses on open:
+     *   /board.php?id={boardId}&card={cardId}[&tab=comments|history][&comment={id}]
+     * Landing:
+     *   - comment (NOTIF-02) or creator+comment (NOTIF-07):
+     *       tab=comments&comment={id} → Comments tab, scrolled + highlighted
+     *   - creator+move (NOTIF-08): tab=history → the "moved to Done" event
+     *   - assignment (NOTIF-01): default (Card tab)
+     *
+     * Requires the row to carry `board_id` (resolved server-side) plus
+     * `reference_id` (the card). Falls back to the boards list if the
+     * card/board chain was deleted (reference_id dangles).
+     */
+    function buildDeepLink(notification) {
+        var boardId = parseInt(notification.board_id, 10) || 0;
+        var cardId = parseInt(notification.reference_id, 10) || 0;
+        if (!boardId || !cardId) {
+            return '/boards.php';
+        }
+
+        var url = '/board.php?id=' + boardId + '&card=' + cardId;
+
+        var type = notification.type;
+        var commentId = parseInt(notification.comment_id, 10) || 0;
+        var isCommentEvent = (type === 'comment') || (type === 'creator' && commentId > 0);
+        var isDoneLaneEvent = (type === 'creator' && commentId === 0);
+
+        if (isCommentEvent) {
+            url += '&tab=comments';
+            if (commentId) url += '&comment=' + commentId;
+        } else if (isDoneLaneEvent) {
+            url += '&tab=history';
+        }
+        // assignment → Card tab (the modal default) — no extra params.
+
+        return url;
+    }
+
     function createNotificationItem(notification) {
         var item = document.createElement('div');
         item.className = 'notification-item' + (notification.is_read ? ' notification-item--read' : ' notification-item--unread');
@@ -188,10 +228,11 @@
             : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 3h12v8H6l-4 3V3z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
         var timeAgo = formatTimeAgo(notification.created_at);
+        var href = buildDeepLink(notification);
 
         item.innerHTML = '<div class="notification-item-icon">' + iconSvg + '</div>'
             + '<div class="notification-item-content">'
-            + '<a href="/card.php?id=' + notification.reference_id + '" class="notification-item-message">'
+            + '<a href="' + href + '" class="notification-item-message">'
             + escapeHtml(notification.message)
             + '</a>'
             + '<span class="notification-item-time">' + escapeHtml(timeAgo) + '</span>'
@@ -200,7 +241,9 @@
             + '<button type="button" class="notification-dismiss-btn" aria-label="' + escapeHtml(LANG.dismiss || 'Dismiss') + '" data-dismiss="' + notification.id + '">&times;</button>'
             + '</div>';
 
-        // Click card link marks notification as read
+        // Click card link marks notification as read (then the browser
+        // navigates to the modal deep link — the default <a> behaviour
+        // does the rest).
         var link = item.querySelector('.notification-item-message');
         link.addEventListener('click', function () {
             if (!notification.is_read) {

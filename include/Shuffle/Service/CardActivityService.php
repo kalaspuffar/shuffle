@@ -20,7 +20,8 @@ use Shuffle\Model\User;
  *
  *   feed() — read the feed for a card (newest first, `?limit` + `?before`
  *            paging), joining actor names and projecting the payload per
- *            event type. The UI (www/card.php History tab) renders this;
+ *            event type. The UI (the board-page modal's History tab,
+ *            js/card-modal.js + js/card-activity.js) renders this;
  *            prio-digest "Done yesterday" reads via the board-scoped helper
  *            `feedForBoardEvent()`.
  *

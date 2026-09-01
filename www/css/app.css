@@ -1021,6 +1021,13 @@ small,
     font-weight: var(--font-weight-medium);
 }
 
+/* The `hidden` attribute must hide the badge — a bare `display: inline-flex`
+   otherwise overrides it and the "Archived" label shows on every card.
+   (Same convention as .user-dropdown[hidden], .modal-overlay[hidden].) */
+.board-card-badge[hidden] {
+    display: none !important;
+}
+
 .board-card-badge--archived {
     background-color: var(--color-warning-subtle);
     color: var(--color-warning);
@@ -1230,19 +1237,78 @@ small,
     line-height: var(--line-height-ui);
 }
 
-/* Card edit modal — larger than the default small modal */
+/* Card edit modal — larger than the default small modal.
+   v1.8 (CARD-14): feature-complete (title, due date, description,
+   assignees, checklists, attachments, comments w/ edit+delete, actions),
+   and the body scrolls independently while header/footer stay fixed,
+   so a card with a long description / many comments / many attachments
+   is still fully usable at any window size. */
 .modal--card {
     max-width: var(--modal-width-lg);
+    max-height: calc(100vh - var(--space-8, 2 * 2rem));
     display: flex;
     flex-direction: column;
 }
 
-/* Comments section lives between the card form and the footer (outside the form) */
-.modal--card > .modal-comment-section {
-    padding: 0 var(--space-5) var(--space-4);
+/* Fixed header — outside the scroll area */
+.modal--card > .modal-header {
+    flex: 0 0 auto;
+}
+
+/* Tab bar (Card / Comments {N} / History) — fixed, just below the header */
+.modal--card > .card-detail-tabs {
+    flex: 0 0 auto;
+    margin: 0;
+    padding: 0 var(--space-5);
+    border-bottom: 1px solid var(--color-border-subtle);
+    background-color: var(--color-raised);
+    border-radius: var(--border-radius-xl) var(--border-radius-xl) 0 0;
+}
+
+/* Tab bar: reset the page-level margin so the tabs sit inside the modal
+   (the page-level .card-detail-tabs has margin-bottom:20px which is wrong
+   here — the tab bar is a fixed structural part of the modal). */
+.modal--card > .card-detail-tabs {
+    margin: 0;
+}
+
+/* Scrollable body — the tabs' panels render inside .modal-card-body,
+   which is the single overflow-y:auto region. */
+.modal--card > .modal-card-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: var(--space-5);
+    overscroll-behavior: contain;
+    border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl);
+}
+
+/* Fixed footer — outside the scroll area */
+.modal--card > .modal-footer {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--color-border-subtle);
+    border-radius: 0 0 var(--border-radius-xl) var(--border-radius-xl);
+}
+
+/* Keep the tab panel spacing consistent when it sits inside the modal
+   (the page-level .card-detail-panel has margin:0 via an earlier rule —
+   that still applies; we just add the section gap). */
+.modal--card .card-detail-panel {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-5);
+}
+
+/* The `hidden` attribute must hide an inactive tab panel — otherwise
+   all three panels (Card / Comments / History) show stacked at once and
+   tabs appear to "do nothing". (Same convention as .modal-overlay[hidden].) */
+.modal--card .card-detail-panel[hidden] {
+    display: none !important;
+}
+
+/* Comments section — the tab panel content (was previously inline in the
+   modal footer area; now a full tab). */
+.modal--card .modal-comment-section {
+    padding: 0;
 }
 
 #modal-comment-list {
@@ -4074,6 +4140,32 @@ small,
 .card-detail-tab--active {
     color: var(--color-text, #f1f5f9);
     border-bottom-color: var(--color-primary, #6D28D9);
+}
+
+/* CARD-15: comment count badge inside the Comments tab */
+.card-detail-tab-count {
+    display: inline-block;
+    min-width: 1.6em;
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background-color: var(--color-surface-2, rgba(148, 163, 184, 0.18));
+    color: inherit;
+    font-size: 0.8em;
+    line-height: 1.6em;
+    text-align: center;
+}
+
+.card-detail-tab--active .card-detail-tab-count {
+    background-color: var(--color-primary, #6D28D9);
+    color: #fff;
+}
+
+/* Deep link to a comment (?tab=comments#comment-N): highlight the target
+   comment once when the Comments tab activates on it. */
+.comment.cm-highlighted {
+    outline: 2px solid var(--color-primary, #6D28D9);
+    outline-offset: 2px;
 }
 
 /* Tab panels: reset any section-level margin so the two panels sit on the

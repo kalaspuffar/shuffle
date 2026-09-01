@@ -1,43 +1,42 @@
 /**
- * Card History tab — client-side logic (ACTIVITY-02, SPECIFICATION.md §5.14)
+ * Shuffle — Card History feed (ACTIVITY-02, SPECIFICATION §5.14)
  *
- * Wires the ARIA tablist on the card detail page (Card / History), lazily
- * loads the card's activity feed from GET /v1/cards/{id}/activity on first
- * activation, renders it as a newest-first list, and supports "load older"
- * paging.
+ * v1.8 (CARD-15): feed-ONLY library. Tab state, tab activation, and the
+ * deep-link URL are owned by js/card-modal.js (the modal's ARIA tablist).
+ *
+ * Public API:
+ *   ShuffleActivityFeed.bind(cardId, container, loadMoreWrap)
+ *     — re-target the feed to a card. bind() ALWAYS re-fetches the first
+ *       page (fresh data for the newly opened card) and clears rendered
+ *       state + container first. Safe to call on every openCard().
+ *
+ * The feed container is #card-activity-feed (board.php modal markup).
+ * The "load more" button is delegated to the container's .card-activity-loadmore
+ * sibling (bound once, re-targeted per card).
  *
  * Rendering is DOM-built with textContent for every data-derived string
- * (lane titles, user names, excerpt come from other users — never
+ * (lane titles, user names, excerpts come from other users — never
  * innerHTML), so a hostile lane name or user name cannot inject markup.
  *
- * Tab state is shareable: switching to History updates ?tab=history in the
- * URL via replaceState; switching back removes it. The server renders the
- * matching panel on load (card.php reads ?tab=), so deep links work even
- * without JavaScript.
- *
- * i18n strings are read from the #card-script tag's data-lang JSON — the
- * same bundle card.js uses (card.php puts the activity.* keys in the act_*
- * slots; the feed script shares that bundle).
+ * i18n comes from the #board-script tag's data-lang bundle (act_* keys).
  */
 (function () {
     'use strict';
 
-    var scriptTag = document.getElementById('card-script');
-    var feedEl = document.getElementById('card-activity-feed');
-    if (!scriptTag || !feedEl) return;
+    var boardScript = document.getElementById('board-script');
+    var rawLang = boardScript ? JSON.parse(boardScript.dataset.lang || '{}') : {};
 
-    var rawLang = JSON.parse(scriptTag.dataset.lang || '{}');
-    var CARD_ID = parseInt(feedEl.dataset.cardId, 10);
+    var state = {
+        cardId: 0,
+        container: null,
+        loadMoreWrap: null,
+        loaded: false,
+        hasMore: false,
+        oldestId: null,
+        loading: false
+    };
 
-    var tabs = Array.prototype.slice.call(document.querySelectorAll('.card-detail-tab'));
-    if (tabs.length < 2) return;
-
-    var loaded = false;        // feed fetched at least once
-    var hasMore = false;
-    var oldestId = null;       // id of the last (oldest) rendered item — next-page key
-    var loading = false;
-
-    // ---- helpers ----------------------------------------------------------
+    // ---- language helpers -------------------------------------------------
 
     function t(key, params) {
         var text = typeof rawLang[key] === 'string' ? rawLang[key] : key;
@@ -55,8 +54,9 @@
         return node;
     }
 
+    // ---- time helpers -----------------------------------------------------
+
     function fmtExact(iso) {
-        // "2026-08-30 09:17:47" → "2026-08-30 09:17"
         var parts = String(iso || '').match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}/);
         if (!parts) return String(iso || '');
         return parts[1] + ' ' + parts[2];
@@ -74,26 +74,28 @@
         return t('act_time_day', [Math.floor(h / 24)]);
     }
 
-    // ---- feed rendering --------------------------------------------
+    // ---- event icons ------------------------------------------------------
 
     var EVENT_ICONS = {
-        card_created:    '✚',
-        card_moved:      '🔁',
-        card_edited:     '✏️',
-        assigned:        '👤',
-        unassigned:      '👤',
-        card_archived:   '📦',
-        card_restored:   '📤',
+        card_created:       '＋',
+        card_moved:         '⇄',
+        card_edited:        '✎',
+        assigned:           '＋',
+        unassigned:         '－',
+        card_archived:      '⊘',
+        card_restored:      '⊙',
         attachment_added:   '📎',
-        attachment_removed: '🗑️',
-        checklist_added:    '☑️',
-        checklist_renamed:  '✏️',
-        checklist_removed:  '🗑️',
-        comment_created: '💬',
-        comment_edited:  '↪️',
-        comment_deleted: '🗑️',
-        card_merged:      '🔀'
+        attachment_removed: '🗑',
+        checklist_added:    '☑',
+        checklist_renamed:  '✎',
+        checklist_removed:  '🗑',
+        comment_created:    '💬',
+        comment_edited:     '↺',
+        comment_deleted:    '🗑',
+        card_merged:        '⇌'
     };
+
+    // ---- phrase rendering -------------------------------------------------
 
     function fieldLabel(name) {
         if (name === 'title') return t('act_field_title');
@@ -102,10 +104,6 @@
         return t('act_field_unknown');
     }
 
-    /**
-     * Returns an array of spans to render after the verb phrase.
-     * Every string comes through el() → textContent (never innerHTML).
-     */
     function renderAction(item) {
         var d = item.detail || {};
         var out = [];
@@ -118,11 +116,8 @@
             case 'card_moved': {
                 var from = d.from_lane ? d.from_lane.title : null;
                 var to   = d.to_lane   ? d.to_lane.title   : null;
-                if (from && to) {
-                    out.push(el('span', t('act_moved', [from, to])));
-                } else {
-                    out.push(el('span', t('act_moved_unknown')));
-                }
+                if (from && to) out.push(el('span', t('act_moved', [from, to])));
+                else            out.push(el('span', t('act_moved_unknown')));
                 break;
             }
 
@@ -155,7 +150,6 @@
 
             case 'attachment_removed': {
                 var rName = d.file ? d.file.name : '';
-                // If the actor is NOT the original uploader, say whose file it was.
                 var up = d.uploader;
                 var sameOwner = up && item.actor && up.id === item.actor.id;
                 if (up && !sameOwner) {
@@ -166,39 +160,31 @@
                 break;
             }
 
-            case 'checklist_added': {
-                var cTitle = d.checklist ? d.checklist.title : '';
-                out.push(el('span', t('act_checklist_added', [cTitle])));
+            case 'checklist_added':
+                out.push(el('span', t('act_checklist_added', [d.checklist ? d.checklist.title : ''])));
                 break;
-            }
 
-            case 'checklist_renamed': {
-                // Detail is {before, after} (flat) per the projection.
+            case 'checklist_renamed':
                 out.push(el('span', t('act_checklist_renamed', [d.before || '', d.after || ''])));
                 break;
-            }
 
-            case 'checklist_removed': {
-                var dTitle = d.checklist ? d.checklist.title : '';
-                out.push(el('span', t('act_checklist_removed', [dTitle])));
+            case 'checklist_removed':
+                out.push(el('span', t('act_checklist_removed', [d.checklist ? d.checklist.title : ''])));
                 break;
-            }
 
             case 'comment_created':
                 out.push(el('span', t('act_comment_created')));
                 break;
 
-            case 'comment_edited': {
-                // "{actor} edited a comment" vs "{actor} edited {author}'s comment"
+            case 'comment_edited':
                 if (d.author && d.author.id && item.actor && item.actor.id && d.author.id === item.actor.id) {
                     out.push(el('span', t('act_comment_edited')));
                 } else {
                     out.push(el('span', t('act_comment_edited_other', [d.author ? d.author.name : ''])));
                 }
                 break;
-            }
 
-            case 'comment_deleted': {
+            case 'comment_deleted':
                 if (d.author && d.author.id && item.actor && item.actor.id && d.author.id === item.actor.id) {
                     out.push(el('span', t('act_comment_deleted')));
                 } else {
@@ -210,14 +196,10 @@
                     out.push(q);
                 }
                 break;
-            }
 
-            case 'card_merged': {
-                // CARD-12: "merged {source title} into this card"
-                var srcTitle = d.source_card ? d.source_card.title : '';
-                out.push(el('span', t('act_merged', [srcTitle])));
+            case 'card_merged':
+                out.push(el('span', t('act_merged', [d.source_card ? d.source_card.title : ''])));
                 break;
-            }
 
             default:
                 out.push(el('span', item.event));
@@ -230,7 +212,6 @@
         li.className = 'card-activity-item';
         li.dataset.event = item.event;
 
-        // Time (relative text, exact in title + datetime attribute)
         var when = relTime(item.created_at);
         if (when) {
             var time = el('time', when);
@@ -255,7 +236,6 @@
         for (var i = 0; i < spans.length; i++) verbPhrase.appendChild(spans[i]);
         body.appendChild(verbPhrase);
 
-        // "by {actor}" — actor name is always data-driven
         if (item.actor && item.actor.name) {
             body.appendChild(el('span', t('act_by', [item.actor.name])));
         }
@@ -264,155 +244,157 @@
         return li;
     }
 
-    var listEl = null;
+    // ---- rendering helpers -------------------------------------------------
+
+    var listEl = null; // cached <ol> inside the currently-bound container
 
     function ensureList() {
-        if (listEl) return listEl;
-        while (feedEl.firstChild) feedEl.removeChild(feedEl.firstChild);
+        if (listEl && listEl.parentNode === state.container) return listEl;
+        clearContainer();
         listEl = el('ol', '');
         listEl.className = 'card-activity-list';
-        feedEl.appendChild(listEl);
+        state.container.appendChild(listEl);
         return listEl;
     }
 
+    function clearContainer() {
+        if (state.container) {
+            while (state.container.firstChild) state.container.removeChild(state.container.firstChild);
+        }
+        listEl = null;
+    }
+
     function showEmpty() {
-        ensureList().hidden = true;
-        var p = el('p');
+        clearContainer();
+        var p = el('p', t('act_empty'));
         p.className = 'text-secondary card-activity-empty';
-        p.textContent = t('act_empty');
-        feedEl.appendChild(p);
+        state.container.appendChild(p);
+        if (state.loadMoreWrap) state.loadMoreWrap.hidden = true;
     }
 
     function showLoadMore(show) {
-        var btn = document.getElementById('btn-load-older-activity');
-        var wrap = btn ? btn.parentElement : null;
-        if (wrap) wrap.hidden = !show;
+        if (state.loadMoreWrap) state.loadMoreWrap.hidden = !show;
     }
 
+    // ---- fetching ----------------------------------------------------------
+
     function fetchPage(beforeId) {
-        loading = true;
+        if (state.loading || !state.cardId) return Promise.resolve();
+        state.loading = true;
         var qs = 'limit=50';
         if (beforeId) qs += '&before=' + encodeURIComponent(String(beforeId));
 
-        return Shuffle.api('/v1/cards/' + CARD_ID + '/activity?' + qs, { method: 'GET' })
+        return Shuffle.api('/v1/cards/' + state.cardId + '/activity?' + qs, { method: 'GET' })
             .then(function (result) {
-                loading = false;
+                state.loading = false;
                 if (result.status !== 200 || !result.data) {
-                    throw new Error(result.data && result.data.error ? result.data.error : 'activity fetch failed');
+                    throw new Error((result.data && result.data.error) || 'activity fetch failed');
                 }
                 var items = result.data.items || [];
-                if (!loaded) {
-                    loaded = true;
-                    if (items.length === 0) {
-                        showEmpty();
-                        showLoadMore(false);
-                        return;
-                    }
+                var first = !state.loaded;
+                state.loaded = true;
+                if (first) clearContainer();
+
+                if (items.length === 0) {
+                    if (first) showEmpty();
+                    else if (state.loaded) { /* page was empty mid-scroll — stop */ showLoadMore(false); }
+                    return;
                 }
+
                 var list = ensureList();
                 var frag = document.createDocumentFragment();
-                for (var i = 0; i < items.length; i++) {
-                    frag.appendChild(renderItem(items[i]));
-                }
-                list.appendChild(frag);
-                if (items.length > 0) {
-                    oldestId = items[items.length - 1].id;
-                }
-                hasMore = !!result.data.has_more;
-                showLoadMore(hasMore);
+                for (var i = 0; i < items.length; i++) frag.appendChild(renderItem(items[i]));
+                list.insertBefore(frag, list.firstChild); // oldest ends up at the bottom
+                if (items.length > 0) state.oldestId = items[items.length - 1].id;
+                state.hasMore = !!result.data.has_more;
+                showLoadMore(state.hasMore);
             })
             .catch(function (err) {
-                loading = false;
-                console.error('[Shuffle activity]', err);
-                if (!loaded) {
-                    var p = el('p');
-                    p.className = 'text-secondary';
-                    p.textContent = t('act_error');
-                    feedEl.appendChild(p);
+                state.loading = false;
+                console.error('[ShuffleActivityFeed] fetch failed:', err);
+                if (!state.loaded) {
+                    clearContainer();
+                    var p2 = el('p', t('act_error'));
+                    p2.className = 'text-secondary';
+                    state.container.appendChild(p2);
                 }
             });
     }
 
-    // ---- tab wiring (WAI-ARIA APG tab pattern) ----------------------
+    // ---- public API ---------------------------------------------------------
 
-    function panelFor(tab) {
-        var id = tab.getAttribute('aria-controls');
-        return id ? document.getElementById(id) : null;
-    }
+    /**
+     * Binds the feed to a (cardId, container, loadMoreWrap) triple.
+     * ALWAYS re-fetches the first page with fresh data (the modal opens
+     * over a potentially-changed card; the board's 15s poll reload keeps
+     * us roughly current, so a single refetch on bind is enough).
+     */
+    function bind(cardId, container, loadMoreWrap) {
+        state.cardId = parseInt(cardId, 10) || 0;
+        state.container = container;
+        state.loadMoreWrap = loadMoreWrap || null;
+        state.loaded = false;
+        state.hasMore = false;
+        state.oldestId = null;
+        state.loading = false;
+        listEl = null;
 
-    function activateTab(tab, focus) {
-        tabs.forEach(function (other) {
-            var selected = other === tab;
-            other.setAttribute('aria-selected', selected ? 'true' : 'false');
-            other.tabIndex = selected ? 0 : -1;
-            other.classList.toggle('card-detail-tab--active', selected);
-            var pane = panelFor(other);
-            if (pane) pane.hidden = !selected;
-        });
-
-        // Shareable deep link — ?tab=history in the URL (replaceState, no
-        // extra history entry). Removing it when on the Card tab.
-        try {
-            var url = new URL(window.location.href);
-            if (tab.id === 'card-tab-history') {
-                url.searchParams.set('tab', 'history');
-            } else {
-                url.searchParams.delete('tab');
+        // "Load more" button lives in the static .card-activity-loadmore wrap
+        // (a SIBLING of the feed container): bind it once, keep the state
+        // read live.
+        if (state.loadMoreWrap) {
+            state.loadMoreWrap.hidden = true;
+            if (!state.loadMoreWrap._shuffleBound) {
+                state.loadMoreWrap._shuffleBound = true;
+                state.loadMoreWrap.addEventListener('click', function () {
+                    if (state.loading) return;
+                    if (!state.loaded) fetchPage(null);
+                    else if (state.hasMore && state.oldestId) fetchPage(state.oldestId);
+                    else showLoadMore(false);
+                });
             }
-            window.history.replaceState(null, '', url);
-        } catch (e) { /* non-essential */ }
-
-        if (focus !== false && tab.focus) tab.focus();
-
-        // First activation of History: lazy-load the feed
-        if (tab.id === 'card-tab-history' && !loaded && !loading) {
-            fetchPage(null);
+        } else {
+            // no explicit wrap given — look for the static sibling
+            if (state.container) {
+                var wrap = state.container.parentNode && state.container.parentNode.querySelector('.card-activity-loadmore');
+                if (wrap) {
+                    state.loadMoreWrap = wrap;
+                    wrap.hidden = true;
+                    if (!wrap._shuffleBound) {
+                        wrap._shuffleBound = true;
+                        wrap.addEventListener('click', function () {
+                            if (state.loading) return;
+                            if (!state.loaded) fetchPage(null);
+                            else if (state.hasMore && state.oldestId) fetchPage(state.oldestId);
+                            else showLoadMore(false);
+                        });
+                    }
+                }
+            }
         }
-    }
 
-    tabs.forEach(function (tab, idx) {
-        tab.addEventListener('click', function () {
-            activateTab(tab, false);
-        });
+        if (state.container) {
+            state.container.setAttribute('data-card-id', String(state.cardId));
+            var loading = el('p', '');
+            loading.className = 'text-secondary card-activity-loading';
+            loading.textContent = t('act_time_loading');
+            state.container.appendChild(loading);
+        }
 
-        // APG: arrow keys move focus between tabs (roving tabindex)
-        tab.addEventListener('keydown', function (e) {
-            var next = null;
-            if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-                next = tabs[(idx + 1) % tabs.length];
-            } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-                next = tabs[(idx - 1 + tabs.length) % tabs.length];
-            } else if (e.key === 'Home') {
-                next = tabs[0];
-            } else if (e.key === 'End') {
-                next = tabs[tabs.length - 1];
-            } else {
-                return;
-            }
-            e.preventDefault();
-            activateTab(next, true);
-        });
-    });
-
-    // Honor the server-rendered initial tab (deep link ?tab=history):
-    // pre-fetch the feed so the History panel is not empty on arrival.
-    var initialHistory = document.getElementById('card-tab-history');
-    if (initialHistory && initialHistory.getAttribute('aria-selected') === 'true') {
         fetchPage(null);
     }
 
-    // "Load older" — append the next page before the current oldest item
-    var loadBtn = document.getElementById('btn-load-older-activity');
-    if (loadBtn) {
-        loadBtn.addEventListener('click', function () {
-            if (loading) return;
-            if (!loaded) {
-                fetchPage(null);
-            } else if (hasMore && oldestId) {
-                fetchPage(oldestId);
-            } else {
-                showLoadMore(false);
-            }
-        });
+    /** Clears rendered state (no fetch). For a new card or explicit re-render. */
+    function reset() {
+        state.loaded = false;
+        state.hasMore = false;
+        state.oldestId = null;
+        state.loading = false;
+        clearContainer();
     }
+
+    window.ShuffleActivityFeed = {
+        bind:  bind,
+        reset: reset
+    };
 })();

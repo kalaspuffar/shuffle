@@ -80,9 +80,9 @@ require ROOT_DIR . '/include/templates/header.php';
     <div class="search-results" role="list" aria-label="<?= htmlspecialchars($lang->get('search.results_title'), ENT_QUOTES, 'UTF-8') ?>">
         <?php foreach ($searchResults['results'] as $result): ?>
         <article class="search-result-item<?= $result['is_archived'] ? ' search-result-item--archived' : '' ?>" role="listitem">
-            <div class="search-result-header">
-                <a href="/card.php?id=<?= (int) $result['card_id'] ?>" class="search-result-title">
-                    <?= htmlspecialchars($result['card_title'], ENT_QUOTES, 'UTF-8') ?>
+        <div class="search-result-header">
+            <a href="/board.php?id=<?= (int) $result['board_id'] ?>&amp;card=<?= (int) $result['card_id'] ?>" class="search-result-title">
+                <?= htmlspecialchars($result['card_title'], ENT_QUOTES, 'UTF-8') ?>
                 </a>
                 <?php if ($result['is_archived']): ?>
                 <span class="search-result-badge search-result-badge--archived"><?= htmlspecialchars($lang->get('search.card_archived'), ENT_QUOTES, 'UTF-8') ?></span>
