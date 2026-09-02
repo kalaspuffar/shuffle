@@ -2304,73 +2304,160 @@ Name snapshots are captured **at write time** — later lane renames or user del
 - Feed item: actor name, i18n action phrase with `detail` interpolated, relative time (exact time on hover/focus) using the same Markdown/trusted pipeline as the rest of the page (no raw HTML).
 - Empty log → honest empty state: no backfill, no fake history (the log started when the feature shipped).
 
-### 5.15 Labels (Post-MVP)
+### 5.15 Labels (LABEL-01..03)
+
+> **Scope note:** schema (`labels`, `card_labels`) and ERD relationships (REQUIREMENTS §9.2) are already in place. This section specifies the API contract, the board-level management UI, the card-modal label picker, and the mandatory label union on card merge.
+
+#### Palette
+
+A **curated palette of 12 preset colors** is exposed to the UI (swatches in the create/rename forms). The exact list lives in a single server-side constant — `LabelService::PALETTE` (array of `{hex, name}` entries):
+
+| Hex | Name |
+|---|---|
+| `#F44336` | red |
+| `#FF5722` | orange |
+| `#FFC107` | amber |
+| `#FF9800` | deep orange |
+| `#4CAF50` | green |
+| `#00BCD4` | cyan |
+| `#2196F3` | blue |
+| `#3F51B5` | indigo |
+| `#9C27B0` | purple |
+| `#E91E63` | pink |
+| `#795548` | brown |
+| `#607D8B` | blue grey |
+
+served via the board script tag's `data-label-palette` JSON (from `LabelService::PALETTE`) — the same single-source-of-truth pattern as `data-lane-templates` (LANE-10/11).
+
+**Free-hex escape.** In addition to the palette swatches, the label-create form includes a **short text input** accepting any `#RRGGBB` value. The UI defaults to the palette (clicking a swatch fills the hex input); the text input remains free to type a custom value. The **server is the single source of truth** and validates any color against:
+
+```
+^#[0-9A-Fa-f]{6}$
+```
+
+Values failing the regex return **400 `{"error": "Invalid color"}`**.
+
+**Text-on-color contrast (LABEL-02 WCAG):** the UI picks black or white label text by computing the chip background's relative luminance (WCAG §1.4.3 non-text contrast is N/A for label chips in v1, but the **chip must be readable** — contrast ratio ≥ 4.5:1 against the chip background). The contrast computation is client-side CSS `color: #000 or #fff`, chosen from the hex value; the server does not return a text color.
+
+#### Roles (LABEL-02)
+
+| Action | Admin | Member | Viewer |
+|---|---|---|---|
+| Create label (any board) | ✓ | ✓ | — |
+| Rename label | ✓ | ✓ | — |
+| Delete label | ✓ | ✓ | — |
+| Attach/detach label on a card | ✓ | ✓ | ✓ (on any board they can access) |
+| View label list (read-only) | ✓ | ✓ | ✓ |
+
+Board access is the gate (can board be seen? → yes → can view labels); mutation follows the role matrix above. **Label mutations bump the board version** so polling clients refresh.
 
 #### `GET /v1/boards/{boardId}/labels`
 
-Returns all labels for a board.
+Returns all labels for a board (including names, colors, and **`card_count`** — the number of cards the label is attached to, via one grouped `COUNT(*)` query on `card_labels`).
 
 **Response (200):**
 ```json
 {
     "labels": [
-        { "id": 1, "name": "Bug", "color": "#FF0000" },
-        { "id": 2, "name": "Feature", "color": "#00FF00" }
+        { "id": 1, "name": "Bug", "color": "#F44336", "card_count": 4 },
+        { "id": 2, "name": "Feature", "color": "#2196F3", "card_count": 9 }
     ]
 }
 ```
 
 #### `POST /v1/boards/{boardId}/labels`
 
-**Required role:** Admin or Member.
+**Required role:** Admin or Member (BOARD-04b / strict board isolation — 404 for boards the user cannot access, 403 for Viewer attempting mutation).
 
 **Request:**
 ```json
-{
-    "name": "Bug",
-    "color": "#FF0000"
-}
+{ "name": "Bug", "color": "#F44336" }
 ```
+
+- `name`: required, 1–64 chars, trimmed. Empty or whitespace-only → 400.
+- `color`: required, `#RRGGBB` per the regex above. Missing or invalid → 400 `{"error":"Invalid color"}`.
+- **Duplicate (name, board) pair → 409 `{"error":"A label with this name already exists on this board"}`** (case-sensitive; `Bug` and `bug` are distinct — server-side uniqueness, no lowercasing in v1).
 
 **Response (201):**
 ```json
-{
-    "label": { "id": 1, "name": "Bug", "color": "#FF0000" }
-}
+{ "label": { "id": 3, "name": "Bug", "color": "#F44336", "card_count": 0 } }
 ```
 
 #### `PUT /v1/labels/{id}`
 
+**Required role:** Admin or Member.
+
 **Request:**
 ```json
-{
-    "name": "Critical Bug",
-    "color": "#CC0000"
-}
+{ "name": "Critical Bug", "color": "#CC0000" }
 ```
+
+- Either or both fields may be sent (partial update; omitted fields untouched).
+- Validation as `POST` — 400 on invalid, 409 on duplicate name (excluding the label's own row).
 
 **Response (200):**
 ```json
-{
-    "label": { ... }
-}
+{ "label": { "id": 3, "name": "Critical Bug", "color": "#CC0000", "card_count": 2 } }
 ```
 
 #### `DELETE /v1/labels/{id}`
 
-**Response (204):** No content.
+**Required role:** Admin or Member.
+
+**Response (204):** No content. Cascades: all `card_labels` rows referencing the label are removed by FK cascade (the cards themselves are untouched). All users' access to the label is gone — the card picker for any card that had it no longer lists the label.
+
+**Bumps the board version** so polling clients clear the stale label from any card that had it.
 
 #### `POST /v1/cards/{cardId}/labels/{labelId}`
 
 Attaches a label to a card.
 
+- **Label must belong to the same board as the card** → cross-board attach → **400** (not 404 — the *board* is accessible and the *card* is accessible, only the *label* is out of scope; 404 would be misleading per the strict board-isolation clause, which applies to board existence, not label membership — documented in the traceable decision note).
+- **Idempotent:** re-attaching an already-attached label returns 204 (no-op).
+- **Required role:** Admin, Member, or Viewer (per BOARD-04b any user who can access the card's board).
+
 **Response (204):** No content. Bumps board version.
 
 #### `DELETE /v1/cards/{cardId}/labels/{labelId}`
 
-Detaches a label from a card.
+Detaches a label.
+
+- **Idempotent:** detaching a label that is not attached returns 204 (no-op).
+- **Required role:** Admin, Member, or Viewer.
 
 **Response (204):** No content. Bumps board version.
+
+#### Card merge label union (LABEL-03)
+
+`CardService::mergeInto()` (see §5.17) includes a label-union step after the checklist/attachment re-parenting:
+1. `SELECT label_id FROM card_labels WHERE card_id = ?` for the **source** card.
+2. For each source label, `INSERT IGNORE INTO card_labels (card_id, label_id) VALUES (? , ?)` with the **survivor** card id (idempotent; skips labels already on the survivor).
+3. Source's `card_labels` rows are then removed by FK cascade when the source card is `DELETE`d.
+
+No separate activity row — the `card_merged` payload already carries the source title snapshot (ACTIVITY-03 pattern), and label changes are low-signal (LABEL-01 design decision, 2026-09-02).
+
+#### Web UI — board header "Manage labels" (LABEL-02)
+
+On `www/board.php`, next to the board name in the board header (visible to Admin and Member; Viewer sees a read-only "Manage labels" button that opens the modal in a **read-only mode** — no add/rename/delete buttons in the modal body).
+
+The modal body contains, in order:
+1. **Label list** — one row per label: color swatch (16×16, `border-radius: 4px`), name (inline-editable for Admin/Member — click name → becomes text input, blur or Enter saves; Esc cancels), card count badge (e.g. `"9 cards"`), and (Admin/Member only) a red **Delete** button with destructive confirmation (mirrors the board-delete confirmation pattern per F.6.2).
+2. **Add label** row: name text input, color **swatch picker** (12 preset swatches in a grid, first one pre-selected on hover — the swatch fills the hex input when clicked, and vice versa), free-hex text input (always editable, 2 lines: swatch row above, hex input below), **Add** button (disabled while name is empty or hex is invalid — client-side pre-check; server re-validates).
+3. **Footer**: Cancel + Save (create mode only; rename/delete are immediate on the row).
+
+i18n keys: `label.create`, `label.create_name`, `label.create_color`, `label.create_add`, `label.manage_title`, `label.manage_empty`, `label.manage_count`, `label.manage_renamed`, `label.manage_deleted`, `label.manage_created`, `label.manage_readonly`, `label.palette.{name}` (12 keys, one per palette color), `label.invalid_name`, `label.invalid_color`, `label.duplicate_name`, `label.card_modal.add`, `label.card_modal.remove`, `label.card_modal.list_empty`, `label.card_modal.pick`.
+
+**WCAG AA:** contrast on the swatch text (label name in the swatch row) follows the luminance-based `color: #000|#fff` rule above; swatches have `aria-label="color: {name}"` and the picker has `role="radiogroup"` + `aria-selected` per swatch.
+
+#### Web UI — card modal label picker (LABEL-01)
+
+On the Card tab of the card modal (see CARD-14/15), below the assignees row:
+- A horizontal list of the card's assigned labels: color chip (background = hex, text = luminance-picked, padding 2px 8px, border-radius 12px) + name, with a small × button (14px) for removal (calls `DELETE /v1/cards/{cardId}/labels/{labelId}`).
+- **"+ Add label"** button: opens a dropdown/popover listing all board labels (color swatch 12px + name + checkmark if already attached). Clicking a board label attaches it (204) and re-renders the chip list. Clicking an already-attached label does nothing (idempotent).
+- The dropdown has `role="listbox"` + `role="option"` items with `aria-selected`; keyboard navigable (↑/↓/Enter/Escape) per WCAG combobox pattern.
+- **Read-only viewers:** the "+ Add label" button is hidden; the chip list renders without × (the attach/detach actions are disabled).
+- Both attach and detach bump the board version → the board poller refetches the card and re-renders the chip list.
+- i18n keys as above (`label.card_modal.*`).
 
 ### 5.16 Priority Digest (PRIO-12..14)
 
@@ -3079,6 +3166,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
 | CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-modal UI), www/board.php (card modal) + www/js/board.js (v1.8: the standalone www/card.php + www/js/card.js are removed) |
 | CARD-14 / CARD-15 | 3.17 (board-page card modal), 3.18 (js/board.js + js/card-activity.js render in the modal), www/board.php — modal markup + deep-link `/board.php?id=&card=&tab=`; www/card.php + www/js/card.js removed |
+| LABEL-01 / LABEL-02 / LABEL-03 | 3.14 (Label, CardLabel model access), 3.15 (LabelService::PALETTE, CardService::mergeInto label union), 4.1 (labels, card_labels), 5.15 (API + card-modal picker + board-manage UI), www/board.php + www/js/board.js (board header manage-labels button + modal), www/js/card-modal.js (card-tab label chips + add dropdown), include/lang/en.json (label.* keys) |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
@@ -3107,6 +3195,8 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | **Placeholder user** | A user account created during Trello import representing a person who hasn't been invited yet |
 | **Signature V4** | AWS's request signing algorithm authenticating S3 API calls using HMAC-SHA256 |
 | **Strict board isolation** | The principle that unauthorized users receive no information about a board's existence (404, not 403) |
+| **Card label chip** | The UI primitive on a card showing an attached label: a rounded pill with the label color as background and a luminance-picked text color (`#000` or `#fff`) for readability — see 5.15 (LABEL-01) |
+| **Label palette** | The 12 preset label colors (5.15) plus a free-hex escape; defined once in `LabelService::PALETTE` and served server-side via the board script tag's `data-label-palette` JSON |
 
 ### E. Visual Design System — CSS Custom Properties (Design Tokens)
 

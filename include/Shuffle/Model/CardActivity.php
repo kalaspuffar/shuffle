@@ -26,7 +26,7 @@ use Shuffle\Core\Database;
  *   card_merged (CARD-10..13; written on the SURVIVOR card, payload
  *   {source_card: {id, title}})
  *
- * card_labels_changed is reserved for the Labels feature (Post-MVP).
+ * label changes intentionally do NOT write an activity row (LABEL-01, 2026-09-02) — low-signal; the card_merged payload already snapshots the source for the merge case (LABEL-03).
  *
  * Index usage:
  *   (card_id, id DESC)         — feed hot path (newest first)
