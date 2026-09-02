@@ -128,12 +128,14 @@ try {
     $sorted = $tiers; sort($sorted);
     check('inbox tiers monotonically non-decreasing', $tiers === $sorted, json_encode($tiers));
 
-    // Every inbox card is non-archived, on an accessible board, not on a Done lane
+    // Every inbox card is non-archived, on an accessible board, not on a
+    // complete lane (Done OR Won't fix — v1.9 PRIO-09)
     $allOk = true;
     foreach ($list0['inbox'] as $item) {
-        if (preg_match('/\bdone\b/iu', $item['lane_title'])) { $allOk = false; }
+        if (preg_match('/\bdone\b/iu', $item['lane_title'])
+         || preg_match("/\bwon'?t fix\b/iu", $item['lane_title'])) { $allOk = false; }
     }
-    check('no Done-lane cards in inbox', $allOk);
+    check('no complete-lane (Done / Won\'t fix) cards in inbox (v1.9)', $allOk);
 
     // Every item has the required shape
     $shapeOk = true;

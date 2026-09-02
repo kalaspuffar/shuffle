@@ -143,7 +143,7 @@ class PriorityController
      *
      * Read-only: no CSRF (consistent with GET /v1/priority).
      *
-     * `format=json`     → 200 {n, top, done_yesterday, window}
+     * `format=json`     → 200 {n, top, done_since, window}
      * `format=markdown` → 200 text/markdown paste-ready body
      *
      * Unknown `format` values 400 (it is an enum, not a filter — a typo

@@ -23,6 +23,17 @@ declare(strict_types=1);
  * list is snapshotted, and every assertion is relative to it — the test is
  * safe to re-run at any time and restores state fully on shutdown.
  *
+ * v1.9 additions (Daniel, 2026-09-01):
+ *   — Won't-fix is a complete state: a lane titled "Won't fix" (apostrophe
+ *     optional) joins Done as a "complete lane" — cards moved there are
+ *     LISTED in the digest with lane_kind="wont_fix" (markdown ❌).
+ *     A "Will fix" lane is a true negative (NOT complete).
+ *   — Report window: "Done since" runs from 00:00:00 of the most recent
+ *     workday (Mon–Fri) at or before YESTERDAY to 23:59:59 of yesterday
+ *     (Monday → Fri–Sun inclusive, i.e. Friday 00:00 → Sunday 23:59).
+ *     The test computes the same rule and asserts window.since / window.until
+ *     plus in-window / out-of-window seeded rows.
+ *
  * Usage:  php tests/e2e-digest.php [user_id]   (default 1 = admin)
  */
 
@@ -141,7 +152,11 @@ $laneD    = $lane->create(['board_id' => $boardId, 'title' => 'Done', 'icon' => 
 $laneDN   = $lane->create(['board_id' => $boardId, 'title' => 'Done-ness', 'icon' => null, 'position' => 3000]);
 $laneD2   = $lane->create(['board_id' => $boardId, 'title' => 'Done — v2', 'icon' => null, 'position' => 4000]);
 $laneC    = $lane->create(['board_id' => $boardId, 'title' => 'Completed', 'icon' => null, 'position' => 5000]);
-foreach ([$laneA, $laneD, $laneDN, $laneD2, $laneC] as $l) { $tempLanes[] = $l; }
+// v1.9: Won't-fix lanes (complete) + a true-negative lane that is not complete.
+$laneWF   = $lane->create(['board_id' => $boardId, 'title' => "Won't fix", 'icon' => null, 'position' => 6000]);
+$laneWF2  = $lane->create(['board_id' => $boardId, 'title' => 'Wont fix', 'icon' => null, 'position' => 7000]);
+$laneWFN  = $lane->create(['board_id' => $boardId, 'title' => 'Will fix', 'icon' => null, 'position' => 8000]);
+foreach ([$laneA, $laneD, $laneDN, $laneD2, $laneC, $laneWF, $laneWF2, $laneWFN] as $l) { $tempLanes[] = $l; }
 
 $mkCard = function (int $laneId, string $title) use ($card, &$tempCards, $actorId): int {
     $id = $card->create([
@@ -164,10 +179,15 @@ $doneHitCard   = $mkCard($laneA, 'E2E-DIG-hit-done');
 $doneNessCard  = $mkCard($laneA, 'E2E-DIG-hit-doneness');
 $completedCard = $mkCard($laneA, 'E2E-DIG-not-completed');
 $noopCard      = $mkCard($laneA, 'E2E-DIG-noop-done-done');
+// v1.9 fixtures: Won't-fix (hit), wont (hit, no apostrophe), will (true negative).
+$wontHitCard   = $mkCard($laneA, 'E2E-DIG-hit-wontfix');
+$wontHitCard2  = $mkCard($laneA, 'E2E-DIG-hit-wont');
+$willFixCard   = $mkCard($laneA, 'E2E-DIG-not-willfix');
 
 // The temp board is 'private' owned by the acting user → accessible (HeadlessAuthAll
 // grants all anyway). requireAssignedCard (PRIO-03/05) requires assignment — assign.
-foreach (array_merge($topCards, [$doneHitCard, $doneNessCard, $completedCard, $noopCard]) as $cid) {
+foreach (array_merge($topCards, [$doneHitCard, $doneNessCard, $completedCard, $noopCard,
+                                 $wontHitCard, $wontHitCard2, $willFixCard]) as $cid) {
     $db->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$cid, $actorId]);
 }
 
@@ -194,9 +214,23 @@ check('deep link format /board.php?id=B&card=C (v1.8 modal deep-link)',
     preg_match('#^/board\.php\?id=\d+&amp?;card=\d+$#', $d['top'][0]['card_html'] ?? '') === 1
     || preg_match('#^/board\.php\?id=\d+&card=\d+$#', $d['top'][0]['card_html'] ?? '') === 1);
 check('state_marker non-empty string', is_string($d['top'][0]['state_marker'] ?? '') && $d['top'][0]['state_marker'] !== '');
-check('window is yesterday 00:00:00 → 23:59:59 (server local TZ)',
-    ($d['window']['since']  ?? '') === date('Y-m-d 00:00:00', strtotime('-1 day'))
-    && ($d['window']['until'] ?? '') === date('Y-m-d 23:59:59', strtotime('-1 day')));
+// v1.9 report window: from 00:00:00 of the most recent workday (Mon–Fri) at
+// or before YESTERDAY, to 23:59:59 yesterday. Computed here with the same
+// rule the service uses (DST-safe strtotime relative-day offsets, so no
+// fixed 86400*n arithmetic in a test that compares against it).
+$yestTs   = strtotime('yesterday');
+$yestDow  = (int) date('N', $yestTs); // 1=Mon … 7=Sun
+$anchorTs = match ($yestDow) {
+    6 => strtotime('-1 day', $yestTs),  // Sat → Friday
+    7 => strtotime('-2 days', $yestTs), // Sun → Friday
+    default => $yestTs,                 // Mon–Fri → yesterday
+};
+$expSince  = date('Y-m-d 00:00:00', $anchorTs);
+$expUntil  = date('Y-m-d 23:59:59', $yestTs);
+check('window.since = 00:00:00 of the last workday at-or-before yesterday (v1.9)',
+    ($d['window']['since'] ?? '') === $expSince, 'since=' . ($d['window']['since'] ?? '') . ' expected=' . $expSince);
+check('window.until = 23:59:59 of yesterday',
+    ($d['window']['until'] ?? '') === $expUntil, 'until=' . ($d['window']['until'] ?? '') . ' expected=' . $expUntil);
 
 // Live recompute: deprioritize one fixture card → it disappears from top immediately.
 $svc->deprioritize($asUser, $topCards[2]);
@@ -223,16 +257,19 @@ echo "\n[3] markdown contract\n";
 $md = $svc->digestMarkdown($asUser, 50);
 check('markdown is a string', is_string($md) && $md !== '');
 check('top heading bold + rendered count', str_contains($md, '**My top ' . $expectedTotal . '**'), 'md=' . $md);
-// At this point the SEEDED fixture board has no Done-lane moves in
-// yesterday's window yet (section [4] below injects them). The "empty section
-// is omitted" contract for a truly empty digest is asserted via the deny-all
-// user a few lines down. Here we scope to our board so a real "→ Done" move
-// on the acting user's other boards doesn't break the check.
+// At this point the SEEDED fixture board has no complete-lane moves in
+// the done_since window yet (section [4] below injects them). The "empty
+// section is omitted" contract for a truly empty digest is asserted via
+// the deny-all user a few lines down. Here we scope to our board so a
+// real "→ Done / → Won't fix" move on the acting user's other boards
+// doesn't break the check.
 $_seedDoneNow = array_values(array_filter(
-    $svc->digest($asUser, 50)['done_yesterday'],
+    $svc->digest($asUser, 50)['done_since'],
     static fn ($i) => (int) ($i['board_id'] ?? 0) === (int) $boardId
 ));
-check('seeded board has no Done-yesterday entries yet (section [4] adds them)',
+check('done_since key present (renamed from done_yesterday in v1.9)', array_key_exists('done_since', $svc->digest($asUser, 50)));
+check('old done_yesterday key removed (v1.9 rename, no consumers existed)', !array_key_exists('done_yesterday', $svc->digest($asUser, 50)));
+check('seeded board has no Done-since entries yet (section [4] adds them)',
     $_seedDoneNow === [], 'count=' . count($_seedDoneNow));
 check('top item line: {marker} {title} — *{board}* (no link tail in chat markdown)',
     preg_match('/^\S+ E2E-DIG-top-1 — \*' . preg_quote($boardTitle, '/') . '\*$/m', $md) === 1, 'md=' . $md);
@@ -251,16 +288,20 @@ check('deny-all user: markdown is empty (both sections omitted, no (none) noise)
 check('deny-all user: no card title leaked from our temp board',
     !str_contains($mdDeny, 'E2E-DIG-top-1'), 'md=' . $mdDeny);
 check('deny-all user: no done heading leaks',
-    !str_contains($mdDeny, 'Done yesterday'), 'md=' . $mdDeny);
+    !str_contains($mdDeny, 'Done since') && !str_contains($mdDeny, 'Done yesterday'), 'md=' . $mdDeny);
 
 // ---------------------------------------------------------------------------
-echo "\n[4] Done yesterday from the card_activity log\n";
+echo "\n[4] Done-since feed from the card_activity log\n";
 
-// Real moves happen NOW (today), outside the "yesterday" window — so the
-// log rows carry a created_at inside the window, exactly as the service
-// will read them (same read path; the move-hook write path is already
-// covered by the ACTIVITY suites).
-$yest = date('Y-m-d', strtotime('-1 day'));
+// v1.9 report window: seeded rows are stamped with dates the service will
+// read as in-window / out-of-window (today = 2026-09-01 Tue → window is
+// Mon 2026-08-31 00:00 → 23:59:  the rule is computed, not hardcoded,
+// below). $logAt() is timestamp-agnostic; the ACTIVITY suites cover the
+// move-hook write path.
+$sinceTs = strtotime('yesterday');
+$yDay    = date('Y-m-d', $sinceTs);            // in-window day (yesterday)
+$inW     = date('Y-m-d', $sinceTs - 86400 * 2) . ' 09:15:00'; // 2 days back
+$outW    = date('Y-m-d', $sinceTs + 86400)    . ' 09:15:00';  // today
 
 $logAt = function (int $cardId, int $fromLaneId, string $fromTitle, int $toLaneId, string $toTitle, string $at) use ($db, $boardId, $actorId): void {
     $db->execute(
@@ -273,84 +314,96 @@ $logAt = function (int $cardId, int $fromLaneId, string $fromTitle, int $toLaneI
     );
 };
 
-// (a) Alpha → "Done", in-window                → LISTED
-$logAt($doneHitCard,  $laneA, 'Alpha',     $laneD,  'Done',      $yest . ' 09:15:00');
-// (b) Alpha → "Done-ness", in-window          → LISTED (shared \bdone\b matcher: a hyphen IS a word boundary)
-$logAt($doneNessCard, $laneA, 'Alpha',     $laneDN, 'Done-ness', $yest . ' 10:30:00');
-// (c) Alpha → "Completed", in-window          → NOT listed (true negative for the matcher)
-$logAt($completedCard, $laneA, 'Alpha',    $laneC,  'Completed', $yest . ' 11:45:00');
-// (d) "Done" → "Done — v2", in-window (no-op) → NOT listed (from-lane already Done)
-$logAt($noopCard,     $laneD, 'Done',      $laneD2, 'Done — v2', $yest . ' 13:00:00');
-// (e) doneHitCard ALREADY Done → "Done" again in-window → still counted ONCE
-$logAt($doneHitCard,  $laneD, 'Done',      $laneD,  'Done',      $yest . ' 15:00:00');
+// (a) Alpha → "Done", in-window                     → LISTED, lane_kind=done
+$logAt($doneHitCard,  $laneA,  'Alpha',    $laneD,  'Done',      $yDay . ' 09:15:00');
+// (b) Alpha → "Done-ness", in-window               → LISTED (shared \bdone\b matcher)
+$logAt($doneNessCard, $laneA,  'Alpha',    $laneDN, 'Done-ness', $yDay . ' 10:30:00');
+// (c) Alpha → "Completed", in-window               → NOT listed (true negative)
+$logAt($completedCard,$laneA,  'Alpha',    $laneC,  'Completed', $yDay . ' 11:45:00');
+// (d) "Done" → "Done — v2", in-window (no-op)      → NOT listed (from-lane complete)
+$logAt($noopCard,     $laneD,  'Done',     $laneD2, 'Done — v2', $yDay . ' 13:00:00');
+// (e) doneHitCard ALREADY Done → "Done" again      → still counted ONCE
+$logAt($doneHitCard,  $laneD,  'Done',     $laneD,  'Done',      $yDay . ' 15:00:00');
+// (f) v1.9: Alpha → "Won't fix", in-window         → LISTED, lane_kind=wont_fix
+$logAt($wontHitCard,  $laneA,  'Alpha',    $laneWF, "Won't fix", $yDay . ' 16:00:00');
+// (g) v1.9: Alpha → "Wont fix", in-window          → LISTED (apostrophe optional)
+$logAt($wontHitCard2, $laneA,  'Alpha',    $laneWF2,'Wont fix',  $yDay . ' 16:30:00');
+// (h) v1.9: Alpha → "Will fix", in-window          → NOT listed (not complete)
+$logAt($willFixCard,  $laneA,  'Alpha',    $laneWFN,'Will fix',  $yDay . ' 17:00:00');
+// (i) v1.9 window: Alpha → "Done" TWO days back    → OUT of window
+$logAt($wontHitCard,  $laneA,  'Alpha',    $laneD,  'Done',      $inW);
+// (j) v1.9 window: Alpha → "Done" TODAY            → OUT of window (future)
+$logAt($willFixCard,  $laneA,  'Alpha',    $laneD,  'Done',      $outW);
 
 $d = $svc->digest($asUser, 50);
-$doneIds = array_map(fn($i) => $i['card_id'], $d['done_yesterday']);
+$doneIds = array_map(fn($i) => $i['card_id'], $d['done_since']);
+$doneByKind = array_map(fn($i) => $i['lane_kind'] ?? null, $d['done_since']);
 check('Alpha→Done card listed',                in_array($doneHitCard, $doneIds, true), 'ids=' . json_encode($doneIds));
 check('Alpha→Done-ness card listed (matcher)', in_array($doneNessCard, $doneIds, true), 'ids=' . json_encode($doneIds));
 check('Alpha→Completed card NOT listed',        !in_array($completedCard, $doneIds, true));
 check('Done→Done — v2 no-op NOT listed',        !in_array($noopCard, $doneIds, true));
-check('doneHitCard counted exactly once',       count(array_keys($doneIds, $doneHitCard, true)) === 1, 'ids=' . json_encode($doneIds));
-// The 2 seeded cards MUST land in the list, with all the negative/positive
-// matcher asserts above. We do NOT assert an exact count of 2, because the
-// log is global and any real "→ Done" moves on admin's other boards during
-// yesterday's window legitimately appear (that's correct behaviour).
-check('done section is non-empty',              count($d['done_yesterday']) >= 2, 'count=' . count($d['done_yesterday']));
-check('seeded doneNessCard present (matcher)',  in_array($doneNessCard,  $doneIds, true), 'ids=' . json_encode($doneIds));
-check('seeded doneHitCard present',             in_array($doneHitCard,   $doneIds, true), 'ids=' . json_encode($doneIds));
-
-// done_yesterday is a GLOBAL feed: it also includes real "→ Done" moves on
-// the acting user's OTHER boards from within the window (correct behaviour
-// in production). The order/shape/dedup assertions below are a property of
-// the SEEDED fixture board, so filter the global result down to our board's
-// cards and re-sort by created_at before asserting.
+check('v1.9 Alpha→Won\'t fix listed',           in_array($wontHitCard, $doneIds, true), 'ids=' . json_encode($doneIds));
+check('v1.9 Alpha→Wont fix listed (no apostrophe)', in_array($wontHitCard2, $doneIds, true), 'ids=' . json_encode($doneIds));
+check('v1.9 Alpha→Will fix NOT listed (not complete)', !in_array($willFixCard, $doneIds, true), 'ids=' . json_encode($doneIds));
+check('v1.9 doneHitCard counted exactly once (2 rows: in+out window)',
+    count(array_keys($doneIds, $doneHitCard, true)) === 1, 'ids=' . json_encode($doneIds));
+// The seeded cards MUST land in the list; do NOT assert an exact total count
+// because the log is global and real "→ Done / → Won't fix" moves on the
+// acting user's other boards within the window legitimately appear.
+check('done_since section is non-empty',       count($d['done_since']) >= 2, 'count=' . count($d['done_since']));
+// Scope: our board's seeded items, oldest first.
 $boardDone = array_values(array_filter(
-    $d['done_yesterday'],
+    $d['done_since'],
     static fn ($i) => (int) ($i['board_id'] ?? 0) === (int) $boardId
 ));
 usort($boardDone, static fn ($a, $b) => strcmp((string)($a['created_at'] ?? ''), (string)($b['created_at'] ?? ''))
 );
 $first  = $boardDone[0] ?? [];
 $second = $boardDone[1] ?? [];
-check('done item: card_title',                ($first['card_title'] ?? '') === 'E2E-DIG-hit-done');
-check('done item: to_lane_title = Done',      ($first['to_lane_title'] ?? '') === 'Done');
-check('done item: actor.name = acting user',  ($first['actor']['name'] ?? '') === $asUser['name']);
-check('done item: created_at in yesterday window', stripos($first['created_at'] ?? '', $yest) === 0);
-check('done item: deep link (v1.8 modal form, card matches)',
-    preg_match('#^/board\.php\?id=\d+&amp?;card=' . $doneHitCard . '$#', $first['card_html'] ?? '') === 1
-    || preg_match('#^/board\.php\?id=\d+&card=' . $doneHitCard . '$#', $first['card_html'] ?? '') === 1);
-check('second done item is the Done-ness card', (int) ($second['card_id'] ?? 0) === (int) $doneNessCard);
-
-// Ordering: oldest first within the window.
-check('done items oldest-first', ($first['created_at'] ?? '') <= ($second['created_at'] ?? ''));
+check('first seeded item is the Done card',            (int) ($first['card_id'] ?? 0)  === (int) $doneHitCard);
+check('first seeded item to_lane_title = Done',        ($first['to_lane_title'] ?? '') === 'Done');
+check('first seeded item lane_kind = done (v1.9)',     ($first['lane_kind'] ?? '')     === 'done');
+check('first seeded item actor.name = acting user',    ($first['actor']['name'] ?? '') === $asUser['name']);
+check('first seeded item created_at inside the window',
+    substr((string) ($first['created_at'] ?? ''), 0, 10)
+        >= substr((string) $d['window']['since'], 0, 10)
+    && substr((string) ($first['created_at'] ?? ''), 0, 10)
+        <= substr((string) $d['window']['until'], 0, 10),
+    'created_at=' . ($first['created_at'] ?? '') . ' window=' . json_encode($d['window']));
+check('first seeded item deep link (v1.8 modal form)',
+    preg_match('#^/board\.php\?id=\d+&amp?;card=' . $doneHitCard . '$#', (string) ($first['card_html'] ?? '')) === 1
+    || preg_match('#^/board\.php\?id=\d+&card=' . $doneHitCard . '$#',  (string) ($first['card_html'] ?? '')) === 1);
+check('second seeded item is the Done-ness card',      (int) ($second['card_id'] ?? 0) === (int) $doneNessCard);
+$wontItem = array_values(array_filter($boardDone, fn ($i) => (int) ($i['card_id'] ?? 0) === (int) $wontHitCard));
+check('wontHitCard item exists with lane_kind=wont_fix (v1.9)',
+    isset($wontItem[0]) && ($wontItem[0]['lane_kind'] ?? '') === 'wont_fix',
+    'item=' . json_encode($wontItem[0] ?? null) . ' kinds=' . json_encode($doneByKind));
+check('done items oldest-first within the board',      ($first['created_at'] ?? '') <= ($second['created_at'] ?? ''));
 
 $md = $svc->digestMarkdown($asUser, 50);
 // Top section: present (3 fixtures in the list), no dead links.
-check('markdown ✅ line (top heading present)', str_contains($md, '**My top'), 'md=' . $md);
-// Done-yesterday section: present now (we injected yesterday log rows).
-check('markdown Done-yesterday heading present (log rows exist)', str_contains($md, 'Done yesterday'), 'md=' . $md);
-check('markdown ✅ line: {title} — *{board}* — {actor}',
+check('markdown top heading present', str_contains($md, '**My top'), 'md=' . $md);
+// v1.9: Done-since section present (we injected in-window rows); the heading
+// is "Done since {workday} — N items".
+check('markdown Done-since heading present', str_contains($md, 'Done since') && preg_match('/Done since .+ — \d+ items/', $md) === 1, 'md=' . $md);
+check('markdown ✅ line (Done item): {title} — *{board}* — {actor}',
     preg_match('/^✅ E2E-DIG-hit-done — \*' . preg_quote($boardTitle, '/') . '\* — ' . preg_quote($asUser['name'], '/') . '/m', $md) === 1, 'md=' . $md);
-check('markdown lists Done-ness ✅ line', str_contains($md, '✅ E2E-DIG-hit-doneness'));
-check('markdown excludes Completed / no-op rows',
-    !str_contains($md, 'E2E-DIG-not-completed') && !str_contains($md, '✅ E2E-DIG-noop-done-done'));
-// Section is OMITTED when empty — the deny-all user covered above. But also
-// verify no card on the top section has a /card.php?id= path in the chat md.
-check('markdown top items do NOT carry a dead /card.php?id= link',
-    !preg_match('/\\/card\\.php\?id=\d+/m', $md), 'md=' . $md);
-
-// Out-of-window moves are excluded: a card moved to Done TODAY (now) must not
-// appear even though the log row exists.
-$logAt($completedCard, $laneA, 'Alpha', $laneD, 'Done', date('Y-m-d H:i:s'));
-$dNow = $svc->digest($asUser, 50);
-$nowIds = array_map(fn($i) => $i['card_id'], $dNow['done_yesterday']);
-check('move-to-Done today (not yesterday) NOT listed', !in_array($completedCard, $nowIds, true), 'ids=' . json_encode($nowIds));
+check('markdown ✅ line (Done-ness item)', str_contains($md, '✅ E2E-DIG-hit-doneness'));
+check('markdown ❌ line (Won\'t fix item, v1.9)', str_contains($md, '❌ E2E-DIG-hit-wontfix'), 'md=' . $md);
+check('markdown includes the no-apostrophe Won\'t-fix item', str_contains($md, 'E2E-DIG-hit-wont'));
+check('markdown excludes Completed / no-op / Will-fix rows',
+    !str_contains($md, 'E2E-DIG-not-completed')
+    && !str_contains($md, 'E2E-DIG-noop-done-done')
+    && !str_contains($md, 'E2E-DIG-not-willfix'));
+check('markdown top + done items do NOT carry a dead /card.php?id= link',
+    !preg_match('/\\/card\.php\?id=\d+/m', $md), 'md=' . $md);
 
 // ---------------------------------------------------------------------------
 echo "\n[5] BOARD-04b — inaccessible board omitted, never an error\n";
 $dDeny = $svcDeny->digest($asUser, 50);
 check('deny: top empty', $dDeny['top'] === []);
-check('deny: done_yesterday empty', $dDeny['done_yesterday'] === []);
+check('deny: done_since empty', $dDeny['done_since'] === []);
+check('deny: old done_yesterday key absent', !array_key_exists('done_yesterday', $dDeny));
 check('deny: window still present', isset($dDeny['window']['since'], $dDeny['window']['until']));
 
 // ---------------------------------------------------------------------------

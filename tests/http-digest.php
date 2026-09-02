@@ -182,7 +182,7 @@ try {
     $data = json_decode($r['body'], true) ?: [];
     check('n field present', array_key_exists('n', $data), 'keys=' . implode(',', array_keys($data)));
     $top = (array) ($data['top'] ?? []);
-    $done = (array) ($data['done_yesterday'] ?? []);
+    $done = (array) ($data['done_since'] ?? []);
     check('top has 2 cards (fixture)', count($top) === 2, 'count=' . count($top));
     check('top card_id[0] in fixture set', in_array((int) ($top[0]['card_id'] ?? 0), array_map('intval', $created['cards']), true));
     check('top card_title matches', isset($top[0]['card_title']) && str_starts_with((string) $top[0]['card_title'], 'Dig #1'), 'title=' . ($top[0]['card_title'] ?? ''));
@@ -191,10 +191,29 @@ try {
         || preg_match('#^/board\.php\?id=\d+&card=\d+$#', (string) ($top[0]['card_html'] ?? '')) === 1,
         'card_html=' . ($top[0]['card_html'] ?? ''));
     check('state_marker string present', is_string($top[0]['state_marker'] ?? null));
-    check('done_yesterday is array (empty is fine — no yesterday log)', is_array($done));
+    // v1.9: key renamed done_yesterday → done_since (no external consumers existed).
+    check('done_since key present (v1.9 rename)', array_key_exists('done_since', $data));
+    check('old done_yesterday key absent (v1.9 rename)', !array_key_exists('done_yesterday', $data));
+    check('done_since is array', is_array($done), var_export($done, true));
     check('window present with since/until', isset($data['window']['since'], $data['window']['until']));
-    $yesterday = date('Y-m-d', strtotime('-1 day'));
-    check('window since is yesterday', substr((string) ($data['window']['since'] ?? ''), 0, 10) === $yesterday, 'since=' . ($data['window']['since'] ?? ''));
+    // v1.9 report window: since = 00:00:00 of the most recent workday
+    // (Mon–Fri) at or before YESTERDAY; until = 23:59:59 of yesterday.
+    // (Same rule as the service under test — computed here, not hardcoded.)
+    $yestTs   = strtotime('yesterday');
+    $yestDow  = (int) date('N', $yestTs);
+    $anchorTs = match ($yestDow) {
+        6 => strtotime('-1 day', $yestTs),
+        7 => strtotime('-2 days', $yestTs),
+        default => $yestTs,
+    };
+    $expSince = date('Y-m-d 00:00:00', $anchorTs);
+    $expUntil = date('Y-m-d 23:59:59', $yestTs);
+    check('window.since = last workday at-or-before-yesterday 00:00:00 (v1.9)',
+        (string) ($data['window']['since'] ?? '') === $expSince,
+        'since=' . ($data['window']['since'] ?? '') . ' expected=' . $expSince);
+    check('window.until = yesterday 23:59:59',
+        (string) ($data['window']['until'] ?? '') === $expUntil,
+        'until=' . ($data['window']['until'] ?? '') . ' expected=' . $expUntil);
 
     // [D] clamping
     echo "\n[D] Clamping\n";
@@ -225,11 +244,12 @@ try {
     $md = $rMd['body'];
     check('markdown body non-empty', strlen(trim($md)) > 0);
     check('markdown has "My top" heading', str_contains($md, '**My top'), 'md=' . $md);
-    // No Done-yesterday rows exist for the fixture (its moves are all
-    // today) so the section must be OMITTED entirely — no heading,
-    // no (none) placeholder (Daniel 2026-08-30: empty section is noise).
-    check('empty Done-yesterday section is omitted (no noise in chat)',
-        !str_contains($md, 'Done yesterday') && !str_contains($md, '(none)'), 'md=' . $md);
+    // No complete-lane moves exist for the fixture (its moves are all
+    // today / out-of-window) so the Done-since section must be OMITTED
+    // entirely — no heading, no (none) placeholder (Daniel 2026-08-30:
+    // empty section is noise). v1.9: heading text is "Done since …".
+    check('empty Done-since section is omitted (no noise in chat)',
+        !str_contains($md, 'Done since') && !str_contains($md, 'Done yesterday') && !str_contains($md, '(none)'), 'md=' . $md);
     check('markdown top card line does NOT carry dead /card.php?id= link',
         !preg_match('/\/card\.php\?id=\d+/m', $md), 'md=' . $md);
     check('markdown top card title visible', str_contains($md, 'Dig #1 ' . $runId), 'md=' . $md);
