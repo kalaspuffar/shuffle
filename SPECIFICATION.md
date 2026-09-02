@@ -1,10 +1,10 @@
 # Project Specification: Shuffle
 
-**Version:** 1.8
-**Date:** 2026-08-31
+**Version:** 1.9
+**Date:** 2026-09-01
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v1.6
+**Based on:** REQUIREMENTS.md v1.9
 **License:** MIT
 
 ## Changes since the 1.0 draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-01 | **v1.9** — §5.16 digest semantics update (PRIO-12/14, Daniel 2026-09-01): (1) **Won't-fix is a complete state** — a lane whose title matches `won't fix` (case-insensitive, apostrophe optional) joins Done as a "complete lane": state marker ✅ in list items, inbox exclusion (PRIO-09), and digest reporting; digest renders Won't-fix items with ❌ (Done keeps ✅); each `done_since` item gains `lane_kind` (`"done"` | `"wont_fix"`). (2) **Report window** — "Done yesterday" becomes "Done since": the window runs from **00:00:00 of the most recent workday (Mon–Fri) at or before yesterday** to **23:59:59 of yesterday** (server local TZ). Monday: **Friday 00:00 → Sunday 23:59** (Friday work + the whole weekend; Daniel reports no weekend status). Tue–Fri: yesterday full-day. Sat: Friday. Sun: Fri–Sat (Sunday's own work lands in Monday's digest). Heading becomes `Done since {workday} — N items`. JSON key renamed `done_yesterday` → `done_since` (no external consumers existed — verified before the rename). |
 | 2026-08-31 | **v1.8** — Single card view (CARD-14/15): the board-page modal becomes the only card surface — feature-complete (checklists, attachments, comment edit/delete, archive/merge/delete), vertically scrollable body, three ARIA tabs (Card / Comments {N} / History) with the shareable deep link `/board.php?id={boardId}&card={cardId}[&tab=comments\|history]`; `www/card.php` + `www/js/card.js` removed and all link re-targeted (search, priority `card_html`, notification panel). Creator notifications (NOTIF-07/08): `notifications` gains `comment_id` (INT NULL) + `creator` type; `NotificationService::notifyCreator()`; `GET /v1/notifications` rows gain `board_id` + `comment_id`; bell-panel click routes per NOTIF-09 (comment → Comments tab @ comment anchor; creator-Done → History tab; assignment → Card tab). |
 | 2026-08-30 | **v1.7** — §5.17 Card Merge (CARD-10..13): `POST /v1/cards/{id}/merge` (destination = the surviving card, source = this card — the merge is initiated from the source card's page), `CardService::mergeInto()`, activity event `card_merged` (reserved slot in the v1 event list, §5.14), `user_prio` cleanup on delete (FK cascade), card-detail-page merge modal (www/card.php + www/js/card.js). Same-board v1 scope (CARD-11); irreversible. |
 | 2026-08-30 | **v1.6** — §5.24 Priority Digest API (PRIO-12..14): `PriorityService::digest()`, `GET /v1/priority/digest` (json + markdown), priority-page digest bar (top-N control + copy to clipboard). No new tables — "Done yesterday" reads the `card_activity` log (PRIO-13 foundation) instead of a separate `card_moves` table; the top-N value is page-local in v1 (no `user_settings` table). Traceability PRIO-12..14 (§7.15 of REQUIREMENTS.md v1.6). |
@@ -685,8 +686,8 @@ Services contain business logic, orchestrate model calls, enforce business rules
 - `importTrelloBoard()` — Parses Trello JSON, maps to Shuffle entities, creates placeholder users
 
 **PriorityService** (personal priority list, PRIO-01..11):
-- `getList()` — Returns the current user's `{inbox, prioritized}` in one pass. Inbox is computed (not stored): cards assigned to the user on accessible boards, non-archived, not in a Done lane, not in the user's `user_prio`; tiered per PRIO-04 (In Progress → Inbox lane → other) and merged stably in board-creation order within tier. Prioritized = `user_prio` joined live to card/lane/board, dropping rows whose card or board is no longer accessible.
-- `prioritize(cardId)` — Adds the card to the user's prioritized section (position = max + 1000). Idempotent (already-prioritized card is a no-op success). 404-equivalent if the card is inaccessible or on a Done lane.
+- `getList()` — Returns the current user's `{inbox, prioritized}` in one pass. Inbox is computed (not stored): cards assigned to the user on accessible boards, non-archived, **not in a complete lane** (Done **or** Won't-fix — v1.9), not in the user's `user_prio`; tiered per PRIO-04 (In Progress → Inbox lane → other) and merged stably in board-creation order within tier. Prioritized = `user_prio` joined live to card/lane/board, dropping rows whose card or board is no longer accessible.
+- `prioritize(cardId)` — Adds the card to the user's prioritized section (position = max + 1000). Idempotent (already-prioritized card is a no-op success). 404-equivalent if the card is inaccessible or on a complete lane.
 - `deprioritize(cardId)` — Removes the membership; the card reappears in the inbox (if it still qualifies). No-op if not a member.
 - `reorder(cardId, afterCardId|null)` — Moves a prioritized card relative to another (null = to top) using §4.2 gap logic; renumbers the user's container on a missing gap.
 - Every read of a card is board-access-checked for the requesting user; a stale `user_prio` row pointing at an inaccessible/deleted card is surfaced as absent, never as an error page.
@@ -2212,7 +2213,7 @@ Adds the card to the user's prioritized section (PRIO-05). Body: none.
 
 - **200** — added, returns the new `position`.
 - Already-prioritized — **200 no-op** (idempotent), same `position`.
-- Card not assignable to the user / inaccessible board / card on a Done lane — **409** for Done-lane cards, **404** otherwise.
+- Card not assignable to the user / inaccessible board / card on a complete lane (Done **or** Won't-fix, v1.9) — **409** for complete-lane cards, **404** otherwise.
 
 #### `DELETE /v1/priority/inbox/{cardId}`
 
@@ -2375,7 +2376,17 @@ Detaches a label from a card.
 
 #### `GET /v1/priority/digest`
 
-Returns the acting user's **priority digest** — their top-N prioritized cards plus the "Done yesterday" list (PRIO-12/14). Read-only; all roles (Admin/Member/Viewer) may call it on their own data. The digest is **always recomputed live** (PRIO-13): prioritized cards come from the user's `user_prio` joined to live card/lane/board rows; "Done yesterday" is a range scan over the `card_activity` log (event `card_moved`, `to_lane.title` matched as a Done lane — the same case-insensitive, word-bounded matcher as PRIO-04/09).
+Returns the acting user's **priority digest** — their top-N prioritized cards plus the **"Done since" list** (PRIO-12/14). Read-only; all roles (Admin/Member/Viewer) may call it on their own data. The digest is **always recomputed live** (PRIO-13): prioritized cards come from the user's `user_prio` joined to live card/lane/board rows; "Done since" is a range scan over the `card_activity` log (event `card_moved`, `to_lane.title` matched as a **complete lane** — Done **or** Won't-fix, both case-insensitive, word-bounded; the shared PRIO-04/09 Done matcher plus the Won't-fix matcher `/\bwon'?t fix\b/iu`).
+
+**Complete-lane matcher (v1.9, PRIO-12):** a lane is a *complete* lane if it matches **either** (a) the Done matcher `/\bdone\b/iu` (a hyphen IS a word boundary, so "Done-ness" matches — same rule as PRIO-04/09), **or** (b) the Won't-fix matcher `/\bwon'?t fix\b/iu` (apostrophe optional, case-insensitive — "Won't fix", "Wont fix", "won't fix (won't reproduce)" all match; "Will fix" does not). Done renders `✅`; Won't-fix renders `❌`. Both states mean the card is *out of the active work* — the list excludes it from the inbox (PRIO-09) and the digest reports it as a conclusion.
+
+**Report window (v1.9, PRIO-12):** the window is **NOT** "yesterday 00:00–23:59" in all cases. Daniel does not report status on weekends, so the "Done since" window is anchored to the **last workday before today**. `since` = `00:00:00` of the **most recent workday (Mon–Fri) at or before yesterday** (server local TZ); `until` = **`23:59:59` of yesterday**. Consequences:
+- On **Monday**, `since` = **Friday 00:00 of the previous week** and `until` = **Sunday 23:59** — the window spans the whole of Friday, all of the weekend, so a Monday digest reports everything completed since the reporter last saw a workday (Fri work + Sat/Sun work).
+- On **Tue–Fri**, the window is **yesterday 00:00 → 23:59** (unchanged semantics for mid-week reporting).
+- On **Saturday**, `since` = Friday 00:00 and `until` = Friday 23:59 (Saturday's own work is not reported on Saturday).
+- On **Sunday**, `since` = Friday 00:00 and `until` = Saturday 23:59 — Sunday's own work intentionally lands in the **Monday** digest.
+
+This is a *reporter-anchored* window tied to the server's local timezone and its Mon–Fri work calendar — no user-configurable boundaries in v1 (a later enhancement). The implementation uses relative-day date arithmetic (DST-safe), never fixed-second offsets.
 
 **Query parameters:**
 
@@ -2384,7 +2395,7 @@ Returns the acting user's **priority digest** — their top-N prioritized cards 
 | `n` | int | 5 | Number of top prioritized cards; **clamped to 1–50**, out-of-range values clamp (do not 400) |
 | `format` | enum | `json` | `json` (default) or `markdown` |
 
-**Access model (BOARD-04b semantics):** every item — top list *and* Done-yesterday — is filtered to boards the acting user can access; a card on an inaccessible board is **omitted** (its existence is not revealed), never returned. Prioritized cards whose board was archived leave the digest (BOARD-06d: `user_prio` rows were cleared on archive).
+**Access model (BOARD-04b semantics):** every item — top list *and* Done-since — is filtered to boards the acting user can access; a card on an inaccessible board is **omitted** (its existence is not revealed), never returned. Prioritized cards whose board was archived leave the digest (BOARD-06d: `user_prio` rows were cleared on archive).
 
 **Response (200, `format=json`):**
 ```json
@@ -2401,26 +2412,27 @@ Returns the acting user's **priority digest** — their top-N prioritized cards 
             "card_html": "/board.php?id=3&card=42"
         }
     ],
-    "done_yesterday": [
+    "done_since": [
         {
             "card_id": 17,
             "card_title": "Rotate keys",
             "board_title": "Ops",
-            "to_lane_title": "Done",
+            "to_lane_title": "Won't fix",
+            "lane_kind": "wont_fix",
             "actor": { "id": 1, "name": "Olaf" },
-            "created_at": "2026-08-29 16:04:12",
+            "created_at": "2026-08-28 16:04:12",
             "card_html": "/board.php?id=3&card=17"
         }
     ],
-    "window": { "since": "2026-08-29 00:00:00", "until": "2026-08-29 23:59:59" }
+    "window": { "since": "2026-08-28 00:00:00", "until": "2026-08-30 23:59:59" }
 }
 ```
 
 Field notes:
-- `top` items reuse the **exact item shape** of §5.13 `prioritized` items (PRIO-07: `state_marker` derived from the live lane — In Progress → 🔨, Inbox → 📥, Done → ✅, else the lane's own icon or `•`), truncated to `n` in the user's own order. `card_html` is included for programmatic consumers (API clients, future cron-posters); it is **not** rendered into the chat markdown (§5.16 markdown rules).
-- `done_yesterday` item: `actor` is the user who moved the card (name from the activity log row); `created_at` is when the card landed in the Done lane; ordering is oldest first within the window.
-- `window` is the exact "Done yesterday" range used (server local timezone: yesterday `00:00:00` → `23:59:59`).
-- The log is cold-start (ACTIVITY-01: no backfill), so `done_yesterday` is legitimately empty pre-feature-history; **the markdown output omits the section entirely** (an empty "Done yesterday — (none)" heading is noise in a chat — Daniel, 2026-08-30). The JSON still carries `"done_yesterday": []` — structured consumers can distinguish "empty" from "absent".
+- `top` items reuse the **exact item shape** of §5.13 `prioritized` items (PRIO-07: `state_marker` derived from the live lane — In Progress → 🔨, Inbox → 📥, **a complete lane (Done **or** Won't-fix) → ✅**, else the lane's own icon or `•`), truncated to `n` in the user's own order. `card_html` is included for programmatic consumers (API clients, future cron-posters); it is **not** rendered into the chat markdown (§5.16 markdown rules).
+- `done_since` item (renamed from `done_yesterday` in v1.9 — no external consumers existed, verified before the rename): `actor` is the user who moved the card (name from the activity log row); `created_at` is when the card landed in the complete lane; `to_lane_title` is the target lane; **`lane_kind`** = `"done"` or `"wont_fix"` — the discriminator between ✅ and ❌ in the markdown (v1.9); ordering is oldest first within the window.
+- `window` is the exact "Done since" range used (server local timezone): `since` = 00:00:00 of the most recent workday (Mon–Fri) at or before yesterday, `until` = 23:59:59 of yesterday (v1.9 report window; see above). Example: a call on Mon 2026-09-07 returns `window { since: 2026-08-28, until: 2026-08-30 }`.
+- The log is cold-start (ACTIVITY-01: no backfill), so `done_since` is legitimately empty pre-feature-history; **the markdown output omits the section entirely** (an empty "Done since — (none)" heading is noise in a chat — Daniel, 2026-08-30). The JSON still carries `"done_since": []` — structured consumers can distinguish "empty" from "absent".
 
 **Response (200, `format=markdown`)** — `Content-Type: text/markdown; charset=utf-8`, paste-ready for chat:
 
@@ -2429,15 +2441,17 @@ Field notes:
 🔨 Ship the digest — *Shuffle*
 📥 Fix the vhost ACL — *Shuffle*
 
-**Done yesterday (2026-08-29)**
+**Done since Friday, Aug 28 — 2 items**
 ✅ Rotate keys — *Ops* — Olaf
+❌ Investigate the flaky Ceph monitor — *Ops* — Mya
 ```
 
-Markdown rules (Daniel, 2026-08-30, "keep it clean for chat"):
+Markdown rules (Daniel, 2026-08-30, "keep it clean for chat"; v1.9 window + Won't-fix):
 - Top items: `{state_marker} {title} — *{board}*` — **no deep link in the chat body**. A non-clickable `/card.php?id=N` tail is dead noise in a chat client; the link stays in the JSON (`card_html`) for programmatic consumers.
-- Done-yesterday items: `✅ {title} — *{board}* — {actor name}`.
-- **Sections with zero items are OMITTED** (no heading, no `(none)` placeholder). The section that has items renders its heading + items; a section with none is not rendered at all, so an empty "Done yesterday — (none)" line never lands in a chat.
-- **Both sections empty → the markdown body is the empty string** (HTTP 200, empty `text/markdown`). The page-level Copy button treats an empty body as "nothing to copy", hides the `<pre>` fallback, and shows a quiet "Nothing to copy yet — no items in your digest." hint. The JSON still returns `"top": []` and `"done_yesterday": []` so structured consumers can distinguish.
+- Done-since items: `✅ {title} — *{board}* — {actor name}` when the lane is a Done lane, `❌ …` when it is a Won't-fix lane (v1.9).
+- The heading is **`Done since {workday} — N items`** with the workday rendered as a long human date in the server TZ (`l, M j` — e.g. `Done since Friday, Aug 28 — 2 items` on a Monday digest) — i18n key `priority.digest.done_since_heading` = `Done since {0} — {1} items` ({0} = workday, {1} = item count; always the plural "items" — simple and unambiguous in a chat line).
+- **Sections with zero items are OMITTED** (no heading, no `(none)` placeholder). The section that has items renders its heading + items; a section with none is not rendered at all, so an empty "Done since — (none)" line never lands in a chat.
+- **Both sections empty → the markdown body is the empty string** (HTTP 200, empty `text/markdown`). The page-level Copy button treats an empty body as "nothing to copy", hides the `<pre>` fallback, and shows a quiet "Nothing to copy yet — no items in your digest." hint. The JSON still returns `"top": []` and `"done_since": []` so structured consumers can distinguish.
 
 **Errors:** `401` when unauthenticated. (There is no per-card failure — inaccessible cards are omitted, per BOARD-04b.)
 

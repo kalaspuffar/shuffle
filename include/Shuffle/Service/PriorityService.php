@@ -201,8 +201,8 @@ class PriorityService
         }
 
         $lane = $this->lane->findById((int) $card['lane_id']);
-        if ($lane !== null && $this->isDoneLane($lane['title'])) {
-            throw new \LogicException('Card is on a Done lane — remove it from the board first');
+        if ($lane !== null && $this->isCompleteLane($lane['title'])) {
+            throw new \LogicException('Card is on a complete lane (Done or Won\'t fix) — remove it from the board first');
         }
     }
 
@@ -237,8 +237,9 @@ class PriorityService
 
             $laneTitle = (string) ($row['lane_title'] ?? '');
 
-            if ($this->isDoneLane($laneTitle)) {
-                continue; // PRIO-09: Done-lane cards stay out of the inbox.
+            if ($this->isCompleteLane($laneTitle)) {
+                continue; // PRIO-09 (v1.9): Done-lane AND Won't-fix-lane
+                          // cards stay out of the inbox.
             }
 
             $tier = $this->isInProgressLane($laneTitle) ? 1
@@ -269,10 +270,18 @@ class PriorityService
      * Builds the acting user's digest (PRIO-12/14).
      *
      * Returns the user's top-N prioritized cards (live-read, their own
-     * order) plus the "Done yesterday" list — cards that moved to a Done
-     * lane during the previous calendar day (server local time), across
-     * all boards the user can access. Inaccessible cards are OMITTED,
-     * never revealed (BOARD-04b).
+     * order) plus the "Done since" list — cards that moved to a COMPLETE
+     * lane (Done or Won't-fix) within the report window, across all boards
+     * the user can access. Inaccessible cards are OMITTED, never revealed
+     * (BOARD-04b).
+     *
+     * Report window (v1.9 — Daniel does not report on weekends): from
+     * 00:00:00 of the most recent workday (Mon–Fri) at or before YESTERDAY,
+     * to 23:59:59 of yesterday:
+     *   Mon → Fri 00:00 → Sun 23:59   (Fri work + all of the weekend)
+     *   Tue–Fri → yesterday 00:00 → 23:59 (the last full reporting day)
+     *   Sat → Fri 00:00 → Fri 23:59
+     *   Sun → Fri 00:00 → Sat 23:59   (Sunday's own work lands in Monday's)
      *
      * Always live (PRIO-13): no caching, no stored digest.
      *
@@ -281,7 +290,7 @@ class PriorityService
      * @return array{
      *   n: int,
      *   top: array<int, array>,
-     *   done_yesterday: array<int, array>,
+     *   done_since: array<int, array>,
      *   window: array{since: string, until: string}
      * }
      *
@@ -296,33 +305,51 @@ class PriorityService
 
         $n = $this->clampDigestN($n);
 
-        // Window: yesterday 00:00:00 → 23:59:59 in the server's local TZ.
-        $since = date('Y-m-d 00:00:00', strtotime('-1 day'));
-        $until = date('Y-m-d 23:59:59', strtotime('-1 day'));
+        // v1.9 report window (server local TZ). Yesterday is the anchor
+        // day; if it (or the days walked back from it) fell on the weekend,
+        // the window's start rolls back to the last workday (Mon–Fri).
+        // strtotime()'s relative-day math is DST-safe (fixed 86400* n
+        // offsets are not, so they are deliberately avoided here).
+        $yestTs = strtotime('yesterday');
+        $yestDow = (int) date('N', $yestTs); // 1=Mon … 7=Sun
+        $anchorTs = match ($yestDow) {
+            6      => strtotime('-1 day', $yestTs),  // Sat → Friday
+            7      => strtotime('-2 days', $yestTs), // Sun → Friday
+            default => $yestTs,                       // Mon–Fri → yesterday
+        };
+        $since = date('Y-m-d 00:00:00', $anchorTs);
+        $until = date('Y-m-d 23:59:59', $yestTs);
 
         return [
-            'n'              => $n,
-            'top'            => $this->digestTop($user, $n),
-            'done_yesterday' => $this->digestDoneYesterday($user, $since, $until),
-            'window'         => ['since' => $since, 'until' => $until],
+            'n'          => $n,
+            'top'        => $this->digestTop($user, $n),
+            'done_since' => $this->digestDoneSince($user, $since, $until),
+            'window'     => ['since' => $since, 'until' => $until],
         ];
     }
 
     /**
      * Render the digest as paste-ready Markdown (PRIO-12 markdown contract).
      *
-     * Headings come from i18n (digest.top_heading / digest.done_heading) so
-     * no hardcoded string ships (repo doctrine); the fallback is the
-     * English strings themselves (Lang::get returns the key when missing,
-     * so a missing key renders the key name — loud, not silent).
+     * Headings come from i18n: top via `priority.digest.top_heading`,
+     * the done section via `priority.digest.done_since_heading` (v1.9:
+     * "Done since {workday}", {0} = the human workday since the window
+     * was anchored). No hardcoded strings ship (repo doctrine); a missing
+     * key renders the key name — loud, not silent.
      */
     public function digestMarkdown(array $user, int $n = self::DIGEST_DEFAULT_N): string
     {
         $digest = $this->digest($user, $n);
 
         // Headings (spec §5.16: bold lines, not ATX).
-        $topHeading  = '**' . $this->langLabel('priority.digest.top_heading',  (string) count($digest['top'])) . '**';
-        $doneHeading = '**' . $this->langLabel('priority.digest.done_heading', date('Y-m-d', strtotime('-1 day'))) . '**';
+        $topHeading  = '**' . $this->langLabel('priority.digest.top_heading', [(string) count($digest['top'])]) . '**';
+        // v1.9 heading: "Done since {workday} — N items", the workday being
+        // the window's start (Fri on a Monday digest, yesterday on the rest).
+        $sinceHuman  = date('l, M j', strtotime($digest['window']['since']));
+        $doneHeading = '**' . $this->langLabel(
+            'priority.digest.done_since_heading',
+            [(string) $sinceHuman, (string) count($digest['done_since'])]
+        ) . '**';
 
         // Top items: `marker title — *board*`. The deep link stays in the JSON
         // payload (card_html) but is NOT rendered into the chat markdown —
@@ -336,18 +363,20 @@ class PriorityService
             ),
             $digest['top']
         );
+        // v1.9: Done-lane items render ✅, Won't-fix items render ❌ (lane_kind).
         $doneLines = array_map(
             static fn (array $item): string => sprintf(
-                '✅ %s — *%s* — %s',
+                '%s %s — *%s* — %s',
+                ($item['lane_kind'] ?? 'done') === 'wont_fix' ? '❌' : '✅',
                 $item['card_title'],
                 $item['board_title'],
                 $item['actor']['name']
             ),
-            $digest['done_yesterday']
+            $digest['done_since']
         );
 
         // Sections with zero items are OMITTED entirely: an empty "Done
-        // yesterday — (none)" heading is just noise in a chat (Daniel,
+        // since — (none)" heading is just noise in a chat (Daniel,
         // 2026-08-30). If BOTH are empty the digest is the empty string and
         // the page-level surface handles that (no clipboard, quiet hint).
         $sections = [];
@@ -357,7 +386,7 @@ class PriorityService
                 array_values($topLines)
             );
         }
-        if ($digest['done_yesterday'] !== []) {
+        if ($digest['done_since'] !== []) {
             $sections[] = array_merge(
                 [$doneHeading],
                 array_values($doneLines)
@@ -402,23 +431,28 @@ class PriorityService
     }
 
     /**
-     * Cards moved to a Done lane in the [since, until] window, across all
-     * boards the user can access, oldest first (PRIO-12/14).
+     * Cards moved to a COMPLETE lane (Done **or** Won't-fix — v1.9) in the
+     * [since, until] window, across all boards the user can access,
+     * oldest first (PRIO-12/14).
      *
      * Filters:
-     *   - event = card_moved, to_lane (snapshot) matches a Done lane (the
-     *     same \bdone\b matcher as PRIO-04/09 — "Done-ness" excluded);
-     *     from_lane also matching Done is a no-op re-lane, skipped;
+     *   - event = card_moved, to_lane (snapshot) matches a complete lane —
+     *     the shared \bdone\b matcher (Done) or \bwon'?t fix\b (Won't-fix);
+     *     from_lane also matching is a no-op re-lane, skipped;
      *   - board accessible to the acting user (BOARD-04b — omit, never reveal);
      *   - cards on archived boards are omitted (BOARD-06d consistency with
      *     the prioritized list, which dropped those cards entirely).
+     *
+     * Each item carries `lane_kind` ("done" | "wont_fix") so the markdown
+     * renderer picks ✅ vs ❌ (v1.9); top-list markers use the same
+     * "complete lane → ✅" rule via deriveStateMarker().
      *
      * @param array  $user  Acting user row
      * @param string $since Window start (Y-m-d H:i:s)
      * @param string $until Window end (Y-m-d H:i:s)
      * @return array<int, array>
      */
-    private function digestDoneYesterday(array $user, string $since, string $until): array
+    private function digestDoneSince(array $user, string $since, string $until): array
     {
         $rows = $this->activityService
             ->activity()
@@ -438,12 +472,13 @@ class PriorityService
             $toLane   = $payload['to_lane'] ?? null;
             $fromLane = $payload['from_lane'] ?? null;
 
-            // Must have landed in a Done lane, not just been sitting in one.
-            if (!is_array($toLane) || !$this->isDoneLane((string) ($toLane['title'] ?? ''))) {
+            // Must have landed in a complete lane (Done or Won't-fix, v1.9),
+            // not just been sitting in one.
+            if (!is_array($toLane) || !$this->isCompleteLane((string) ($toLane['title'] ?? ''))) {
                 continue;
             }
-            if (is_array($fromLane) && $this->isDoneLane((string) ($fromLane['title'] ?? ''))) {
-                continue; // Moved between two Done lanes — not "done" on this one.
+            if (is_array($fromLane) && $this->isCompleteLane((string) ($fromLane['title'] ?? ''))) {
+                continue; // Moved between two complete lanes — no new conclusion.
             }
 
             $boardId = (int) $row['board_id'];
@@ -454,16 +489,19 @@ class PriorityService
             }
 
             if (isset($seenCards[$cardId])) {
-                continue; // Same card moved to Done twice — count it once.
+                continue; // Same card completed twice — count the first landing.
             }
             $seenCards[$cardId] = true;
 
+            $toTitle = (string) ($toLane['title'] ?? '');
             $items[] = [
                 'card_id'       => $cardId,
                 'card_title'    => (string) ($row['card_title'] ?? ''),
                 'board_id'      => $boardId,
                 'board_title'   => (string) ($row['board_title'] ?? ''),
-                'to_lane_title' => (string) ($toLane['title'] ?? ''),
+                'to_lane_title' => $toTitle,
+                // v1.9: the ✅ / ❌ discriminator (markdown + API consumers).
+                'lane_kind'     => $this->isWontFixLane($toTitle) ? 'wont_fix' : 'done',
                 'actor'         => [
                     'id'   => (int) $row['actor_id'],
                     'name' => (string) ($row['actor_name'] ?? ''),
@@ -483,20 +521,20 @@ class PriorityService
     // ------------------------------------------------------------------
 
     /**
-     * Resolves a digest markdown heading via Lang (i18n, {0} replaced with
-     * the parameter); falls back to the key when Lang is unwired (tests).
+     * Resolves a digest markdown heading via Lang (i18n) with positional
+     * {0},{1},… parameters; falls back to the key when Lang is unwired
+     * (tests).
+     *
+     * @param string     $key    i18n key
+     * @param string[]   $params Positional placeholder values
      */
-    private function langLabel(string $key, ?string $param = null): string
+    private function langLabel(string $key, array $params = []): string
     {
         if ($this->lang === null) {
             return $key;
         }
 
-        $value = $this->lang->get($key);
-        if ($param !== null) {
-            $value = str_replace('{0}', (string) $param, $value);
-        }
-        return $value;
+        return $this->lang->get($key, $params);
     }
 
     /**
@@ -587,15 +625,18 @@ class PriorityService
     }
 
     /**
-     * State marker per PRIO-07: In Progress → 🔨, Inbox → 📥, Done → ✅,
+     * State marker per PRIO-07 (v1.9): In Progress → 🔨, Inbox → 📥,
+     * a COMPLETE lane (Done **or** Won't-fix) → ✅,
      * otherwise the lane's own icon, or a neutral marker when it has none.
      * Lane names are matched case-insensitively against the default set (PRIO-04).
+     * In the digest markdown the same lane is rendered ✅ (Done) / ❌ (Won't-fix)
+     * via `lane_kind` — see digestDoneSince().
      */
     private function deriveStateMarker(string $laneTitle, ?string $laneIcon): string
     {
         $lower = mb_strtolower(trim($laneTitle));
 
-        if ($this->isDoneLane($laneTitle)) {
+        if ($this->isCompleteLane($laneTitle)) {
             return '✅';
         }
         if ($this->isInProgressLane($laneTitle)) {
@@ -609,12 +650,28 @@ class PriorityService
     }
 
     /**
-     * Lane-title matchers (PRIO-04): case-insensitive, anchored, word-bounded.
-     * A lane named "In Progress (Web)" still matches; "Done-ness" does not.
+     * Lane-title matchers (PRIO-04 + v1.9 complete-lane rule):
+     * case-insensitive, anchored, word-bounded.
+     *   isDoneLane     — "Done" / "Done-ness" / "done — v2" match (hyphen IS a
+     *                    word boundary); "In Progress" / "Wont fix" do not.
+     *   isWontFixLane  — "Won't fix" / "Wont fix" / "won't fix (won't repro)"
+     *                    match; "Will fix" / "Don't fix" do not.
+     *   isCompleteLane — the union (v1.9). A card on EITHER lane is out of the
+     *                    active work (PRIO-09 inbox exclusion, PRIO-12 digest).
      */
     private function isDoneLane(string $title): bool
     {
         return preg_match('/\bdone\b/iu', trim($title)) === 1;
+    }
+
+    private function isWontFixLane(string $title): bool
+    {
+        return preg_match("/\bwon'?t fix\b/iu", trim($title)) === 1;
+    }
+
+    private function isCompleteLane(string $title): bool
+    {
+        return $this->isDoneLane($title) || $this->isWontFixLane($title);
     }
 
     private function isInProgressLane(string $title): bool
