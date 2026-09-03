@@ -91,6 +91,13 @@ $checklistItemModel  = new Shuffle\Model\ChecklistItem($db);
 $checklistService    = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 $checklistController = new Shuffle\Controller\ChecklistController($auth, $checklistService, $cardService);
 
+// Card labels (LABEL-01..03, §5.15)
+$labelModel      = new Shuffle\Model\Label($db);
+$labelService    = new Shuffle\Service\LabelService($labelModel, $boardModel, $cardModel);
+$labelController = new Shuffle\Controller\LabelController($auth, $labelService);
+// Card merge (LABEL-03) unions card-level labels via the Label model.
+$cardService->setLabelModel($labelModel);
+
 // Card merge (CARD-10, §5.17) needs direct handles to the models it
 // re-parents + the Database for the fold transaction. Optional setters —
 // the legacy E2E harness that builds CardService by hand keeps working.
@@ -256,6 +263,14 @@ $router->post('/checklists/{checklistId}/items', [$checklistController, 'createI
 $router->put('/checklist-items/{id}', [$checklistController, 'updateItem']);
 $router->put('/checklist-items/{id}/position', [$checklistController, 'repositionItem']);
 $router->delete('/checklist-items/{id}', [$checklistController, 'deleteItem']);
+
+// Label routes (LABEL-01..03, §5.15)
+$router->get('/boards/{boardId}/labels', [$labelController, 'index']);
+$router->post('/boards/{boardId}/labels', [$labelController, 'create']);
+$router->put('/labels/{id}', [$labelController, 'update']);
+$router->delete('/labels/{id}', [$labelController, 'delete']);
+$router->post('/cards/{cardId}/labels/{labelId}', [$labelController, 'attach']);
+$router->delete('/cards/{cardId}/labels/{labelId}', [$labelController, 'detach']);
 
 // Notification routes
 $router->get('/notifications', [$notificationController, 'index']);

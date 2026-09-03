@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-03 | **v2.0** — Labels (§5.15 expanded): curated 12-color palette + one free-hex escape hatch (server-validated), case-insensitive `(board_id, name)` uniqueness (`UNIQUE KEY uq_labels_board_name`, collation `utf8mb4_unicode_ci`), 7 REST endpoints (list/create/update/delete + card attach/detach), 409 on duplicate, role matrix (Admin/Member manage labels, Viewer read-only), card-modal chip picker + per-card attach/detach, label union on card merge (model `unionToCard`, null-safe), "Manage labels" board-header modal, 21 i18n keys. **Board-view label dots**: one 10px dot per attached label above the card title, inline `background-color` = stored hex (+width/height/border-radius inline so render never depends on CSS), hover tooltip, cap 4 dots + `+N` overflow badge, `aria-label` row. Batch load `Label::labelsForCards()` (no N+1) via optional `BoardService::setLabelModel()`. Cache-busted asset loading: `/css/app.css?v={mtime}`. **Test-safety invariant (Daniel 2026-09-03)**: no test may mutate the Daniel account (user id 1) — E2E suites default to the mya test account (id 4) and refuse user 1 at entry; assertions are state-relative (baseline delta, never absolute counts); cleanups restore the test user's row set exactly. `e2e-priority.php` rewritten on its own fixture board (was wiping the test user's list). |
 | 2026-09-01 | **v1.9** — §5.16 digest semantics update (PRIO-12/14, Daniel 2026-09-01): (1) **Won't-fix is a complete state** — a lane whose title matches `won't fix` (case-insensitive, apostrophe optional) joins Done as a "complete lane": state marker ✅ in list items, inbox exclusion (PRIO-09), and digest reporting; digest renders Won't-fix items with ❌ (Done keeps ✅); each `done_since` item gains `lane_kind` (`"done"` | `"wont_fix"`). (2) **Report window** — "Done yesterday" becomes "Done since": the window runs from **00:00:00 of the most recent workday (Mon–Fri) at or before yesterday** to **23:59:59 of yesterday** (server local TZ). Monday: **Friday 00:00 → Sunday 23:59** (Friday work + the whole weekend; Daniel reports no weekend status). Tue–Fri: yesterday full-day. Sat: Friday. Sun: Fri–Sat (Sunday's own work lands in Monday's digest). Heading becomes `Done since {workday} — N items`. JSON key renamed `done_yesterday` → `done_since` (no external consumers existed — verified before the rename). |
 | 2026-08-31 | **v1.8** — Single card view (CARD-14/15): the board-page modal becomes the only card surface — feature-complete (checklists, attachments, comment edit/delete, archive/merge/delete), vertically scrollable body, three ARIA tabs (Card / Comments {N} / History) with the shareable deep link `/board.php?id={boardId}&card={cardId}[&tab=comments\|history]`; `www/card.php` + `www/js/card.js` removed and all link re-targeted (search, priority `card_html`, notification panel). Creator notifications (NOTIF-07/08): `notifications` gains `comment_id` (INT NULL) + `creator` type; `NotificationService::notifyCreator()`; `GET /v1/notifications` rows gain `board_id` + `comment_id`; bell-panel click routes per NOTIF-09 (comment → Comments tab @ comment anchor; creator-Done → History tab; assignment → Card tab). |
 | 2026-08-30 | **v1.7** — §5.17 Card Merge (CARD-10..13): `POST /v1/cards/{id}/merge` (destination = the surviving card, source = this card — the merge is initiated from the source card's page), `CardService::mergeInto()`, activity event `card_merged` (reserved slot in the v1 event list, §5.14), `user_prio` cleanup on delete (FK cascade), card-detail-page merge modal (www/card.php + www/js/card.js). Same-board v1 scope (CARD-11); irreversible. |
@@ -2304,73 +2305,173 @@ Name snapshots are captured **at write time** — later lane renames or user del
 - Feed item: actor name, i18n action phrase with `detail` interpolated, relative time (exact time on hover/focus) using the same Markdown/trusted pipeline as the rest of the page (no raw HTML).
 - Empty log → honest empty state: no backfill, no fake history (the log started when the feature shipped).
 
-### 5.15 Labels (Post-MVP)
+### 5.15 Labels (LABEL-01..03)
+
+> **Scope note:** schema (`labels`, `card_labels`) and ERD relationships (REQUIREMENTS §9.2) are already in place. This section specifies the API contract, the board-level management UI, the card-modal label picker, and the mandatory label union on card merge.
+
+#### Palette
+
+A **curated palette of 12 preset colors** is exposed to the UI (swatches in the create/rename forms). The exact list lives in a single server-side constant — `LabelService::PALETTE` (array of `{hex, name}` entries):
+
+| Hex | Name |
+|---|---|
+| `#F44336` | red |
+| `#FF5722` | orange |
+| `#FFC107` | amber |
+| `#FF9800` | deep orange |
+| `#4CAF50` | green |
+| `#00BCD4` | cyan |
+| `#2196F3` | blue |
+| `#3F51B5` | indigo |
+| `#9C27B0` | purple |
+| `#E91E63` | pink |
+| `#795548` | brown |
+| `#607D8B` | blue grey |
+
+served via the board script tag's `data-label-palette` JSON (from `LabelService::PALETTE`) — the same single-source-of-truth pattern as `data-lane-templates` (LANE-10/11).
+
+**Free-hex escape.** In addition to the palette swatches, the label-create form includes a **short text input** accepting any `#RRGGBB` value. The UI defaults to the palette (clicking a swatch fills the hex input); the text input remains free to type a custom value. The **server is the single source of truth** and validates any color against:
+
+```
+^#[0-9A-Fa-f]{6}$
+```
+
+Values failing the regex return **400 `{"error": "Invalid color"}`**.
+
+**Text-on-color contrast (LABEL-02 WCAG):** the UI picks black or white label text by computing the chip background's relative luminance (WCAG §1.4.3 non-text contrast is N/A for label chips in v1, but the **chip must be readable** — contrast ratio ≥ 4.5:1 against the chip background). The contrast computation is client-side CSS `color: #000 or #fff`, chosen from the hex value; the server does not return a text color.
+
+#### Roles (LABEL-02)
+
+| Action | Admin | Member | Viewer |
+|---|---|---|---|
+| Create label (any board) | ✓ | ✓ | — |
+| Rename label | ✓ | ✓ | — |
+| Delete label | ✓ | ✓ | — |
+| Attach/detach label on a card | ✓ | ✓ | ✓ (on any board they can access) |
+| View label list (read-only) | ✓ | ✓ | ✓ |
+
+Board access is the gate (can board be seen? → yes → can view labels); mutation follows the role matrix above. **Label mutations bump the board version** so polling clients refresh.
 
 #### `GET /v1/boards/{boardId}/labels`
 
-Returns all labels for a board.
+Returns all labels for a board (including names, colors, and **`card_count`** — the number of cards the label is attached to, via one grouped `COUNT(*)` query on `card_labels`).
 
 **Response (200):**
 ```json
 {
     "labels": [
-        { "id": 1, "name": "Bug", "color": "#FF0000" },
-        { "id": 2, "name": "Feature", "color": "#00FF00" }
+        { "id": 1, "name": "Bug", "color": "#F44336", "card_count": 4 },
+        { "id": 2, "name": "Feature", "color": "#2196F3", "card_count": 9 }
     ]
 }
 ```
 
 #### `POST /v1/boards/{boardId}/labels`
 
-**Required role:** Admin or Member.
+**Required role:** Admin or Member (BOARD-04b / strict board isolation — 404 for boards the user cannot access, 403 for Viewer attempting mutation).
 
 **Request:**
 ```json
-{
-    "name": "Bug",
-    "color": "#FF0000"
-}
+{ "name": "Bug", "color": "#F44336" }
 ```
+
+- `name`: required, 1–64 chars, trimmed. Empty or whitespace-only → 400.
+- `color`: required, `#RRGGBB` per the regex above. Missing or invalid → 400 `{"error":"Invalid color"}`.
+- **Duplicate (name, board) pair → 409 `{"error":"A label with this name already exists on this board"}`** (case-**insensitive**, matching the table's `utf8mb4_unicode_ci` collation: `Bug` and `bug` are the same label. `UNIQUE(board_id, name)` enforces this at the storage layer; the service pre-checks so the user gets a clean 409 rather than a constraint 500).
 
 **Response (201):**
 ```json
-{
-    "label": { "id": 1, "name": "Bug", "color": "#FF0000" }
-}
+{ "label": { "id": 3, "name": "Bug", "color": "#F44336", "card_count": 0 } }
 ```
 
 #### `PUT /v1/labels/{id}`
 
+**Required role:** Admin or Member.
+
 **Request:**
 ```json
-{
-    "name": "Critical Bug",
-    "color": "#CC0000"
-}
+{ "name": "Critical Bug", "color": "#CC0000" }
 ```
+
+- Either or both fields may be sent (partial update; omitted fields untouched).
+- Validation as `POST` — 400 on invalid, 409 on duplicate name (excluding the label's own row).
 
 **Response (200):**
 ```json
-{
-    "label": { ... }
-}
+{ "label": { "id": 3, "name": "Critical Bug", "color": "#CC0000", "card_count": 2 } }
 ```
 
 #### `DELETE /v1/labels/{id}`
 
-**Response (204):** No content.
+**Required role:** Admin or Member.
+
+**Response (204):** No content. Cascades: all `card_labels` rows referencing the label are removed by FK cascade (the cards themselves are untouched). All users' access to the label is gone — the card picker for any card that had it no longer lists the label.
+
+**Bumps the board version** so polling clients clear the stale label from any card that had it.
 
 #### `POST /v1/cards/{cardId}/labels/{labelId}`
 
 Attaches a label to a card.
 
+- **Label must belong to the same board as the card** → cross-board attach → **400** (not 404 — the *board* is accessible and the *card* is accessible, only the *label* is out of scope; 404 would be misleading per the strict board-isolation clause, which applies to board existence, not label membership — documented in the traceable decision note).
+- **Idempotent:** re-attaching an already-attached label returns 204 (no-op).
+- **Required role:** Admin, Member, or Viewer (per BOARD-04b any user who can access the card's board).
+
 **Response (204):** No content. Bumps board version.
 
 #### `DELETE /v1/cards/{cardId}/labels/{labelId}`
 
-Detaches a label from a card.
+Detaches a label.
+
+- **Idempotent:** detaching a label that is not attached returns 204 (no-op).
+- **Required role:** Admin, Member, or Viewer.
 
 **Response (204):** No content. Bumps board version.
+
+#### Card merge label union (LABEL-03)
+
+`CardService::mergeInto()` (see §5.17) includes a label-union step after the checklist/attachment re-parenting:
+1. `SELECT label_id FROM card_labels WHERE card_id = ?` for the **source** card.
+2. For each source label, `INSERT IGNORE INTO card_labels (card_id, label_id) VALUES (? , ?)` with the **survivor** card id (idempotent; skips labels already on the survivor).
+3. Source's `card_labels` rows are then removed by FK cascade when the source card is `DELETE`d.
+
+No separate activity row — the `card_merged` payload already carries the source title snapshot (ACTIVITY-03 pattern), and label changes are low-signal (LABEL-01 design decision, 2026-09-02).
+
+#### Web UI — board header "Manage labels" (LABEL-02)
+
+On `www/board.php`, next to the board name in the board header (visible to Admin and Member; Viewer sees a read-only "Manage labels" button that opens the modal in a **read-only mode** — no add/rename/delete buttons in the modal body).
+
+The modal body contains, in order:
+1. **Label list** — one row per label: color swatch (16×16, `border-radius: 4px`), name (inline-editable for Admin/Member — click name → becomes text input, blur or Enter saves; Esc cancels), card count badge (e.g. `"9 cards"`), and (Admin/Member only) a red **Delete** button with destructive confirmation (mirrors the board-delete confirmation pattern per F.6.2).
+2. **Add label** row: name text input, color **swatch picker** (12 preset swatches in a grid, first one pre-selected on hover — the swatch fills the hex input when clicked, and vice versa), free-hex text input (always editable, 2 lines: swatch row above, hex input below), **Add** button (disabled while name is empty or hex is invalid — client-side pre-check; server re-validates).
+3. **Footer**: Cancel + Save (create mode only; rename/delete are immediate on the row).
+
+i18n keys: `label.create`, `label.create_name`, `label.create_color`, `label.create_add`, `label.manage_title`, `label.manage_empty`, `label.manage_count`, `label.manage_renamed`, `label.manage_deleted`, `label.manage_created`, `label.manage_readonly`, `label.palette.{name}` (12 keys, one per palette color), `label.invalid_name`, `label.invalid_color`, `label.duplicate_name`, `label.card_modal.add`, `label.card_modal.remove`, `label.card_modal.list_empty`, `label.card_modal.pick`.
+
+**WCAG AA:** contrast on the swatch text (label name in the swatch row) follows the luminance-based `color: #000|#fff` rule above; swatches have `aria-label="color: {name}"` and the picker has `role="radiogroup"` + `aria-selected` per swatch.
+
+#### Web UI — card modal label picker (LABEL-01)
+
+On the Card tab of the card modal (see CARD-14/15), below the assignees row:
+- A horizontal list of the card's assigned labels: color chip (background = hex, text = luminance-picked, padding 2px 8px, border-radius 12px) + name, with a small × button (14px) for removal (calls `DELETE /v1/cards/{cardId}/labels/{labelId}`).
+- **"+ Add label"** button: opens a dropdown/popover listing all board labels (color swatch 12px + name + checkmark if already attached). Clicking a board label attaches it (204) and re-renders the chip list. Clicking an already-attached label does nothing (idempotent).
+- The dropdown has `role="listbox"` + `role="option"` items with `aria-selected`; keyboard navigable (↑/↓/Enter/Escape) per WCAG combobox pattern.
+- **Read-only viewers:** the "+ Add label" button is hidden; the chip list renders without × (the attach/detach actions are disabled).
+- Both attach and detach bump the board version → the board poller refetches the card and re-renders the chip list.
+- i18n keys as above (`label.card_modal.*`).
+
+#### Web UI — board-view card label dots (LABEL-01)
+
+Labels are only glanceable if they show up **on the card in board view** — the chips in the card modal are for editing, the dots are for scanning a lane.
+
+On every card in `www/board.php` (all roles — labels are read data), the card title is preceded by a **label dot row**, same visual treatment as the assignee avatar stack (same border/rounded style, elevated card-background ring):
+
+- One **10px dot per attached label**, ordered by `label.id` (creation order). Dot background = the server-stored `color` hex (exactly the value in the card modal chip, no client-side re-derivation). A `title` tooltip shows the label name for hover; the dot itself is decorative, the row carries an aggregated `aria-label` (`"Labels: {names}"`, i18n key `label.card_board` — the dots do not add per-item landmarks to screen-reader output).
+- **Cap of 4 dots** followed by an overflow badge (`+N`) in the avatar-stack overflow style (inverted text/bg pair). This matches the 3-avatar cap convention and keeps the card height stable on heavily-tagged cards.
+- Dots are **read-only** on the card (attach/detach stays in the card modal — the card already carries one click target, and dots would be an accidental-mutation surface).
+- `BoardService::getBoardWithLanesAndCards()` batch-loads `card_labels` for the whole board in one query when a `Label` model is injected (`board.php` does; API `GET /v1/boards/{id}` does not — the REST board contract is unchanged and carries no `labels` field).
+
+**WCAG:** dot color contrast against the card background is not required as non-text (decorative, name available via tooltip + aria-label at the row level). The overflow badge uses the inverted `--color-text` / `base-bg` pair, which is contrast-safe in both themes (AA ≥ 4.5:1 verified for the current dark palette: `#E2E2EC` on `#0D0D12`).
 
 ### 5.16 Priority Digest (PRIO-12..14)
 
@@ -2548,8 +2649,27 @@ PHP's defaults for Argon2id are used (memory cost 65536 KB, time cost 4, threads
 **Content Security Policy (CSP):** The following header is set on all HTML pages:
 
 ```
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'
 ```
+
+> **Rationale for `style-src 'unsafe-inline'` (LABEL bug 2026-09-03, Daniel):**
+> Shuffle paints per-row colors (label dots, label chips, palette swatches,
+> upload progress, toast fade) using inline `style="…"` attributes (server-
+> rendered, e.g. `board.php#L224`) and/or the CSSOM (`el.style.x = value`).
+> Under a bare `style-src 'self'`, browsers strip both — which rendered the
+> label dots as empty 10×10 boxes (DOM layout box preserved, color dropped by
+> the CSP engine on parse), producing the "dot is there but invisible" symptom
+> you saw in board 1. The fix is minimal and targeted: `'unsafe-inline'` is
+> added to `style-src` only. It does **not** affect `script-src` (stays
+> `'self'`); it does **not** widen `img-src`, `frame-ancestors`, or
+> `default-src`. Because this app loads no third-party stylesheets and no
+> third-party scripts, allowing our own inline styles does not expose a new
+> attack surface for external origins. Nonces do not apply to inline `style="…"`
+> HTML attributes (only to `<style>` elements and inline scripts), and
+> `style-attr-src` is not supported by Chrome/Safari — so `style-src
+> 'unsafe-inline'` is the only cross-browser, CSP-1-compatible way to enable
+> the dynamic-color features that Labels, the palette, and the upload progress
+> bar depend on.
 
 ### 6.5 SQL Injection Prevention
 
@@ -3079,6 +3199,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
 | CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-modal UI), www/board.php (card modal) + www/js/board.js (v1.8: the standalone www/card.php + www/js/card.js are removed) |
 | CARD-14 / CARD-15 | 3.17 (board-page card modal), 3.18 (js/board.js + js/card-activity.js render in the modal), www/board.php — modal markup + deep-link `/board.php?id=&card=&tab=`; www/card.php + www/js/card.js removed |
+| LABEL-01 / LABEL-02 / LABEL-03 | 3.14 (Label, CardLabel model access), 3.15 (LabelService::PALETTE, BoardService::setLabelModel + batch card_labels load, CardService::mergeInto label union), 4.1 (labels, card_labels), 5.15 (API + board-view card dots + card-modal picker + board-manage UI), www/board.php (card dots + board header manage-labels button + modal), www/js/board.js (manage-labels modal logic), www/js/card-modal.js (card-tab label chips + add dropdown), include/lang/en.json (label.* keys) |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
@@ -3107,6 +3228,9 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | **Placeholder user** | A user account created during Trello import representing a person who hasn't been invited yet |
 | **Signature V4** | AWS's request signing algorithm authenticating S3 API calls using HMAC-SHA256 |
 | **Strict board isolation** | The principle that unauthorized users receive no information about a board's existence (404, not 403) |
+| **Card label chip** | The UI primitive on a card showing an attached label: a rounded pill with the label color as background and a luminance-picked text color (`#000` or `#fff`) for readability — see 5.15 (LABEL-01) |
+| **Label palette** | The 12 preset label colors (5.15) plus a free-hex escape; defined once in `LabelService::PALETTE` and served server-side via the board script tag's `data-label-palette` JSON |
+| **Label dot** | The small colored circle rendered on a board-view card per attached label (5.15, board-view card label dots) — read-only, hover tooltip shows the label name, max 4 + overflow badge |
 
 ### E. Visual Design System — CSS Custom Properties (Design Tokens)
 

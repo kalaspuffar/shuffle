@@ -39,7 +39,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/include/bootstrap.php';
 
-$asUserId = isset($argv[1]) ? (int) $argv[1] : 1;
+$asUserId = isset($argv[1]) ? (int) $argv[1] : 4;   // default: mya (test account), NOT Daniel
+if ($asUserId === 1) { fwrite(STDERR, "REFUSING user 1 (Daniel's real data). Run: php tests/e2e-digest.php 4\n"); exit(2); }
 
 // ---------------------------------------------------------------------------
 // Auth fakes

@@ -240,7 +240,7 @@ CREATE TABLE IF NOT EXISTS `labels` (
     `color`      VARCHAR(7)   NOT NULL,
     `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
-    KEY `idx_labels_board` (`board_id`),
+    UNIQUE KEY `uq_labels_board_name` (`board_id`, `name`),
     CONSTRAINT `fk_labels_board` FOREIGN KEY (`board_id`)
         REFERENCES `boards` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
