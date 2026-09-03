@@ -2459,6 +2459,19 @@ On the Card tab of the card modal (see CARD-14/15), below the assignees row:
 - Both attach and detach bump the board version → the board poller refetches the card and re-renders the chip list.
 - i18n keys as above (`label.card_modal.*`).
 
+#### Web UI — board-view card label dots (LABEL-01)
+
+Labels are only glanceable if they show up **on the card in board view** — the chips in the card modal are for editing, the dots are for scanning a lane.
+
+On every card in `www/board.php` (all roles — labels are read data), the card title is preceded by a **label dot row**, same visual treatment as the assignee avatar stack (same border/rounded style, elevated card-background ring):
+
+- One **10px dot per attached label**, ordered by `label.id` (creation order). Dot background = the server-stored `color` hex (exactly the value in the card modal chip, no client-side re-derivation). A `title` tooltip shows the label name for hover; the dot itself is decorative, the row carries an aggregated `aria-label` (`"Labels: {names}"`, i18n key `label.card_board` — the dots do not add per-item landmarks to screen-reader output).
+- **Cap of 4 dots** followed by an overflow badge (`+N`) in the avatar-stack overflow style (inverted text/bg pair). This matches the 3-avatar cap convention and keeps the card height stable on heavily-tagged cards.
+- Dots are **read-only** on the card (attach/detach stays in the card modal — the card already carries one click target, and dots would be an accidental-mutation surface).
+- `BoardService::getBoardWithLanesAndCards()` batch-loads `card_labels` for the whole board in one query when a `Label` model is injected (`board.php` does; API `GET /v1/boards/{id}` does not — the REST board contract is unchanged and carries no `labels` field).
+
+**WCAG:** dot color contrast against the card background is not required as non-text (decorative, name available via tooltip + aria-label at the row level). The overflow badge uses the inverted `--color-text` / `base-bg` pair, which is contrast-safe in both themes (AA ≥ 4.5:1 verified for the current dark palette: `#E2E2EC` on `#0D0D12`).
+
 ### 5.16 Priority Digest (PRIO-12..14)
 
 #### `GET /v1/priority/digest`
@@ -3166,7 +3179,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | CARD-01 through CARD-09 | 3.14, 3.15, 4.1 (cards), 4.2, 5.7, 5.15 |
 | CARD-10 through CARD-13 | 3.15 (CardService::mergeInto), 3.14 (user_prio cascade on card delete), 5.14 (card_merged event), 5.17 (merge API + card-modal UI), www/board.php (card modal) + www/js/board.js (v1.8: the standalone www/card.php + www/js/card.js are removed) |
 | CARD-14 / CARD-15 | 3.17 (board-page card modal), 3.18 (js/board.js + js/card-activity.js render in the modal), www/board.php — modal markup + deep-link `/board.php?id=&card=&tab=`; www/card.php + www/js/card.js removed |
-| LABEL-01 / LABEL-02 / LABEL-03 | 3.14 (Label, CardLabel model access), 3.15 (LabelService::PALETTE, CardService::mergeInto label union), 4.1 (labels, card_labels), 5.15 (API + card-modal picker + board-manage UI), www/board.php + www/js/board.js (board header manage-labels button + modal), www/js/card-modal.js (card-tab label chips + add dropdown), include/lang/en.json (label.* keys) |
+| LABEL-01 / LABEL-02 / LABEL-03 | 3.14 (Label, CardLabel model access), 3.15 (LabelService::PALETTE, BoardService::setLabelModel + batch card_labels load, CardService::mergeInto label union), 4.1 (labels, card_labels), 5.15 (API + board-view card dots + card-modal picker + board-manage UI), www/board.php (card dots + board header manage-labels button + modal), www/js/board.js (manage-labels modal logic), www/js/card-modal.js (card-tab label chips + add dropdown), include/lang/en.json (label.* keys) |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
 | FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
@@ -3197,6 +3210,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | **Strict board isolation** | The principle that unauthorized users receive no information about a board's existence (404, not 403) |
 | **Card label chip** | The UI primitive on a card showing an attached label: a rounded pill with the label color as background and a luminance-picked text color (`#000` or `#fff`) for readability — see 5.15 (LABEL-01) |
 | **Label palette** | The 12 preset label colors (5.15) plus a free-hex escape; defined once in `LabelService::PALETTE` and served server-side via the board script tag's `data-label-palette` JSON |
+| **Label dot** | The small colored circle rendered on a board-view card per attached label (5.15, board-view card label dots) — read-only, hover tooltip shows the label name, max 4 + overflow badge |
 
 ### E. Visual Design System — CSS Custom Properties (Design Tokens)
 

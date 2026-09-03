@@ -223,6 +223,38 @@ class Label
         return $out;
     }
 
+    /**
+     * Batch-loads the labels attached to a set of cards
+     * (board-view card dots, LABEL-01).
+     *
+     * @param int[] $cardIds
+     * @return array cardId => [ {id, name, color}, ... ] (ordered by label id)
+     */
+    public function labelsForCards(array $cardIds): array
+    {
+        if (empty($cardIds)) {
+            return [];
+        }
+        $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
+        $rows = $this->db->fetchAll(
+            'SELECT cl.card_id, l.id, l.name, l.color
+             FROM card_labels cl
+             JOIN labels l ON l.id = cl.label_id
+             WHERE cl.card_id IN (' . $placeholders . ')
+             ORDER BY l.id ASC',
+            array_values(array_map('intval', $cardIds))
+        );
+        $out = [];
+        foreach ($rows as $r) {
+            $out[(int)$r['card_id']][] = [
+                'id'    => (int) $r['id'],
+                'name'  => $r['name'],
+                'color' => $r['color'],
+            ];
+        }
+        return $out;
+    }
+
     // ---------------------------------------------------------------
     // Merge union (LABEL-03) — called by CardService::mergeInto
     // ---------------------------------------------------------------

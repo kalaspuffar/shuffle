@@ -252,6 +252,7 @@
   "label.name": "Label Name",
   "label.rename_failed": "Could not rename the label.",
   "label.rename_hint": "Click to rename",
+  "label.card_board": "Labels: {0}",
   "lane.create": "Add Lane",
   "lane.create_success": "Lane created successfully.",
   "lane.delete": "Delete Lane",

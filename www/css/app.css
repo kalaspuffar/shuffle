@@ -4438,6 +4438,52 @@ small,
    contrast), so only layout/shape lives here.
    Uses the real --color-* tokens (dark theme).
    ============================================= */
+
+/* ---- board view: label dots (LABEL-01) ----
+   Colored dots above the title, one per attached label. The
+   background is set inline from the server-stored hex (so it
+   always matches the chip in the card modal). Mirrors the
+   avatar-stack treatment: fixed-size, elevated border so it
+   reads as "attached" on both card surfaces.
+   The overflow badge keeps the same inverted color pair as the
+   avatar-stack overflow (text on bg) — the only contrast-safe
+   inversion available under the current token set.            */
+.card-label-dots {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-1);
+}
+
+.card-label-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: var(--border-radius-full);
+    border: 2px solid var(--color-elevated);
+    margin-right: var(--space-1);
+}
+
+.card-label-dot:last-of-type {
+    margin-right: 0;
+}
+
+.card-label-dot--overflow {
+    width: auto;
+    min-width: 20px;
+    height: 20px;
+    margin-left: calc(-1 * var(--space-1));
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    background-color: var(--color-text);
+    color: var(--color-base);
+    font-size: 9px;
+    font-weight: var(--font-weight-semibold);
+    cursor: default;
+}
+
 .card-labels-section {
     margin-bottom: var(--space-5);
 }

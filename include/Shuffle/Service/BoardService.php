@@ -3,6 +3,7 @@ namespace Shuffle\Service;
 
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
+use Shuffle\Model\Label;
 use Shuffle\Model\Lane;
 use Shuffle\Model\UserPrio;
 
@@ -37,6 +38,17 @@ class BoardService
     private ?Lane $laneModel = null;
     private ?Card $cardModel = null;
     private ?UserPrio $userPrio = null;
+    /** @var Label|null When injected, getBoardWithLanesAndCards() enriches each card with its labels (board-view label dots). */
+    private ?Label $labelModel = null;
+
+    /**
+     * Injects the Label model (optional — board view without labels renders
+     * without the dots; the API and every other board path are unaffected).
+     */
+    public function setLabelModel(?Label $labelModel): void
+    {
+        $this->labelModel = $labelModel;
+    }
 
     /**
      * @param Board     $boardModel Board data access instance
@@ -284,6 +296,13 @@ class BoardService
         $commentCountMap = $this->cardModel->batchLoadCommentCounts($allCardIds);
         $attachmentCountMap = $this->cardModel->batchLoadAttachmentCounts($allCardIds);
         $checklistMap = $this->cardModel->batchLoadChecklistProgress($allCardIds);
+        // BOARD-VIEW LABELS: batch-load card labels in one query (LABEL-01) —
+        // the board card dots. Skipped when no Label model is injected (API
+        // paths, and any board.php path before the injection) to keep those
+        // paths byte-identical.
+        $labelsMap = $this->labelModel !== null
+            ? $this->labelModel->labelsForCards($allCardIds)
+            : [];
 
         foreach ($lanes as &$lane) {
             $laneId = (int) $lane['id'];
@@ -296,6 +315,9 @@ class BoardService
                 $card['comment_count'] = $commentCountMap[$cid] ?? 0;
                 $card['attachment_count'] = $attachmentCountMap[$cid] ?? 0;
                 $card['checklist_progress'] = $checklistMap[$cid] ?? ['total' => 0, 'done' => 0];
+                if ($this->labelModel !== null) {
+                    $card['labels'] = $labelsMap[$cid] ?? [];
+                }
             }
             unset($card);
 

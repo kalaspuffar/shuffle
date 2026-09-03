@@ -37,7 +37,9 @@ if (!$auth->canAccessBoard($boardId)) {
 $boardModel   = new Shuffle\Model\Board($db);
 $laneModel    = new Shuffle\Model\Lane($db);
 $cardModel    = new Shuffle\Model\Card($db);
+$labelModel   = new Shuffle\Model\Label($db);
 $boardService = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel);
+$boardService->setLabelModel($labelModel); // card label dots (LABEL-01)
 
 $board = $boardService->getBoardWithLanesAndCards($boardId, $includeArchived);
 
@@ -190,7 +192,8 @@ require ROOT_DIR . '/include/templates/header.php';
                     || ($card['comment_count'] ?? 0) > 0
                     || ($card['checklist_progress']['total'] ?? 0) > 0
                     || ($card['attachment_count'] ?? 0) > 0
-                    || !empty($card['assigned_users']);
+                    || !empty($card['assigned_users'])
+                    || (!empty($card['labels']) && count($card['labels']) > 0);
                 $cardArchived = !empty($card['is_archived']);
                 $cardMetaId = $hasMeta ? 'card-meta-' . (int) $card['id'] : null;
                 ?>
@@ -202,6 +205,29 @@ require ROOT_DIR . '/include/templates/header.php';
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($hasMeta): ?>
                         <div class="card-meta" id="<?= $cardMetaId ?>">
+                            <?php if (!empty($card['labels']) && count($card['labels']) > 0): ?>
+                            <?php
+                            // Label dots (LABEL-01): one colored dot per attached label.
+                            // Color is the server-stored hex (palette or free-hex),
+                            // so the dot always matches the chip in the card modal.
+                            // Screen readers get the label names; dots are decorative.
+                            $_labelNames = implode(', ', array_column($card['labels'], 'name'));
+                            $_labelCap   = 4; // match the avatar-stack cap for visual balance
+                            $_labels = array_slice($card['labels'], 0, $_labelCap);
+                            $_labelOverflow = count($card['labels']) - $_labelCap;
+                            ?>
+                            <span class="card-label-dots" aria-label="<?= htmlspecialchars($lang->get('label.card_board', [$_labelNames]), ENT_QUOTES, 'UTF-8') ?>">
+                                <?php foreach ($_labels as $_label): ?>
+                                <?php
+                                $_dotColor = is_string($_label['color']) && preg_match('/^#[0-9a-fA-F]{6}$/', $_label['color']) ? $_label['color'] : '#8A8FA3';
+                                ?>
+                                <span class="card-label-dot" style="background-color: <?= htmlspecialchars($_dotColor, ENT_QUOTES, 'UTF-8') ?>" title="<?= htmlspecialchars($_label['name'], ENT_QUOTES, 'UTF-8') ?>" aria-hidden="true"></span>
+                                <?php endforeach; ?>
+                                <?php if ($_labelOverflow > 0): ?>
+                                <span class="card-label-dot card-label-dot--overflow" title="<?= $_labelOverflow ?> more" aria-hidden="true">+<?= $_labelOverflow ?></span>
+                                <?php endif; ?>
+                            </span>
+                            <?php endif; ?>
                             <?php if (!empty($card['due_date'])): ?>
                             <?php
                             $dueDate = new DateTime($card['due_date']);

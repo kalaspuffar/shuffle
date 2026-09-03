@@ -105,7 +105,37 @@ ck "[7] list count=2, card_count=0 (got $CODE)" $?
 CODE=$(curl "${A[@]}" -o $T-8 -w '%{http_code}' -X POST "$B/v1/cards/$C1/labels/$L1")
 [ "$CODE" = "204" ]; ck "[8] attach -> 204 (got $CODE)" $?
 
-# [9] Attach idempotent -> 200
+# [8b] Board view renders label dot (LABEL-01 board-view check)
+curl -s -o $T-8b -H "Host: shuffle.ea.org" -b "$ACOOKIE" "http://127.0.0.1/board.php?id=$BOARD"
+DOTOK=0
+grep -q 'class="card-label-dot"' $T-8b || DOTOK=1
+grep -q 'background-color: #F44336' $T-8b || DOTOK=1
+grep -q 'title="Bug"' $T-8b || DOTOK=1
+grep -q 'aria-label="Labels: Bug"' $T-8b || DOTOK=1
+ck "[8b] board.php renders 1 dot + #F44336 + tooltip + aria on C1" "$DOTOK"
+
+# [8c] 4 extra labels on C1 (5 total) -> cap 4 dots + +N overflow; aria lists all 5
+for n in 1 2 3 4; do
+  CODEX=$(curl "${A[@]}" -o $T-8c-$n -w '%{http_code}' -X POST "$B/v1/boards/$BOARD/labels" -d "{\"name\":\"Cap$n\",\"color\":\"#3b82f6\"}")
+  VID=$(jget $T-8c-$n 'd["label"]["id"]')
+  curl "${A[@]}" -o /dev/null -X POST "$B/v1/cards/$C1/labels/$VID"
+done
+curl -s -o $T-8d -H "Host: shuffle.ea.org" -b "$ACOOKIE" "http://127.0.0.1/board.php?id=$BOARD"
+CAP=$(python3 - "$T-8d" "$C1" <<'PY3'
+import re, sys
+h  = open(sys.argv[1]).read()
+i  = h.find('data-card-id="%s"' % sys.argv[2])
+b  = h[i:i+2500]
+dots = len(re.findall(r'class="card-label-dot"', b))
+ovf  = b.find('card-label-dot--overflow') >= 0 and re.search(r'>\+1<', b)
+aria = re.search(r'aria-label="Labels: ([^"]+)"', b)
+names = len(aria.group(1).split(', ')) if aria else 0
+print('OK' if (dots == 4 and ovf and names == 5) else 'FAIL dots=%d ovr=%s names=%d' % (dots, bool(ovf), names))
+PY3
+)
+ck "[8c] 5 labels -> cap 4 dots + +1 overflow + 5 aria names (got: $CAP)" $([ "$CAP" = "OK" ]; echo $?)
+
+# [9] Attach idempotent -> 204
 CODE=$(curl "${A[@]}" -o $T-9 -w '%{http_code}' -X POST "$B/v1/cards/$C1/labels/$L1")
 [ "$CODE" = "204" ]; ck "[9] attach idempotent -> 204 (got $CODE)" $?
 
