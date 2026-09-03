@@ -2649,8 +2649,27 @@ PHP's defaults for Argon2id are used (memory cost 65536 KB, time cost 4, threads
 **Content Security Policy (CSP):** The following header is set on all HTML pages:
 
 ```
-Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'
 ```
+
+> **Rationale for `style-src 'unsafe-inline'` (LABEL bug 2026-09-03, Daniel):**
+> Shuffle paints per-row colors (label dots, label chips, palette swatches,
+> upload progress, toast fade) using inline `style="…"` attributes (server-
+> rendered, e.g. `board.php#L224`) and/or the CSSOM (`el.style.x = value`).
+> Under a bare `style-src 'self'`, browsers strip both — which rendered the
+> label dots as empty 10×10 boxes (DOM layout box preserved, color dropped by
+> the CSP engine on parse), producing the "dot is there but invisible" symptom
+> you saw in board 1. The fix is minimal and targeted: `'unsafe-inline'` is
+> added to `style-src` only. It does **not** affect `script-src` (stays
+> `'self'`); it does **not** widen `img-src`, `frame-ancestors`, or
+> `default-src`. Because this app loads no third-party stylesheets and no
+> third-party scripts, allowing our own inline styles does not expose a new
+> attack surface for external origins. Nonces do not apply to inline `style="…"`
+> HTML attributes (only to `<style>` elements and inline scripts), and
+> `style-attr-src` is not supported by Chrome/Safari — so `style-src
+> 'unsafe-inline'` is the only cross-browser, CSP-1-compatible way to enable
+> the dynamic-color features that Labels, the palette, and the upload progress
+> bar depend on.
 
 ### 6.5 SQL Injection Prevention
 

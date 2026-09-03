@@ -12,8 +12,16 @@
  *   $pageTitle — (optional) Page title suffix
  */
 
-// Security headers for HTML pages
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; frame-ancestors 'none'");
+// Security headers for HTML pages.
+// style-src intentionally includes 'unsafe-inline': Shuffle paints per-row /
+// per-label colors (label dots, chips, swatches) as inline `style="…"`
+// attributes or via JS `el.style.x=…`. Under a bare `style-src 'self'`,
+// browsers strip those (the error says so verbatim: inline style needs
+// 'unsafe-inline', a hash, or a nonce — and a nonce doesn't apply to inline
+// *style attributes*, only <style> elements). We load no third-party scripts
+// (script-src stays 'self'), so allowing our own inline styles does not
+// open any external origin. See LABEL bug 2026-09-03 (dots rendered invisible).
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'");
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('X-XSS-Protection: 0');
