@@ -85,6 +85,11 @@
     var commentInput = document.getElementById('modal-comment-input');
     var commentAddBtn = document.getElementById('modal-comment-add');
 
+    var labelsSection = document.getElementById('card-modal-labels-section');
+    var labelsChipsList = document.getElementById('card-modal-labels-chips');
+    var labelsAddBtn = document.getElementById('card-modal-labels-add-btn');
+    var labelsListEmpty = document.getElementById('card-modal-labels-list-empty');
+
     var activityFeed = document.getElementById('card-activity-feed');
 
     var mergeOverlay     = document.getElementById('card-merge-overlay');
@@ -115,8 +120,17 @@
         saving: false,       // double-submit guard on the save button
         commentPosting: false,
         mergeBusy: false,
+        labelsBusy: false,   // double-mutation guard on chip attach/detach
         highlightCommentId: null  // NOTIF-09 deep-link target (auto-cleared)
     };
+
+    // LABEL-01: runtime flag for read-only mode on the label chip section.
+    // Set by applyReadonly(!CAN_EDIT) on every applyCard — the chip render
+    // honors it so a re-render doesn't accidentally restore the × on a viewer's
+    // modal. Viewer: chips render without the × button and the "+ Add label"
+    // button is hidden (the board-wide label set is still available for
+    // read-only inspection via the manage-labels modal).
+    var labelsReadonly = !CAN_EDIT;
 
     // ---- small helpers ------------------------------------------------
 
@@ -295,6 +309,11 @@
         // (chunk 04) manages mutations.
         applyAssignees(card.assigned_users || []);
 
+        // Labels: paint the chip row from the card record (no round-trip).
+        // The board-wide label set comes from .board-view-page[data-labels]
+        // (server-rendered once) for the picker (chunk 07).
+        applyLabels(card.labels || []);
+
         // Checklists + Attachments (full render)
         renderChecklists(card.checklists || []);
         renderAttachments(card.attachments || []);
@@ -329,6 +348,12 @@
         });
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
         if (saveBtn) saveBtn.hidden = readonly;
+
+        // Labels: viewer sees the chips (information) but no × for removal
+        // and no "+ Add label" affordance; the chip render below honors
+        // labelsReadonly so re-renders stay consistent.
+        if (labelsAddBtn) labelsAddBtn.hidden = readonly;
+        labelsReadonly = readonly;
 
         // Checklists: hide add-checklist form + rename(delete) affordances.
         if (addChecklistForm) addChecklistForm.hidden = readonly;
@@ -1619,6 +1644,274 @@
     // card element), open it now. `open()` reads the tab/comment params for
     // the initial focus, so a comment deep link lands scrolled + highlighted.
     // This is also what makes the post-merge redirect land on the survivor.
+
+    /* Chunk 07: labels (LABEL-01, §5.15) — chip row + add-label picker
+       =================================================================== */
+
+    // ---- server-rendered single-source data (board-view-page) ----------
+    // The board page renders the whole board's label set once and the
+    // card modal reads it (no per-card round-trip). This means the picker
+    // lists ALL board labels (not just the ones attached to the card),
+    // which is exactly what LABEL-01 §5.15 wants ("listing all board labels").
+    function _boardLabels() {
+        // Board page div is always present; the modal is inside it.
+        var el = document.querySelector('.board-view-page');
+        var raw = el ? el.dataset.labels : '[]';
+        try { return JSON.parse(raw || '[]'); } catch (e) { return []; }
+    }
+
+    // ---- luminance-picked text color (WCAG AA contrast on chips) --------
+    // Pick #000 or #fff by the chip background's relative luminance — the
+    // "readability" rule LABEL-02 §5.15 mentions. Kept local (no deps).
+    function _contrastText(hex) {
+        var h = (hex || '').replace('#', '');
+        if (h.length !== 6) return '#fff';
+        var r = parseInt(h.slice(0, 2), 16) / 255;
+        var g = parseInt(h.slice(2, 4), 16) / 255;
+        var b = parseInt(h.slice(4, 6), 16) / 255;
+        function lin(c) { return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }
+        var L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+        return L > 0.179 ? '#000' : '#fff';   // ~4.5:1 contrast boundary
+    }
+
+    // ---- state ----------------------------------------------------------
+    var currentLabelAttachIds = [];   // ids already on the card (this open)
+
+    function shadowLabelsInit() {
+        if (state.card && Array.isArray(state.card.labels)) {
+            shadowLabels = state.card.labels.slice();
+        } else shadowLabels = [];
+    }
+    var shadowLabels = [];
+    function currentLabels() {
+        return Array.isArray(shadowLabels) ? shadowLabels : [];
+    }
+    function attachedIdsNow() {
+        return shadowLabels.map(function (l) { return parseInt(l.id, 10); });
+    }
+    function reattachFromLocal() {
+        return currentLabels();
+    }
+    function detachLocal(labelId) {
+        shadowLabels = shadowLabels.filter(function (l) { return parseInt(l.id, 10) !== parseInt(labelId, 10); });
+    }
+    function attachLocal(labelObj) {
+        if (!labelObj) return;
+        var id = parseInt(labelObj.id, 10);
+        if (!shadowLabels.some(function (l) { return parseInt(l.id, 10) === id; })) {
+            shadowLabels.push(labelObj);
+        }
+    }
+    function renderLabelChips(attached) {
+        if (!labelsChipsList) return;
+        while (labelsChipsList.firstChild) labelsChipsList.removeChild(labelsChipsList.firstChild);
+        if (!attached || attached.length === 0) {
+            if (labelsListEmpty) labelsListEmpty.hidden = false;
+        } else {
+            if (labelsListEmpty) labelsListEmpty.hidden = true;
+            attached.forEach(function (l) {
+                var chip = document.createElement('span');
+                chip.className = 'card-label-chip';
+                chip.setAttribute('role', 'listitem');
+                chip.style.background = l.color;
+                chip.style.color = _contrastText(l.color);
+                if (l.name) {
+                    var nm = document.createElement('span');
+                    nm.className = 'card-label-chip-name';
+                    nm.textContent = l.name;
+                    chip.appendChild(nm);
+                }
+                if (!labelsReadonly) {
+                    var x = document.createElement('button');
+                    x.type = 'button';
+                    x.className = 'card-label-chip-remove btn btn-ghost';
+                    x.setAttribute('aria-label', (t('label.card_modal.remove') || 'Remove') + ' ' + (l.name || ''));
+                    x.dataset.labelId = l.id;
+                    x.textContent = '\u00d7';
+                    chip.appendChild(x);
+                }
+                labelsChipsList.appendChild(chip);
+            });
+        }
+    }
+
+    function applyLabels(attached) {
+        shadowLabelsInit();
+        shadowLabels = (attached || []).slice();
+        renderLabelChips(shadowLabels);
+    }
+
+    function attachLabel(labelId) {
+        if (labelsReadonly || state.labelsBusy) return;
+        var cardId = state.cardId;
+        if (!cardId) return;
+        var all = _boardLabels();
+        var target = null;
+        for (var i = 0; i < all.length; i++) { if (all[i].id == labelId) { target = all[i]; break; } }
+        if (!target) return;
+        state.labelsBusy = true;
+        var boardId = (function () { var el = document.querySelector('.board-view-page'); return el ? parseInt(el.dataset.boardId, 10) : 0; })();
+        api('/v1/cards/' + cardId + '/labels/' + labelId, { method: 'POST' })
+            .then(function (r) {
+                if (r.status !== 204 && r.status !== 200) {
+                    flashErr(r);
+                } else {
+                    attachLocal(target);
+                    closeLabelPicker();
+                    renderLabelChips(currentLabels());
+                }
+            }, function () { flash((t && t('label.attach_failed') || 'Unable to attach label'), 'error'); })
+            .then(function () { state.labelsBusy = false; });
+    }
+
+    function detachLabel(labelId) {
+        if (labelsReadonly || state.labelsBusy) return;
+        var cardId = state.cardId;
+        if (!cardId) return;
+        state.labelsBusy = true;
+        api('/v1/cards/' + cardId + '/labels/' + labelId, { method: 'DELETE' })
+            .then(function (r) {
+                if (r.status !== 204 && r.status !== 200) {
+                    flashErr(r);
+                } else {
+                    detachLocal(labelId);
+                    renderLabelChips(currentLabels());
+                }
+            }, flashErr)
+            .then(function () { state.labelsBusy = false; });
+    }
+
+    // ---- add-label picker ------------------------------------------------
+    var labelPickerOpen = false;
+    var LABEL_PICKER_BOX_ID = 'card-labels-picker-listbox';
+    var outsideLabelPickerBound = false;
+
+    function buildLabelPicker() {
+        var existing = labelsSection ? labelsSection.querySelector('.card-label-picker') : null;
+        if (existing) existing.remove();
+
+        var panel = document.createElement('div');
+        panel.className = 'card-label-picker';
+
+        var listbox = document.createElement('div');
+        listbox.setAttribute('id', LABEL_PICKER_BOX_ID);
+        listbox.setAttribute('role', 'listbox');
+        listbox.setAttribute('aria-label', t('label.card_modal.pick') || 'Pick a label');
+        listbox.setAttribute('aria-multiselectable', 'true');
+
+        var all = _boardLabels();
+        if (all.length === 0) {
+            var empty = document.createElement('p');
+            empty.className = 'card-label-picker-empty';
+            empty.textContent = t('label.manage_empty') || 'No labels on this board yet.';
+            listbox.appendChild(empty);
+        } else {
+            var currentIds = currentLabels().map(function (x) { return parseInt(x.id, 10); });
+        all.forEach(function (l) {
+                var selected = currentIds.indexOf(parseInt(l.id, 10)) !== -1;
+                var opt = document.createElement('div');
+                opt.className = 'card-label-picker-option' + (selected ? ' card-label-picker-option--selected' : '');
+                opt.setAttribute('role', 'option');
+                opt.setAttribute('aria-selected', selected ? 'true' : 'false');
+                opt.dataset.labelId = l.id;
+                var sw = document.createElement('span');
+                sw.className = 'card-label-picker-swatch';
+                sw.style.background = l.color;
+                sw.setAttribute('aria-hidden', 'true');
+                var nm = document.createElement('span');
+                nm.className = 'card-label-picker-name';
+                nm.textContent = l.name;
+                var chk = document.createElement('span');
+                chk.className = 'card-label-picker-check';
+                chk.textContent = selected ? '\u2713' : '';
+                chk.setAttribute('aria-hidden', 'true');
+                opt.appendChild(sw);
+                opt.appendChild(nm);
+                opt.appendChild(chk);
+                listbox.appendChild(opt);
+            });
+        }
+        panel.appendChild(listbox);
+        labelsSection.appendChild(panel);
+        if (labelsAddBtn) labelsAddBtn.setAttribute('aria-expanded', 'true');
+        labelPickerOpen = true;
+        setTimeout(function () {
+            if (!outsideLabelPickerBound) {
+                outsideLabelPickerBound = true;
+                document.addEventListener('click', outsideLabelPicker, true);
+            }
+        }, 0);
+    }
+
+    function closeLabelPicker() {
+        if (labelsSection) {
+            var p = labelsSection.querySelector('.card-label-picker');
+            if (p) p.remove();
+        }
+        if (labelsAddBtn) labelsAddBtn.setAttribute('aria-expanded', 'false');
+        labelPickerOpen = false;
+        if (outsideLabelPickerBound) {
+            document.removeEventListener('click', outsideLabelPicker, true);
+            outsideLabelPickerBound = false;
+        }
+    }
+
+    function outsideLabelPicker(e) {
+        // Capture-phase: closes only when the click target is OUTSIDE the
+        // card-modal-labels-section (same pattern as the assignee picker).
+        if (!labelsSection) return;
+        if (labelsSection.contains(e.target)) return;
+        closeLabelPicker();
+    }
+
+    // ---- wire the chip row (delegated) ---------------------------------
+    function bindLabelsSection() {
+        if (!labelsChipsList) return;
+        labelsChipsList.addEventListener('click', function (e) {
+            var btn = e.target && e.target.closest ? e.target.closest('.card-label-chip-remove') : null;
+            if (btn && btn.dataset.labelId) {
+                e.preventDefault();
+                e.stopPropagation();
+                detachLabel(parseInt(btn.dataset.labelId, 10));
+            }
+        });
+    }
+    function bindLabelsAddBtn() {
+        if (!labelsAddBtn) return;
+        labelsAddBtn.addEventListener('click', function (e) {
+            if (labelsReadonly) return;
+            e.preventDefault();
+            if (labelPickerOpen) closeLabelPicker(); else buildLabelPicker();
+        });
+        labelsAddBtn.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && labelPickerOpen) { e.preventDefault(); closeLabelPicker(); }
+        });
+    }
+    function bindLabelPickerClicks() {
+        if (!labelsSection) return;
+        labelsSection.addEventListener('click', function (e) {
+            var opt = e.target && e.target.closest ? e.target.closest('.card-label-picker-option') : null;
+            if (!opt || labelPickerOpen === false) return;
+            if (!opt.getAttribute('role') || opt.getAttribute('role') !== 'option') return;
+            e.preventDefault();
+            var id = parseInt(opt.dataset.labelId, 10);
+            if (isNaN(id)) return;
+            var sel = opt.getAttribute('aria-selected') === 'true';
+            if (sel) {
+                // Already-attached: toggle off (delegates to detachLabel)
+                detachLabel(id);
+            } else {
+                attachLabel(id);
+            }
+        });
+    }
+
+    // Boot
+    bindLabelsSection();
+    bindLabelsAddBtn();
+    bindLabelPickerClicks();
+
+
     function deepLinkOpen() {
         if (typeof document.readyState === 'string' &&
             document.readyState !== 'complete' &&

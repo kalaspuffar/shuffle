@@ -2376,7 +2376,7 @@ Returns all labels for a board (including names, colors, and **`card_count`** �
 
 - `name`: required, 1–64 chars, trimmed. Empty or whitespace-only → 400.
 - `color`: required, `#RRGGBB` per the regex above. Missing or invalid → 400 `{"error":"Invalid color"}`.
-- **Duplicate (name, board) pair → 409 `{"error":"A label with this name already exists on this board"}`** (case-sensitive; `Bug` and `bug` are distinct — server-side uniqueness, no lowercasing in v1).
+- **Duplicate (name, board) pair → 409 `{"error":"A label with this name already exists on this board"}`** (case-**insensitive**, matching the table's `utf8mb4_unicode_ci` collation: `Bug` and `bug` are the same label. `UNIQUE(board_id, name)` enforces this at the storage layer; the service pre-checks so the user gets a clean 409 rather than a constraint 500).
 
 **Response (201):**
 ```json

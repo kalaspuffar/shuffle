@@ -114,10 +114,36 @@ if ($canEdit) {
     }
 }
 
+// Labels (LABEL-01..03). The board's current labels are served
+// for the card-modal picker; the palette (LabelService::PALETTE)
+// for the manage-labels modal. $labelCanMutate = admin-or-member.
+$labelModel      = new Shuffle\Model\Label($db);
+$labelService    = new Shuffle\Service\LabelService($labelModel, $boardModel, $cardModel);
+$boardLabels     = $labelService->listForBoard($boardId);   // [{id,name,color,card_count}, ...]
+
+// Serve the board label set + palette as server-rendered JSON attributes
+// on the board-view-page <div>, so the card-modal picker + manage-labels
+// modal both read one server-rendered source of truth (no N+1 per card,
+// no client-side re-fetch on open).
+$boardLabelsJson = json_encode(
+    array_map(fn($l) => [
+        'id'   => (int) $l['id'],
+        'name' => $l['name'],
+        'color'=> $l['color'],
+        'card_count' => (int) ($l['card_count'] ?? 0),
+    ], array_values($boardLabels)),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+);
+$paletteJson = json_encode(
+    array_map(fn($p) => $p['hex'], Shuffle\Service\LabelService::PALETTE),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+);
+$labelCanMutate = in_array($currentUser['role'], ['admin','member'], true);
+
 require ROOT_DIR . '/include/templates/header.php';
 ?>
 
-<div class="board-view-page" data-board-id="<?= (int) $board['id'] ?>" data-board-version="<?= (int) $board['version'] ?>">
+<div class="board-view-page" data-board-id="<?= (int) $board['id'] ?>" data-board-version="<?= (int) $board['version'] ?>" data-labels="<?= htmlspecialchars($boardLabelsJson, ENT_QUOTES, 'UTF-8') ?>" data-label-palette="<?= htmlspecialchars($paletteJson, ENT_QUOTES, 'UTF-8') ?>" data-label-can-mutate="<?= $labelCanMutate ? '1' : '0' ?>">
     <div class="board-view-header">
         <a href="/boards.php" class="board-view-back" aria-label="<?= htmlspecialchars($lang->get('board.back'), ENT_QUOTES, 'UTF-8') ?>">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -130,6 +156,12 @@ require ROOT_DIR . '/include/templates/header.php';
             <input type="checkbox" id="toggle-archived-cards" class="boards-filter-checkbox" <?= $includeArchived ? 'checked' : '' ?>>
             <span class="text-sm"><?= htmlspecialchars($lang->get('board.show_archived'), ENT_QUOTES, 'UTF-8') ?></span>
         </label>
+        <button type="button" class="board-manage-labels-btn btn btn-ghost btn-sm" id="board-manage-labels-btn" aria-haspopup="dialog" aria-controls="board-labels-modal" title="<?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M7 1L1.5 4v6L7 13l5.5-3V4L7 1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+            </svg>
+            <?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>
+        </button>
     </div>
 
     <div class="board-lanes-container" role="region" aria-label="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">
@@ -266,6 +298,39 @@ require ROOT_DIR . '/include/templates/header.php';
 </div>
 
 
+<!-- LABEL-02: Board label management modal (create / rename / delete / add).
+     Read-only for Viewers (the "Add" section + per-row mutation buttons
+     are hidden when data-label-can-mutate="0"). Populated by
+     js/board.js from the server-rendered #board-view-page[data-labels]. -->
+<div class="modal-overlay" id="board-labels-overlay" hidden>
+    <div class="modal modal--labels" role="dialog" aria-labelledby="board-labels-title" aria-modal="true" id="board-labels-modal">
+        <div class="modal-header">
+            <h2 id="board-labels-title"><?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close board-labels-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <div class="modal-body board-labels-body">
+            <div class="board-labels-readonly-note" id="board-labels-readonly-note" hidden>
+                <?= htmlspecialchars($lang->get('label.manage_readonly'), ENT_QUOTES, 'UTF-8') ?>
+            </div>
+            <ul class="board-labels-list" id="board-labels-list" role="listbox" aria-label="<?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>"></ul>
+            <div class="board-labels-empty" id="board-labels-empty" hidden>
+                <?= htmlspecialchars($lang->get('label.manage_empty'), ENT_QUOTES, 'UTF-8') ?>
+            </div>
+            <form class="board-labels-add-form" id="board-labels-add-form">
+                <div class="board-labels-add-row">
+                    <input type="text" class="form-input board-labels-add-name" id="board-labels-add-name" maxlength="64" aria-label="<?= htmlspecialchars($lang->get('label.create_name'), ENT_QUOTES, 'UTF-8') ?>" placeholder="<?= htmlspecialchars($lang->get('label.create_name'), ENT_QUOTES, 'UTF-8') ?>">
+                    <input type="text" class="form-input board-labels-add-color" id="board-labels-add-color" maxlength="7" aria-label="<?= htmlspecialchars($lang->get('label.create_color'), ENT_QUOTES, 'UTF-8') ?>" placeholder="#RRGGBB" spellcheck="false">
+                    <button type="submit" class="btn btn-primary btn-sm board-labels-add-btn"><?= htmlspecialchars($lang->get('label.create_add'), ENT_QUOTES, 'UTF-8') ?></button>
+                </div>
+                <div class="board-labels-palette" id="board-labels-palette" role="radiogroup" aria-label="<?= htmlspecialchars($lang->get('label.create_color'), ENT_QUOTES, 'UTF-8') ?>"></div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close board-labels-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+
 <!-- Card Edit Modal — v1.8 (CARD-14/15): the single card surface.
      Rendered for every board member: editors get the full feature surface
      (form fields, checklists, attachments, comment edit/delete, actions);
@@ -327,6 +392,17 @@ require ROOT_DIR . '/include/templates/header.php';
                             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
                             <?= htmlspecialchars($lang->get('card.add_assignee'), ENT_QUOTES, 'UTF-8') ?>
                         </button>
+                    </div>
+                    <div class="form-group card-labels-section" id="card-modal-labels-section" data-board-labels="[]" data-attached="[]">
+                        <label class="form-label"><?= htmlspecialchars($lang->get('label.card_title'), ENT_QUOTES, 'UTF-8') ?></label>
+                        <div class="card-labels-chips" id="card-modal-labels-chips" role="list" aria-label="<?= htmlspecialchars($lang->get('label.card_title'), ENT_QUOTES, 'UTF-8') ?>"></div>
+                        <div class="card-labels-actions">
+                            <button type="button" class="btn btn-ghost btn-sm" id="card-modal-labels-add-btn" aria-expanded="false" aria-haspopup="listbox" aria-controls="card-labels-picker-listbox" aria-label="<?= htmlspecialchars($lang->get('label.card_modal.add'), ENT_QUOTES, 'UTF-8') ?>">
+                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                                <?= htmlspecialchars($lang->get('label.card_modal.add'), ENT_QUOTES, 'UTF-8') ?>
+                            </button>
+                            <span class="card-labels-list-empty" id="card-modal-labels-list-empty" hidden><?= htmlspecialchars($lang->get('label.card_modal.list_empty'), ENT_QUOTES, 'UTF-8') ?></span>
+                        </div>
                     </div>
                 </form>
 

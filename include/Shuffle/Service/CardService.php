@@ -11,6 +11,7 @@ use Shuffle\Model\Card;
 use Shuffle\Model\Checklist;
 use Shuffle\Model\Comment;
 use Shuffle\Model\Lane;
+use Shuffle\Model\Label;
 use Shuffle\Model\User;
 use Shuffle\Service\AttachmentService;
 use Shuffle\Service\CommentService;
@@ -38,6 +39,7 @@ class CardService
     private ?Comment $commentModel = null;
     private ?Checklist $checklistModel = null;
     private ?Attachment $attachmentModel = null;
+    private ?Label $labelModel = null;   // CARD-10 §6 (LABEL-03 label union)
     private ?Database $db = null;
 
     /**
@@ -78,6 +80,16 @@ class CardService
     public function setAttachmentService(AttachmentService $attachmentService): void
     {
         $this->attachmentService = $attachmentService;
+    }
+
+    /**
+     * Injects the Label model so mergeInto() can union card-level labels
+     * (LABEL-03, §5.15) — the union is a no-op if the model is not wired
+     * (e.g. the legacy E2E harness predating the labels feature).
+     */
+    public function setLabelModel(Label $labelModel): void
+    {
+        $this->labelModel = $labelModel;
     }
 
     /**
@@ -165,6 +177,13 @@ class CardService
             error_log('CardService::getCard() — ChecklistService not injected; checklists will be empty');
         }
 
+        // Load labels (LABEL-01: the card's assigned labels are carried in the
+        // card record so the modal can render the chip row without a second
+        // round-trip). null-safe — empty array when the Label model isn't wired.
+        $card['labels'] = $this->labelModel !== null
+            ? $this->labelModel->labelsForCard($id)
+            : [];
+
         // Load attachments
         if ($this->attachmentService !== null) {
             $card['attachments'] = $this->attachmentService->getAttachmentsForCard($id);
@@ -172,8 +191,6 @@ class CardService
             $card['attachments'] = [];
             error_log('CardService::getCard() — AttachmentService not injected; attachments will be empty');
         }
-        // TODO: Post-MVP — populate when Labels feature is implemented
-        $card['labels'] = [];
 
         return $card;
     }
@@ -739,37 +756,18 @@ class CardService
                 $this->attachmentModel->repointTo($sourceCardId, $destinationCardId, $destS3Keys);
             }
 
-            // (5) Labels — union, idempotent (a duplicate label on the
-            //     survivor must not fail the merge). The `labels` feature
-            //     is Post-MVP so the live table is normally empty; the
-            //     check is what keeps the hot path free of a per-merge
-            //     table probe while still honoring CARD-10 step 6 when
-            //     rows do exist.
-            try {
-                $sourceLabelRows = $this->db->fetchAll(
-                    'SELECT label_id FROM card_labels WHERE card_id = ?',
-                    [$sourceCardId]
-                );
-                foreach ($sourceLabelRows as $srcLabelRow) {
-                    $labelId = (int) $srcLabelRow['label_id'];
-                    $existing = $this->db->fetch(
-                        'SELECT id FROM card_labels WHERE card_id = ? AND label_id = ?',
-                        [$destinationCardId, $labelId]
-                    );
-                    if ($existing === null) {
-                        $this->db->execute(
-                            'INSERT INTO card_labels (card_id, label_id) VALUES (?, ?)',
-                            [$destinationCardId, $labelId]
-                        );
-                    }
-                }
-            } catch (\Throwable $e) {
-                // Table may be absent in pre-label-feature databases.
-                // The labels union is a no-op there by design (the whole
-                // labels feature is unshipped), so treat a schema miss
-                // as "nothing to union" and continue.
-                error_log('CardService::mergeInto labels union skipped: ' . $e->getMessage());
+            // (5) Labels — union, idempotent (a label already on the
+            //     survivor is skipped; a new label is INSERT-IGNORE'd so
+            //     a duplicate never fails the merge). Label changes do not
+            //     write a card_activity row (low-signal — LABEL-01
+            //     design decision, 2026-09-02).
+            if ($this->labelModel !== null) {
+                $this->labelModel->unionToCard($sourceCardId, $destinationCardId);
             }
+            // (a) $this->labelModel === null is the legacy path: the whole
+            //     labels feature is not yet wired in — treat as "nothing to
+            //     union" and continue (same contract as steps 2-4 that skip
+            //     when their model is not injected).
 
             // (6) Source's user_prio rows: the card DELETE below cascades
             //     them away (FK user_prio.card_id → cards.id ON DELETE

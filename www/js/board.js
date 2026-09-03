@@ -1302,6 +1302,284 @@
     function escapeAttr(str) {
         return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+    /* =============================================
+       Label Management Modal (LABEL-01..02, §5.15)
+       — Board label CRUD from the server-rendered modal on board.php.
+       Gated by #board-view-page data-label-can-mutate (admin-or-member
+       per LABEL-01). Viewers see the read-only note + the current list.
+       ============================================= */
+
+    (function () {
+        var overlay = document.getElementById('board-labels-overlay');
+        if (!overlay) return;
+
+        // Data attrs from the server-rendered .board-view-page (not
+        // from #board-script, which is a separate tag; the data-labels
+        // + data-label-palette live on the board-view-page div directly).
+        var boardPageEl = document.querySelector('.board-view-page');
+        var boardLabelSet = [];   // current server state: [{id,name,color,card_count}]
+        var palette = [];
+        var canMutate = false;
+
+        if (boardPageEl) {
+            try { boardLabelSet = JSON.parse(boardPageEl.dataset.labels || '[]'); }
+            catch (e) { boardLabelSet = []; }
+            try { palette = JSON.parse(boardPageEl.dataset.labelPalette || '[]'); }
+            catch (e) { palette = []; }
+            canMutate = boardPageEl.dataset.labelCanMutate === '1';
+        }
+
+        // Elements
+        var modal = overlay.querySelector('.modal') || document.getElementById('board-labels-modal');
+        var listEl = document.getElementById('board-labels-list');
+        var emptyEl = document.getElementById('board-labels-empty');
+        var readonlyNote = document.getElementById('board-labels-readonly-note');
+        var addForm = document.getElementById('board-labels-add-form');
+        var nameInput = document.getElementById('board-labels-add-name');
+        var colorInput = document.getElementById('board-labels-add-color');
+        var paletteEl = document.getElementById('board-labels-palette');
+
+        var t = function (key, fallback) {
+            var v = (LANG && LANG[key]) || fallback;
+            return v;
+        };
+
+        // ---- render ----
+
+        function renderPalette() {
+            if (!paletteEl) return;
+            paletteEl.innerHTML = '';
+            if (!canMutate) return;
+            palette.forEach(function (hex) {
+                var swatch = document.createElement('button');
+                swatch.type = 'button';
+                swatch.className = 'board-labels-palette-swatch';
+                swatch.style.backgroundColor = hex;
+                swatch.setAttribute('role', 'radio');
+                swatch.setAttribute('aria-checked', 'false');
+                swatch.setAttribute('aria-label', hex);
+                swatch.title = hex;
+                swatch.addEventListener('click', function () {
+                    colorInput.value = hex;
+                    // mark selected
+                    Array.prototype.forEach.call(paletteEl.querySelectorAll('[role=radio]'), function (el) {
+                        el.setAttribute('aria-checked', 'false');
+                        el.classList.remove('is-selected');
+                    });
+                    swatch.setAttribute('aria-checked', 'true');
+                    swatch.classList.add('is-selected');
+                });
+                paletteEl.appendChild(swatch);
+            });
+        }
+
+        function swatchFor(hex) {
+            if (!hex) return '#888888';
+            // If the palette has it, use the palette version; else use the raw hex
+            var h = String(hex).trim();
+            if (palette.indexOf(h) !== -1) return h;
+            return h;
+        }
+
+        function escapeHtml(s) {
+            var d = document.createElement('div'); d.textContent = (s||''); return d.innerHTML;
+        }
+
+        function renderList() {
+            if (!listEl) return;
+            listEl.innerHTML = '';
+            var labels = boardLabelSet || [];
+            if (!labels.length) {
+                if (emptyEl) emptyEl.hidden = false;
+                return;
+            }
+            if (emptyEl) emptyEl.hidden = true;
+            labels.forEach(function (lb) {
+                var li = document.createElement('li');
+                li.className = 'board-labels-list-item';
+                li.setAttribute('data-label-id', lb.id);
+
+                var chip = document.createElement('span');
+                chip.className = 'card-label-chip';
+                chip.style.backgroundColor = swatchFor(lb.color);
+                chip.setAttribute('aria-hidden', 'true');
+                chip.innerHTML = '<span class="card-label-chip-swatch" style="background:' + swatchFor(lb.color) + '"></span>';
+
+                var name = document.createElement('span');
+                name.className = 'board-labels-list-name';
+                name.textContent = lb.name;
+
+                var count = document.createElement('span');
+                count.className = 'board-labels-list-count';
+                count.textContent = '(' + (lb.card_count || 0) + ')';
+
+                li.appendChild(chip);
+                li.appendChild(name);
+                li.appendChild(count);
+
+                if (canMutate) {
+                    var actions = document.createElement('span');
+                    actions.className = 'board-labels-list-actions';
+
+                    var renameBtn = document.createElement('button');
+                    renameBtn.type = 'button';
+                    renameBtn.className = 'btn btn-ghost btn-sm';
+                    renameBtn.textContent = t('label.rename_hint', 'Rename');
+                    renameBtn.setAttribute('aria-label', t('label.rename_hint', 'Rename') + ' ' + lb.name);
+                    renameBtn.addEventListener('click', function () { renameInline(li, lb); });
+
+                    var deleteBtn = document.createElement('button');
+                    deleteBtn.type = 'button';
+                    deleteBtn.className = 'btn btn-ghost btn-sm board-labels-delete-btn';
+                    deleteBtn.innerHTML = '&times;';
+                    deleteBtn.setAttribute('aria-label', t('label.delete', 'Delete') + ' ' + lb.name);
+                    deleteBtn.title = t('label.delete', 'Delete');
+                    deleteBtn.addEventListener('click', function () {
+                        var confirmMsg = 'Delete ' + lb.name + ' (' + (lb.card_count || 0) + ' ' + t('label.delete_has_cards', 'card(s)') + ')?';
+                        if (window.confirm(confirmMsg)) {
+                            doDelete(lb.id, confirmMsg);
+                        }
+                    });
+
+                    actions.appendChild(renameBtn);
+                    actions.appendChild(deleteBtn);
+                    li.appendChild(actions);
+                }
+
+                listEl.appendChild(li);
+            });
+        }
+
+        function renameInline(li, lb) {
+            var nameEl = li.querySelector('.board-labels-list-name');
+            if (!nameEl) return;
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-input form-input-sm';
+            input.value = lb.name;
+            input.maxLength = 64;
+            input.setAttribute('aria-label', t('label.rename_hint', 'Rename'));
+            nameEl.replaceWith(input);
+            input.focus();
+            input.select();
+
+            function commit() {
+                var newName = input.value.trim();
+                if (!newName || newName === lb.name) { renderList(); return; }
+                Shuffle.api('/v1/labels/' + lb.id, {
+                    method: 'PUT',
+                    body: { name: newName }
+                }).then(function (r) {
+                    if (r.status === 200) {
+                        Shuffle.showFlash(t('label.manage_renamed', 'Renamed'), 'success');
+                        refresh();
+                    } else {
+                        var msg = (r.data && r.data.error) || t('label.rename_failed', 'Renamed failed');
+                        Shuffle.showFlash(msg, 'error');
+                        renderList();
+                    }
+                });
+            }
+            input.addEventListener('blur', commit);
+            input.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+                if (e.key === 'Escape') { e.stopPropagation(); renderList(); }
+            });
+        }
+
+        function doDelete(labelId) {
+            Shuffle.api('/v1/labels/' + labelId, { method: 'DELETE' }).then(function (r) {
+                if (r.status === 204 || r.status === 200) {
+                    Shuffle.showFlash(t('label.delete_success', 'Deleted'), 'success');
+                    refresh();
+                } else {
+                    var msg = (r.data && r.data.error) || t('label.delete_failed', 'Delete failed');
+                    Shuffle.showFlash(msg, 'error');
+                }
+            });
+        }
+
+        function refresh() {
+            // Re-fetch the board's current label set from the API (single source
+            // of truth) so the list reflects server state, including card_count.
+            Shuffle.api('/v1/boards/' + boardPageEl.dataset.boardId + '/labels', {
+                method: 'GET'
+            }).then(function (r) {
+                if (r.status === 200 && r.data && Array.isArray(r.data.labels)) {
+                    boardLabelSet = r.data.labels;
+                    renderList();
+                }
+            });
+        }
+
+        // ---- open / close ----
+
+        function openModal() {
+            if (readonlyNote) readonlyNote.hidden = !canMutate;
+            if (addForm) addForm.hidden = !canMutate;
+            refresh();
+            overlay.hidden = false;
+            overlay.setAttribute('aria-hidden', 'false');
+            if (nameInput) nameInput.focus();
+            if (paletteEl && canMutate) renderPalette();
+            closeOnEsc = function (e) { if (e.key === 'Escape') { e.stopPropagation(); closeModal(); } };
+            document.addEventListener('keydown', closeOnEsc);
+        }
+        var closeOnEsc = null;
+        function closeModal() {
+            overlay.hidden = true;
+            overlay.setAttribute('aria-hidden', 'true');
+            if (closeOnEsc) { document.removeEventListener('keydown', closeOnEsc); closeOnEsc = null; }
+            if (nameInput) nameInput.value = '';
+            if (colorInput) colorInput.value = '';
+            // reset palette selection
+            if (paletteEl) {
+                Array.prototype.forEach.call(paletteEl.querySelectorAll('[role=radio]'), function (el) {
+                    el.setAttribute('aria-checked', 'false');
+                    el.classList.remove('is-selected');
+                });
+            }
+        }
+
+        // ---- wiring ----
+
+        // Header button
+        var openBtn = document.getElementById('board-manage-labels-btn');
+        if (openBtn) openBtn.addEventListener('click', function (e) { e.preventDefault(); openModal(); });
+
+        // Close buttons (.modal-close) + overlay click-to-close
+        Array.prototype.forEach.call(overlay.querySelectorAll('.board-labels-close'), function (el) {
+            el.addEventListener('click', closeModal);
+        });
+        overlay.addEventListener('mousedown', function (e) {
+            if (e.target === overlay) closeModal();
+        });
+
+        // Create
+        if (addForm) {
+            addForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var name = (nameInput && nameInput.value || '').trim();
+                var color = (colorInput && colorInput.value || '').trim();
+                if (!name) { nameInput && nameInput.focus(); return; }
+                Shuffle.api('/v1/boards/' + boardPageEl.dataset.boardId + '/labels', {
+                    method: 'POST',
+                    body: { name: name, color: color || null }
+                }).then(function (r) {
+                    if (r.status === 201) {
+                        Shuffle.showFlash(t('label.create_success', 'Label created'), 'success');
+                        nameInput.value = '';
+                        colorInput.value = '';
+                        refresh();
+                    } else {
+                        var msg = (r.data && r.data.error) || t('label.create_failed', 'Create failed');
+                        Shuffle.showFlash(msg, 'error');
+                    }
+                });
+            });
+        }
+    })();
+
 
     /* =============================================
        "Show archived" cards toggle
