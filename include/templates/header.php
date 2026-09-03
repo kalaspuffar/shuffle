@@ -31,7 +31,15 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= $csrfToken ?>">
     <title><?= $appName . $titleSuffix ?></title>
-    <link rel="stylesheet" href="/css/app.css">
+    <?php
+    // Cache-bust the stylesheet with its file mtime — a static /css/app.css
+    // URL lets browsers (and intermediaries) serve stale CSS for days after
+    // a deploys. The mtime changes on every deploy, so a normal refresh
+    // (no Ctrl-Shift-R) is enough to pick it up.
+    $asset = __DIR__ . '/../../www/css/app.css';
+    $assetV = file_exists($asset) ? (int) filemtime($asset) : 1;
+    ?>
+    <link rel="stylesheet" href="/css/app.css?v=<?= $assetV ?>">
 </head>
 <body>
 <a href="#main-content" class="skip-link"><?= htmlspecialchars($lang->get('nav.skip_to_content'), ENT_QUOTES, 'UTF-8') ?></a>

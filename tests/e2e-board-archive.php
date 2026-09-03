@@ -25,7 +25,8 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__) . '/include/bootstrap.php';
 
-$asUserId = isset($argv[1]) ? (int) $argv[1] : 1;
+$asUserId = isset($argv[1]) ? (int) $argv[1] : 4;   // default: mya (test account), NOT Daniel
+if ($asUserId === 1) { fwrite(STDERR, "REFUSING user 1 (Daniel's real data). Run: php tests/e2e-board-archive.php 4\n"); exit(2); }
 
 // ---------------------------------------------------------------------------
 // Headless Auth (same pattern as tests/e2e-priority.php)
@@ -64,15 +65,17 @@ if ($asUser === null) {
 $snapshotUserPrio = $db->fetchAll('SELECT * FROM user_prio');
 $restoreBoardArchive = 0; // 0 = don't touch; 1 = we archived, must restore on cleanup
 $cleanUp = function () use ($db, $asUser, $snapshotUserPrio, &$restoreBoardArchive): void {
-    // Delete the temp board (cascades lanes, cards, card_assignments, user_prio)
+    // Delete the temp board (cascades lanes, cards, card_assignments)
     $tmp = $db->fetch("SELECT id FROM boards WHERE title LIKE 'E2E-BA-board-%'");
     if ($tmp !== null) {
         $tmpId = (int) $tmp['id'];
-        // Remove user_prio rows pointing at cards on the temp board
+        // Remove ALL user_prio rows pointing at cards on the temp board —
+        // includes any the archiving cleared (BOARD-06d), so after cleanup
+        // the user's priority list is exactly the pre-test row set.
         $db->execute('DELETE FROM user_prio WHERE card_id IN (
                 SELECT c.id FROM cards c
                 JOIN lanes l ON l.id = c.lane_id
-                AND l.board_id = ?)', [$tmpId]);
+                WHERE l.board_id = ?)', [$tmpId]);
         // Reset any board-archive flag we set
         if ($restoreBoardArchive) {
             $db->execute('UPDATE boards SET is_archived = 0 WHERE id = ?', [$tmpId]);
@@ -80,12 +83,21 @@ $cleanUp = function () use ($db, $asUser, $snapshotUserPrio, &$restoreBoardArchi
         // Board model's delete cascades
         (new \Shuffle\Model\Board($db))->delete($tmpId);
     }
-    // Safety: restore user_prio to pre-test row set
+    // Safety: restore user_prio to the pre-test row set:
+    //  - drop rows we added
+    //  - put back rows the archiving step cleared (BOARD-06d deletes them)
     $now = $db->fetchAll('SELECT * FROM user_prio');
     $keepIds = array_map(fn($s) => (int) $s['id'], $snapshotUserPrio);
+    $nowIds = array_map(fn($s) => (int) $s['id'], $now);
     foreach ($now as $row) {
         if (!in_array((int) $row['id'], $keepIds, true)) {
-            $db->execute('DELETE FROM user_prio WHERE id = ?', [(int) $row['id']]);
+            $db->execute('DELETE FROM user_prio WHERE id = ?', [(int)$row['id']]);
+        }
+    }
+    foreach ($snapshotUserPrio as $s) {
+        if (!in_array((int) $s['id'], $nowIds, true)) {
+            $db->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, ?)',
+                [(int) $s['user_id'], (int) $s['card_id'], (int) $s['position']]);
         }
     }
 };
@@ -208,7 +220,7 @@ $boardStill = $db->fetch('SELECT id FROM boards WHERE id = ?', [(int) $boardId])
 check('fixture board deleted', $boardStill === null, 'row=' . json_encode($boardStill));
 $leftoverPrio = $db->fetchAll('SELECT * FROM user_prio WHERE user_id = ?', [(int) $asUserId]);
 $leftoverIds  = array_map(fn($r) => (int) $r['id'], $leftoverPrio);
-$expectIds    = array_map(fn($s) => (int) $s['id'], $snapshotUserPrio);
+$expectIds    = array_map(fn($s) => (int) $s['id'], array_filter($snapshotUserPrio, fn($s) => (int) $s['user_id'] === (int) $asUserId));
 sort($leftoverIds); sort($expectIds);
 check('user_prio restored to pre-test row set', $leftoverIds === $expectIds,
     'leftover=' . json_encode($leftoverIds) . ' expected=' . json_encode($expectIds));
