@@ -97,6 +97,15 @@
     var mergeWarning     = document.getElementById('card-merge-warning');
     var mergeConfirmBtn  = document.getElementById('card-merge-confirm');
 
+    // CARD-27: move-to-board dialog (board + lane selects, lanes fetched
+    // client-side per selected board).
+    var moveOverlay    = document.getElementById('card-move-board-overlay');
+    var moveBoardSelEl = document.getElementById('card-move-board-select');
+    var moveLaneSelEl  = document.getElementById('card-move-lane-select');
+    var moveWarningEl  = document.getElementById('card-move-board-warning');
+    var moveConfirmBtn = document.getElementById('card-move-board-confirm');
+    var btnMoveBoard   = document.getElementById('cm-btn-move-board');
+
     var boardPageEl = document.querySelector('.board-view-page');
     var BOARD_ID = boardPageEl ? parseInt(boardPageEl.dataset.boardId, 10) : 0;
 
@@ -120,6 +129,7 @@
         saving: false,       // double-submit guard on the save button
         commentPosting: false,
         mergeBusy: false,
+        moveBusy: false,    // double-mutation guard on the move-to-board dialog
         labelsBusy: false,   // double-mutation guard on chip attach/detach
         highlightCommentId: null  // NOTIF-09 deep-link target (auto-cleared)
     };
@@ -163,6 +173,7 @@
 
     function isCardModalVisible()  { return overlay && !overlay.hidden; }
     function isMergeVisible()      { return mergeOverlay && !mergeOverlay.hidden; }
+    function isMoveVisible()       { return moveOverlay && !moveOverlay.hidden; }
 
     function open(cardEl) {
         if (!overlay) return;
@@ -205,6 +216,7 @@
 
     function close() {
         if (isMergeVisible()) closeMerge();
+        if (isMoveVisible()) closeMoveBoard();
         if (!isCardModalVisible()) return;
         overlay.hidden = true;
         overlay.setAttribute('aria-hidden', 'true');
@@ -233,10 +245,11 @@
 
     // ---- document-level wiring (attached once, dispatch by visibility) ----
 
-    // Escape closes the top-most visible modal (merge first, then card).
+    // Escape closes the top-most visible modal (merge, then move, then card).
     document.addEventListener('keydown', function (e) {
         if (e.key !== 'Escape') return;
         if (isMergeVisible()) { e.preventDefault(); closeMerge(); return; }
+        if (isMoveVisible())  { e.preventDefault(); closeMoveBoard(); return; }
         if (isCardModalVisible()) { e.preventDefault(); close(); }
     });
 
@@ -253,6 +266,13 @@
         });
         var mergeCloseBtns = Array.prototype.slice.call(mergeOverlay.querySelectorAll('.card-merge-close'));
         mergeCloseBtns.forEach(function (b) { b.addEventListener('click', function () { closeMerge(); }); });
+    }
+    if (moveOverlay) {
+        moveOverlay.addEventListener('click', function (e) {
+            if (e.target === moveOverlay) closeMoveBoard();
+        });
+        var moveCloseBtns = Array.prototype.slice.call(moveOverlay.querySelectorAll('.card-move-board-close'));
+        moveCloseBtns.forEach(function (b) { b.addEventListener('click', function () { closeMoveBoard(); }); });
     }
 
     // Cancel / close buttons on the card modal (header "×" AND footer "Cancel"
@@ -327,6 +347,13 @@
         var hasOther = mergeOptions.some(function (o) { return o.id !== card.id; });
         if (btnMerge) btnMerge.hidden = !(CAN_EDIT && hasOther);
 
+        // Move-to-board button: editable + at least one OTHER board.
+        var moveBoards = (moveOverlay && moveOverlay.dataset.boards)
+            ? parseMoveBoards(moveOverlay.dataset.boards) : [];
+        var currentBoardId = moveOverlay ? parseInt(moveOverlay.dataset.currentBoardId, 10) : 0;
+        var hasOtherBoard = moveBoards.some(function (b) { return b.id !== currentBoardId; });
+        if (btnMoveBoard) btnMoveBoard.hidden = !(CAN_EDIT && hasOtherBoard);
+
         // Tab count badge reflects the live comment count.
         updateCommentCount((card.comments || []).length);
 
@@ -335,6 +362,12 @@
     }
 
     function parseMergeOptions(raw) {
+        try { return JSON.parse(raw || '[]'); }
+        catch (e) { return []; }
+    }
+
+    /** CARD-27: parse the board list for the move-to-board dialog. */
+    function parseMoveBoards(raw) {
         try { return JSON.parse(raw || '[]'); }
         catch (e) { return []; }
     }
@@ -1572,6 +1605,154 @@
                 }
             }, function () {
                 state.mergeBusy = false;
+                flash(t('error_bad_request') || 'Error', 'error');
+            });
+        });
+    }
+
+    // ---- Move-to-board dialog (CARD-27, §5.18) ----------------------------
+
+    function closeMoveBoard() {
+        if (!moveOverlay) return;
+        moveOverlay.hidden = true;
+        moveOverlay.setAttribute('aria-hidden', 'true');
+    }
+
+    function laneOptions(lanes) {
+        // Lanes arrive in position order (GET /v1/boards/{id}/lanes).
+        var frag = document.createDocumentFragment();
+        (lanes || []).forEach(function (lane) {
+            var opt = document.createElement('option');
+            opt.value = String(lane.id);
+            opt.textContent = (lane.icon ? lane.icon + ' ' : '') + (lane.title || ('lane ' + lane.id));
+            frag.appendChild(opt);
+        });
+        return frag;
+    }
+
+    if (btnMoveBoard) {
+        btnMoveBoard.addEventListener('click', function () {
+            if (!CAN_EDIT || !moveOverlay || btnMoveBoard.hidden) return;
+
+            var allBoards = parseMoveBoards(moveOverlay.dataset.boards);
+            var currentBoardId = parseInt(moveOverlay.dataset.currentBoardId, 10) || 0;
+            var currentBoardTitle = moveOverlay.dataset.currentBoardTitle || '';
+            var others = allBoards.filter(function (b) { return b.id !== currentBoardId; });
+            if (!others.length) return;
+
+            // Board <select>: current board shown + flagged, then the rest.
+            moveBoardSelEl.innerHTML = '';
+            var currentOpt = document.createElement('option');
+            currentOpt.value = String(currentBoardId);
+            currentOpt.textContent = (currentBoardTitle || '') + '  (' + (t('card_move_to_board_current') || 'current board') + ')';
+            currentOpt.disabled = true;
+            moveBoardSelEl.appendChild(currentOpt);
+            others.forEach(function (b) {
+                var opt = document.createElement('option');
+                opt.value = String(b.id);
+                opt.textContent = b.title || ('board ' + b.id);
+                moveBoardSelEl.appendChild(opt);
+            });
+            // Default selection = first valid board (index 1).
+            moveBoardSelEl.selectedIndex = 1;
+
+            moveLaneSelEl.innerHTML = '';
+            moveLaneSelEl.disabled = true;
+
+            if (moveWarningEl) {
+                moveWarningEl.innerHTML = '';
+                moveWarningEl.appendChild(document.createTextNode(
+                    t('card_move_to_board_warning', [
+                        (state.card && state.card.title) || '',
+                        currentBoardTitle,
+                        '—'
+                    ]) || ''
+                ));
+            }
+
+            loadLanesForBoard(parseInt(moveBoardSelEl.value, 10));
+
+            moveOverlay.hidden = false;
+            moveOverlay.setAttribute('aria-hidden', 'false');
+            requestAnimationFrame(function () {
+                var target = moveBoardSelEl || moveOverlay.querySelector('select');
+                if (target) target.focus();
+            });
+        });
+    }
+
+    function loadLanesForBoard(boardId) {
+        if (!boardId || !moveLaneSelEl) return;
+        api('/v1/boards/' + boardId + '/lanes', { method: 'GET' }).then(function (result) {
+            // Stale response guard: only act if the board is still selected.
+            if (moveBoardSelEl && parseInt(moveBoardSelEl.value, 10) !== boardId) return;
+            moveLaneSelEl.innerHTML = '';
+            if (result.status === 200 && result.data && Array.isArray(result.data.lanes)) {
+                moveLaneSelEl.appendChild(laneOptions(result.data.lanes));
+                moveLaneSelEl.disabled = !(result.data.lanes.length > 0);
+            } else {
+                moveLaneSelEl.disabled = true;
+            }
+        }, function () {
+            if (moveBoardSelEl && parseInt(moveBoardSelEl.value, 10) !== boardId) return;
+            moveLaneSelEl.innerHTML = '';
+            moveLaneSelEl.disabled = true;
+        });
+    }
+
+    // Re-point the warning text at the real destination board title so the
+    // confirm copy matches what the user actually picked.
+    if (moveBoardSelEl) {
+        moveBoardSelEl.addEventListener('change', function () {
+            var id = parseInt(moveBoardSelEl.value, 10);
+            loadLanesForBoard(id);
+            if (moveWarningEl) {
+                var currentBoardTitle = moveOverlay.dataset.currentBoardTitle || '';
+                var boardTitle = moveBoardSelEl.options[moveBoardSelEl.selectedIndex]
+                    ? moveBoardSelEl.options[moveBoardSelEl.selectedIndex].textContent
+                    : '';
+                moveWarningEl.innerHTML = '';
+                moveWarningEl.appendChild(document.createTextNode(
+                    t('card_move_to_board_warning', [
+                        (state.card && state.card.title) || '',
+                        currentBoardTitle,
+                        boardTitle
+                    ]) || ''
+                ));
+            }
+        });
+    }
+
+    if (moveConfirmBtn) {
+        moveConfirmBtn.addEventListener('click', function () {
+            if (state.moveBusy || !moveBoardSelEl) return;
+            var boardId = parseInt(moveBoardSelEl.value, 10);
+            var currentBoardId = moveOverlay ? parseInt(moveOverlay.dataset.currentBoardId, 10) : 0;
+            if (!boardId || boardId === currentBoardId) return; // no-op
+            var laneId = moveLaneSelEl && moveLaneSelEl.value
+                ? parseInt(moveLaneSelEl.value, 10)
+                : 0;
+
+            state.moveBusy = true;
+            api('/v1/cards/' + state.cardId + '/move-to-board', {
+                method: 'POST',
+                body: { board_id: boardId, lane_id: laneId || undefined }
+            }).then(function (result) {
+                state.moveBusy = false;
+                if (result.status === 200) {
+                    var boardTitle = moveBoardSelEl.options[moveBoardSelEl.selectedIndex]
+                        ? moveBoardSelEl.options[moveBoardSelEl.selectedIndex].textContent
+                        : '';
+                    // The card is no longer on this board — reload is the
+                    // honest render (same trade-off as the merge success path).
+                    flash(t('card_move_to_board_success', [boardTitle]) || 'Moved', 'success');
+                    closeMoveBoard();
+                    setTimeout(function () { window.location.reload(); }, 400);
+                } else {
+                    flashErr(result);
+                }
+            }, function () {
+                state.moveBusy = false;
                 flash(t('error_bad_request') || 'Error', 'error');
             });
         });

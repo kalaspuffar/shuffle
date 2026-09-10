@@ -805,6 +805,203 @@ class CardService
     }
 
     /**
+     * Moves a card to another board (CARD-26, §5.18).
+     *
+     * A RE-HOMING, not a copy: the card keeps its id (with it all existing
+     * links — deep links, notifications, user_prio entries, search rows —
+     * stay valid) and everything that keys on the id (assignees, comments,
+     * checklists, attachments). Differences from the same-lane moveCard():
+     *   - destination is a DIFFERENT board (400 otherwise)
+     *   - the card lands at the BOTTOM of the destination lane (v1)
+     *   - labels are re-resolved BY NAME against the destination board's
+     *     label set (case-insensitive, §5.18 step 4) — matched labels are
+     *     attached to that board's rows, unmatched ones are dropped (never
+     *     copied into the destination board's set)
+     *   - board version bumps on BOTH boards (§4.3 polling, both sides)
+     *   - the activity row is card_moved_board on the card (§5.18 step 6;
+     *     the card keeps its id, so the row rides along with it)
+     *
+     * @param int   $cardId      The card to move
+     * @param int   $destBoardId Destination board id
+     * @param int   $destLaneId  Destination lane id, or 0/null for the
+     *                           destination board's first lane (by position)
+     * @param array $currentUser Acting user (for the activity row)
+     * @return array The moved card (getCard() shape)
+     * @throws \RuntimeException         If the card does not exist (404)
+     * @throws \InvalidArgumentException If the destination board is missing,
+     *                                   the same as the card's board, the
+     *                                   destination lane is not on the
+     *                                   destination board, or the board has
+     *                                   no lanes (400)
+     */
+    public function moveToBoard(int $cardId, int $destBoardId, ?int $destLaneId, array $currentUser = []): array
+    {
+        $card = $this->cardModel->findById($cardId);
+        if ($card === null) {
+            throw new \RuntimeException('Card not found');
+        }
+
+        $sourceBoardId = $this->cardModel->getBoardId($cardId);
+        if ($sourceBoardId === null) {
+            throw new \RuntimeException('Card not found');
+        }
+
+        if ($destBoardId < 1) {
+            throw new \InvalidArgumentException('board_id is required');
+        }
+        if ((int) $destBoardId === (int) $sourceBoardId) {
+            throw new \InvalidArgumentException('The card is already on this board');
+        }
+        if ($this->boardModel->findById($destBoardId) === null) {
+            throw new \InvalidArgumentException('Board not found');
+        }
+
+        // Resolve the destination lane (explicit, or the board's first lane).
+        // Board existence for the lane is enforced by the DB JOIN below.
+        $destLanes = $this->laneModel !== null
+            ? $this->laneModel->findByBoard($destBoardId)
+            : $this->dbFetchLanes($destBoardId);
+        if (empty($destLanes)) {
+            throw new \InvalidArgumentException('Destination board has no lanes');
+        }
+
+        $targetLane = null;
+        if ($destLaneId === null) {
+            $targetLane = $destLanes[0];
+        } else {
+            foreach ($destLanes as $laneRow) {
+                if ((int) $laneRow['id'] === (int) $destLaneId) {
+                    $targetLane = $laneRow;
+                    break;
+                }
+            }
+        }
+        if ($targetLane === null) {
+            throw new \InvalidArgumentException('lane_id is not on the destination board');
+        }
+
+        // Snapshot for the activity payload (lane/board names persist after
+        // the move; Trello/Linear pattern, §5.14).
+        $sourceBoard = $this->boardModel->findById((int) $sourceBoardId);
+        $fromLane = $this->cardModel !== null && $this->laneModel !== null
+            ? $this->laneModel->findById((int) $card['lane_id'])
+            : null;
+
+        // Labels: the card's current label rows, resolved BY NAME on the
+        // destination board (case-insensitive — utf8mb4_unicode_ci).
+        // Matched → attach to that board's row; unmatched → drop the
+        // attachment (never copied into the destination's set, §5.18 step 4).
+        $currentLabelIds = $this->labelModel !== null
+            ? $this->labelModel->labelIdsForCard($cardId)
+            : [];
+
+        $this->db->beginTransaction();
+        try {
+            // (1) Re-home the card at the BOTTOM of the destination lane.
+            //     Renumber that lane first (gap scheme, same strategy as
+            //     Card::move / renumberPositions) so "bottom" is exact no
+            //     matter how much churn happened — all inside the single
+            //     service transaction below.
+            $cards = $this->db->fetchAll(
+                'SELECT id FROM cards WHERE lane_id = ? ORDER BY position ASC',
+                [(int) $targetLane['id']]
+            );
+            $position = 1000;   // Card::POSITION_GAP
+            foreach ($cards as $row) {
+                $this->db->execute(
+                    'UPDATE cards SET position = ? WHERE id = ?',
+                    [$position, (int) $row['id']]
+                );
+                $position += 1000;
+            }
+            $maxPos = (int) $this->db->fetch(
+                'SELECT COALESCE(MAX(position), 0) AS mp FROM cards WHERE lane_id = ?',
+                [(int) $targetLane['id']]
+            )['mp'];
+            $this->db->execute(
+                'UPDATE cards SET lane_id = ?, position = ?, updated_at = NOW() WHERE id = ?',
+                [(int) $targetLane['id'], $maxPos + 1000, $cardId]
+            );
+
+            // (2) Labels: re-attach onto the destination board's rows, and
+            //     drop every attachment the destination board doesn't have
+            //     by name (attachments only make sense for that board's set).
+            if ($this->labelModel !== null && !empty($currentLabelIds)) {
+                $keptLabelIds = [];
+                foreach ($currentLabelIds as $labelId) {
+                    $label = $this->labelModel->findById($labelId);
+                    if ($label === null) {
+                        continue;
+                    }
+                    $destLabel = $this->labelModel->findByNameOnBoard(
+                        (string) $label['name'],
+                        $destBoardId
+                    );
+                    if ($destLabel !== null) {
+                        $this->labelModel->attach($cardId, (int) $destLabel['id']);
+                        $keptLabelIds[] = (int) $destLabel['id'];
+                    }
+                    // No name match → dropped (below).
+                }
+                $allCurrent = array_map('intval', $this->labelModel->labelIdsForCard($cardId));
+                foreach ($allCurrent as $rowLabelId) {
+                    if (!in_array((int) $rowLabelId, $keptLabelIds, true)) {
+                        $this->labelModel->detach($cardId, (int) $rowLabelId);
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+        $this->db->commit();
+
+        // Board version bump on BOTH boards (polling/ETag, §4.3) — the card
+        // is visible on different boards to each; both need the bump.
+        $this->boardModel->incrementVersion((int) $sourceBoardId);
+        $this->boardModel->incrementVersion($destBoardId);
+
+        // Activity row on the card (non-fatal — the move is already
+        // committed; a log flake must not roll it back, §5.18 step 6).
+        if ($this->activityService !== null && !empty($currentUser)) {
+            try {
+                $payload = [
+                    'from_board' => [
+                        'id'    => (int) $sourceBoardId,
+                        'title' => (string) ($sourceBoard['title'] ?? ''),
+                    ],
+                    'to_board'   => [
+                        'id'    => (int) $destBoardId,
+                        'title' => (string) ($this->boardModel->findById($destBoardId)['title'] ?? ('board-' . $destBoardId)),
+                    ],
+                    'from_lane'  => $this->activityService->laneSnapshot($fromLane),
+                    'to_lane'    => $this->activityService->laneSnapshot($targetLane),
+                ];
+                $this->activityService->log($cardId, 'card_moved_board', (int) $currentUser['id'], $payload);
+            } catch (\Throwable $e) {
+                error_log('CardService::moveToBoard activity log failed for card ' . $cardId . ': ' . $e->getMessage());
+            }
+        }
+
+        return $this->getCard($cardId);
+    }
+
+    /**
+     * Fallback lane listing for when the Lane model isn't injected
+     * (defensive — board.php always injects it via CardService usage).
+     *
+     * @param int $boardId Board id
+     * @return array Lane rows in position order
+     */
+    private function dbFetchLanes(int $boardId): array
+    {
+        return $this->db->fetchAll(
+            'SELECT id, board_id, title, icon, position FROM lanes WHERE board_id = ? ORDER BY position ASC',
+            [$boardId]
+        );
+    }
+
+    /**
      * Returns the board ID for a given card.
      *
      * @param int $id Card ID

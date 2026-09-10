@@ -104,6 +104,21 @@ $mergeOptionsJson = json_encode(
     JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
 );
 
+// Card move between boards (CARD-27, §5.18) — the "Move to board…" dialog
+// lists the caller's OTHER accessible boards (the current board is shown
+// but flagged + non-selectable; lanes come from GET /v1/boards/{id}/lanes
+// client-side).
+$moveToBoards = [];
+if ($canEdit) {
+    foreach ($boardService->listBoards($currentUser) as $b) {
+        $moveToBoards[] = ['id' => (int) $b['id'], 'title' => (string) $b['title']];
+    }
+}
+$moveToBoardsJson = json_encode(
+    array_values($moveToBoards),
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
+);
+
 // Active, non-placeholder users for the card-edit modal's assignee picker (member/admin only)
 $pickerUsers = [];
 if ($canEdit) {
@@ -468,6 +483,7 @@ require ROOT_DIR . '/include/templates/header.php';
                         <button type="button" class="btn btn-secondary" id="cm-btn-archive-card"><?= htmlspecialchars($lang->get('action.archive'), ENT_QUOTES, 'UTF-8') ?></button>
                         <button type="button" class="btn btn-secondary" id="cm-btn-restore-card" hidden><?= htmlspecialchars($lang->get('card.restore'), ENT_QUOTES, 'UTF-8') ?></button>
                         <button type="button" class="btn btn-secondary" id="cm-btn-merge-card" aria-haspopup="dialog" hidden><?= htmlspecialchars($lang->get('card.merge_into'), ENT_QUOTES, 'UTF-8') ?></button>
+                        <button type="button" class="btn btn-secondary" id="cm-btn-move-board" aria-haspopup="dialog" hidden><?= htmlspecialchars($lang->get('card.move_to_board'), ENT_QUOTES, 'UTF-8') ?></button>
                         <button type="button" class="btn btn-danger" id="cm-btn-delete-card"><?= htmlspecialchars($lang->get('action.delete'), ENT_QUOTES, 'UTF-8') ?></button>
                     </div>
                 </div>
@@ -528,6 +544,37 @@ require ROOT_DIR . '/include/templates/header.php';
     </div>
 </div>
 
+<!-- CARD-27: move-to-board dialog. Boards come server-side from
+     data-boards (the caller's accessible set); lanes are fetched
+     client-side per selected board (GET /v1/boards/{id}/lanes).
+     The current board is listed but flagged + non-selectable. -->
+<div class="modal-overlay card-move-board-overlay" id="card-move-board-overlay" hidden
+     data-boards="<?php echo htmlspecialchars($moveToBoardsJson, ENT_QUOTES, 'UTF-8'); ?>"
+     data-current-board-id="<?= (int) $boardId ?>"
+     data-current-board-title="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">
+    <div class="modal card-move-board-modal" role="dialog" aria-labelledby="card-move-board-title" aria-describedby="card-move-board-warning" aria-modal="true" id="card-move-board-modal">
+        <div class="modal-header">
+            <h2 id="card-move-board-title"><?= htmlspecialchars($lang->get('card.move_to_board_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close card-move-board-close" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="card-move-board-warning" id="card-move-board-warning"></p>
+            <div class="form-group">
+                <label for="card-move-board-select" class="form-label"><?= htmlspecialchars($lang->get('card.move_to_board_board'), ENT_QUOTES, 'UTF-8') ?></label>
+                <select id="card-move-board-select" class="form-input" aria-label="<?= htmlspecialchars($lang->get('card.move_to_board_board'), ENT_QUOTES, 'UTF-8') ?>"></select>
+            </div>
+            <div class="form-group">
+                <label for="card-move-lane-select" class="form-label"><?= htmlspecialchars($lang->get('card.move_to_board_lane'), ENT_QUOTES, 'UTF-8') ?></label>
+                <select id="card-move-lane-select" class="form-input" aria-label="<?= htmlspecialchars($lang->get('card.move_to_board_lane'), ENT_QUOTES, 'UTF-8') ?>"></select>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close card-move-board-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-primary" id="card-move-board-confirm"><?= htmlspecialchars($lang->get('card.move_to_board'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+
 <?php
 $boardLang = json_encode([
     'lane_create_success'  => $lang->get('lane.create_success'),
@@ -580,6 +627,12 @@ $boardLang = json_encode([
     'card_merge_warning'   => $lang->get('card.merge_warning'),
     'card_merge_picked'    => $lang->get('card.merge_picked'),
     'card_merge_archived'  => $lang->get('card.merge_archived'),
+    'card_move_to_board'       => $lang->get('card.move_to_board'),
+    'card_move_to_board_title' => $lang->get('card.move_to_board_title'),
+    'card_move_to_board_board' => $lang->get('card.move_to_board_board'),
+    'card_move_to_board_lane'  => $lang->get('card.move_to_board_lane'),
+    'card_move_to_board_warning' => $lang->get('card.move_to_board_warning'),
+    'card_move_to_board_success' => $lang->get('card.move_to_board_success'),
     'checklist_create_success'   => $lang->get('checklist.create_success'),
     'checklist_update_success'   => $lang->get('checklist.update_success'),
     'checklist_delete_success'   => $lang->get('checklist.delete_success'),
@@ -628,6 +681,7 @@ $boardLang = json_encode([
     'act_comment_deleted'    => $lang->get('activity.comment_deleted'),
     'act_comment_deleted_other' => $lang->get('activity.comment_deleted_by_other'),
     'act_merged'             => $lang->get('activity.merged'),
+    'act_moved_board'        => $lang->get('activity.moved_board'),
     'act_excerpt'            => $lang->get('activity.comment_excerpt_prefix'),
     'act_field_title'        => $lang->get('activity.field_title'),
     'act_field_description'  => $lang->get('activity.field_description'),

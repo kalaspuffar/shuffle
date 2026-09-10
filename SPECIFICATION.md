@@ -1,6 +1,6 @@
 # Project Specification: Shuffle
 
-**Version:** 1.9
+**Version:** 1.10
 **Date:** 2026-09-01
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-10 | **v1.10** — §5.18 Card move between boards (CARD-26/27): `POST /v1/cards/{id}/move-to-board` (`board_id` + optional `lane_id`), `CardService::moveToBoard()` (the card is re-homed in place: same card id + assignees/comments/checklists/attachments/priority entries; labels matched by name onto the destination board's labels, unmatched dropped), activity event `card_moved_board` on the card (from board + from lane + to lane snapshotted; feed projection `card_moved_board` → `{from_board, from_lane, to_lane}`), card-modal "Move to board…" dialog (board select + lane select, lanes of the selected board; current board flagged and excluded), `GET /v1/boards/{id}/lanes` reused for the lane list (already exists). Access: member + `canAccessBoard` on BOTH boards; destination the caller cannot access → 404 (BOARD-04b). Card lands at the bottom of the destination lane. No schema changes. |
 | 2026-09-03 | **v2.0** — Labels (§5.15 expanded): curated 12-color palette + one free-hex escape hatch (server-validated), case-insensitive `(board_id, name)` uniqueness (`UNIQUE KEY uq_labels_board_name`, collation `utf8mb4_unicode_ci`), 7 REST endpoints (list/create/update/delete + card attach/detach), 409 on duplicate, role matrix (Admin/Member manage labels, Viewer read-only), card-modal chip picker + per-card attach/detach, label union on card merge (model `unionToCard`, null-safe), "Manage labels" board-header modal, 21 i18n keys. **Board-view label dots**: one 10px dot per attached label above the card title, inline `background-color` = stored hex (+width/height/border-radius inline so render never depends on CSS), hover tooltip, cap 4 dots + `+N` overflow badge, `aria-label` row. Batch load `Label::labelsForCards()` (no N+1) via optional `BoardService::setLabelModel()`. Cache-busted asset loading: `/css/app.css?v={mtime}`. **Test-safety invariant (Daniel 2026-09-03)**: no test may mutate the Daniel account (user id 1) — E2E suites default to the mya test account (id 4) and refuse user 1 at entry; assertions are state-relative (baseline delta, never absolute counts); cleanups restore the test user's row set exactly. `e2e-priority.php` rewritten on its own fixture board (was wiping the test user's list). |
 | 2026-09-01 | **v1.9** — §5.16 digest semantics update (PRIO-12/14, Daniel 2026-09-01): (1) **Won't-fix is a complete state** — a lane whose title matches `won't fix` (case-insensitive, apostrophe optional) joins Done as a "complete lane": state marker ✅ in list items, inbox exclusion (PRIO-09), and digest reporting; digest renders Won't-fix items with ❌ (Done keeps ✅); each `done_since` item gains `lane_kind` (`"done"` | `"wont_fix"`). (2) **Report window** — "Done yesterday" becomes "Done since": the window runs from **00:00:00 of the most recent workday (Mon–Fri) at or before yesterday** to **23:59:59 of yesterday** (server local TZ). Monday: **Friday 00:00 → Sunday 23:59** (Friday work + the whole weekend; Daniel reports no weekend status). Tue–Fri: yesterday full-day. Sat: Friday. Sun: Fri–Sat (Sunday's own work lands in Monday's digest). Heading becomes `Done since {workday} — N items`. JSON key renamed `done_yesterday` → `done_since` (no external consumers existed — verified before the rename). |
 | 2026-08-31 | **v1.8** — Single card view (CARD-14/15): the board-page modal becomes the only card surface — feature-complete (checklists, attachments, comment edit/delete, archive/merge/delete), vertically scrollable body, three ARIA tabs (Card / Comments {N} / History) with the shareable deep link `/board.php?id={boardId}&card={cardId}[&tab=comments\|history]`; `www/card.php` + `www/js/card.js` removed and all link re-targeted (search, priority `card_html`, notification panel). Creator notifications (NOTIF-07/08): `notifications` gains `comment_id` (INT NULL) + `creator` type; `NotificationService::notifyCreator()`; `GET /v1/notifications` rows gain `board_id` + `comment_id`; bell-panel click routes per NOTIF-09 (comment → Comments tab @ comment anchor; creator-Done → History tab; assignment → Card tab). |
@@ -2600,6 +2601,37 @@ Two cards that are actually the same work item (e.g. two tickets from different 
 **Data model:** none new. The `card_merged` event is the one addition to the `card_activity` vocabulary (§5.14 feed projection: `card_merged` → `detail: {source_card: {id, title}}`).
 
 **Card-page UI (CARD-11):** on the card surface — v1.8: the board-page card modal (CARD-14; the standalone card page is removed) — `canEdit` users (member/admin) get a **"Merge into…"** button in the actions row (left of the red Delete — merge is a soft-ish action, Delete is the hard one). Clicking it opens a modal listing the **other cards of the same board** (title + lane name, archived cards included and marked) as radio options, plus an explicit warning block: *"The card "{source title}" will be deleted and its comments, checklists, attachments and assignees folded into the card you pick. This cannot be undone."* (i18n: `card.merge.*`). Confirmation calls `POST /v1/cards/{sourceId}/merge` with the picked destination; on 200 the flash fires and the browser lands on the survivor's modal on the same board. Error flashes surface the 400/404/403 message. The merge dialog is keyboard-operable (focus moves into the dialog, Escape closes without action, radio semantics), `aria-modal` like the board modals — WCAG 2.1 AA consistent with the existing board modal contract.
+
+---
+
+### 5.18 Card Move Between Boards (CARD-26/27)
+
+A card that was filed under the wrong board (e.g. the Misc/capture board) moves to the board where its project is tracked. **The move is a re-homing, not a copy and not a delete+recreate**: the card keeps its id, and with it every existing link (deep links, notification rows, `user_prio` entries, search results) stays valid. This is the key difference from CARD-10 merge, which folds one card into another and destroys the source.
+
+#### `POST /v1/cards/{id}/move-to-board`
+
+**Body:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `board_id` | int | Required. Destination board. Must NOT be the card's current board (400). |
+| `lane_id` | int | Optional. Destination lane. Must belong to `board_id` (400 otherwise). Default: the destination board's first lane in position order. |
+
+**Access:** `requireRole('member')` + `canAccessBoard()` on the card's **current** board AND on `board_id` (BOARD-04b: a destination the caller cannot access is rejected as **404** — never a 400 that would reveal it exists).
+
+**Behavior (one transaction):**
+1. Validate: card exists (404), `board_id` valid and ≠ current board (400), `lane_id` valid on the destination board when given (400), default lane resolution.
+2. **Re-home** — `UPDATE cards SET lane_id = <destination lane>, position = <bottom of that lane>, updated_at = NOW()`. The id, title, description, due date, `created_by`, `created_at` are untouched.
+3. **Assignees, comments, checklists, attachments, `user_prio`** — untouched; they key on the (unchanged) card id.
+4. **Labels (LABEL-03 semantics, cross-board flavor):** each label currently attached to the card is looked up on the destination board **by name** (case-insensitive, matching the `labels.uq_labels_board_name` collation). On a match: the card is attached to that board's label row. On no match: the attachment is **dropped** (the card row is deleted; the label row itself is never copied into the destination board's set — LABEL-02 board label sets are board-scoped). The old attachment to the source board's label row disappears with the re-home by design (the card no longer belongs to that board).
+5. **Board version bump** on BOTH boards (source AND destination) — other clients polling either are updated (§4.3).
+6. **Activity (CARD-26):** a `card_moved_board` row on the card (after the commit, non-fatal catch like CARD-12), payload `{from_board: {id, title}, from_lane: {id, title, icon}, to_lane: {id, title, icon}, to_board: {id, title}}` — all snapshotted at write time (Trello/Linear pattern, §5.14). Feed projection (`CardActivityService::projectDetail`): `card_moved_board` → `{from_board, from_lane, to_lane}` (to_board omitted from the detail — the card IS on that board now; the UI knows its current board).
+
+**Errors:** `401` unauthenticated · `403` bad CSRF · `404` card not found / current board not accessible / destination board not accessible · `400` missing `board_id`, `board_id` = current board, `lane_id` not on the destination board.
+
+**Data model:** none new. The `card_moved_board` event is the one addition to the `card_activity` vocabulary (the §5.14 v1 event list gains the slot alongside `card_merged`).
+
+**Card-modal UI (CARD-27):** on the card modal's action row (Card tab), a **"Move to board…"** button (members/admins, hidden for viewers) opens a dialog (i18n `card.move.*`): a **board** `<select>` populated server-side from the caller's accessible boards (current board flagged "(current board)" and excluded from the valid selection by the client + server), a **lane** `<select>` populated **client-side** via `GET /v1/boards/{boardId}/lanes` when the board choice changes (lanes in position order, icon + title), and a confirm button naming the destination (board + lane). Default lane = the destination board's first lane. On 200: flash, close the modal + dialog, full page reload (the card is no longer on this board — the reload is the honest render, same trade-off as the merge success path). Error flashes surface the message. Escape closes the dialog, then the modal (stacked, top-most first). The dialog is keyboard-operable, `aria-modal`, consistent with the merge dialog (WCAG 2.1 AA).
 
 ---
 

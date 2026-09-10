@@ -92,7 +92,8 @@
         comment_created:    '💬',
         comment_edited:     '↺',
         comment_deleted:    '🗑',
-        card_merged:        '⇌'
+        card_merged:        '⇌',
+        card_moved_board:   '⇉'
     };
 
     // ---- phrase rendering -------------------------------------------------
@@ -200,6 +201,15 @@
             case 'card_merged':
                 out.push(el('span', t('act_merged', [d.source_card ? d.source_card.title : ''])));
                 break;
+
+            case 'card_moved_board': {
+                var fromB = d.from_board ? d.from_board.title : '';
+                var fromL = d.from_lane ? d.from_lane.title : '';
+                var toL   = d.to_lane   ? d.to_lane.title   : '';
+                if (fromB) out.push(el('span', t('act_moved_board', [fromB, fromL, toL])));
+                else       out.push(el('span', t('act_moved_unknown')));
+                break;
+            }
 
             default:
                 out.push(el('span', item.event));
