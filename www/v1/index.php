@@ -230,6 +230,7 @@ $router->delete('/boards/{id}', [$boardController, 'delete']);
 $router->post('/boards/{id}/archive', [$boardController, 'archive']);
 $router->post('/boards/{id}/restore', [$boardController, 'restore']);
 $router->get('/boards/{id}/version', [$boardController, 'version']);
+$router->get('/boards/{id}/region', [$boardController, 'region']);   // RT-04/05/06: real-time sync fragment (§5.19)
 
 // Lane routes
 $router->get('/boards/{boardId}/lanes', [$laneController, 'index']);

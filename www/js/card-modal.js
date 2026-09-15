@@ -223,11 +223,20 @@
         // Focus returns to the opener (the card on the board), not the body.
         if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
         state.lastOpener = null;
-        // Don't destroy the DOM — the next open is cheap (re-fetch).
-        // Reset the comment-input value + any in-flight edit state.
+        // Reset comment-input + any in-flight edit state (the next open re-fetches).
         if (commentInput) commentInput.value = '';
         Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
             .forEach(function (f) { f.hidden = true; });
+        // RT-06 (SPECIFICATION §5.19): if a board version bump arrived while the
+        // modal was open, the real-time sync was deferred. Now that the modal is
+        // gone a full reload is safe — and it also refreshes board-header data
+        // a region swap doesn't touch (board title, label set, etc.). Only the
+        // modal-guard path sets this flag, so archive/merge/move's own reload
+        // flows aren't doubled up here.
+        if (window.ShuffleBoardSync && window.ShuffleBoardSync.hasPendingSync()) {
+            window.ShuffleBoardSync.clearPendingSync();
+            window.location.reload();
+        }
     }
 
     function desiredInitialFocus() {
@@ -1814,6 +1823,8 @@
         openById: openByCardId,
         /** Closes the modal (and any merge dialog on top of it). */
         close: close,
+        /** Whether the card modal is currently visible (used by board.js real-time-sync guards, SPEC §5.19). */
+        isCardModalVisible: function () { return isCardModalVisible(); },
         /** Currently active card id (0 = none). */
         getCardId: function () { return state.cardId; }
     };

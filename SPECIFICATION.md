@@ -1,10 +1,10 @@
 # Project Specification: Shuffle
 
-**Version:** 1.10
-**Date:** 2026-09-01
+**Version:** 1.11
+**Date:** 2026-09-15
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v1.9
+**Based on:** REQUIREMENTS.md v2.0 (RT-04/05/06)
 **License:** MIT
 
 ## Changes since the 1.0 draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-15 | **v1.11** — §5.19 Board Real-Time Sync (RT-04/05/06): on poll-200 (board version changed), `board.js` requests the **region fragment** `GET /v1/boards/{id}/region` and swaps it into `.board-lanes-container` in place — never `window.location.reload()`. The fragment is **server-rendered from the same PHP renderer** as the board page (extracted to a shared function; `Content-Type: text/html`, `ETag` = board version, 304 support) so the client hand-rolls no card markup. Guards: card modal visible → `pendingSync = true`, deferred until modal close, which does the traditional full reload once; drag in flight / focus on an editable in the region → deferred, next tick (≤15s) retries. Sync failures silent per-tick (ETag not advanced, next poll retries). No new endpoints beyond `/v1/boards/{id}/region`. JS unit test (guards + swap) + HTTP smoke test (fragment field set, 404 for foreign board, 304 with ETag) + existing board E2E suites stay green (identical markup). |
 | 2026-09-10 | **v1.10** — §5.18 Card move between boards (CARD-26/27): `POST /v1/cards/{id}/move-to-board` (`board_id` + optional `lane_id`), `CardService::moveToBoard()` (the card is re-homed in place: same card id + assignees/comments/checklists/attachments/priority entries; labels matched by name onto the destination board's labels, unmatched dropped), activity event `card_moved_board` on the card (from board + from lane + to lane snapshotted; feed projection `card_moved_board` → `{from_board, from_lane, to_lane}`), card-modal "Move to board…" dialog (board select + lane select, lanes of the selected board; current board flagged and excluded), `GET /v1/boards/{id}/lanes` reused for the lane list (already exists). Access: member + `canAccessBoard` on BOTH boards; destination the caller cannot access → 404 (BOARD-04b). Card lands at the bottom of the destination lane. No schema changes. |
 | 2026-09-03 | **v2.0** — Labels (§5.15 expanded): curated 12-color palette + one free-hex escape hatch (server-validated), case-insensitive `(board_id, name)` uniqueness (`UNIQUE KEY uq_labels_board_name`, collation `utf8mb4_unicode_ci`), 7 REST endpoints (list/create/update/delete + card attach/detach), 409 on duplicate, role matrix (Admin/Member manage labels, Viewer read-only), card-modal chip picker + per-card attach/detach, label union on card merge (model `unionToCard`, null-safe), "Manage labels" board-header modal, 21 i18n keys. **Board-view label dots**: one 10px dot per attached label above the card title, inline `background-color` = stored hex (+width/height/border-radius inline so render never depends on CSS), hover tooltip, cap 4 dots + `+N` overflow badge, `aria-label` row. Batch load `Label::labelsForCards()` (no N+1) via optional `BoardService::setLabelModel()`. Cache-busted asset loading: `/css/app.css?v={mtime}`. **Test-safety invariant (Daniel 2026-09-03)**: no test may mutate the Daniel account (user id 1) — E2E suites default to the mya test account (id 4) and refuse user 1 at entry; assertions are state-relative (baseline delta, never absolute counts); cleanups restore the test user's row set exactly. `e2e-priority.php` rewritten on its own fixture board (was wiping the test user's list). |
 | 2026-09-01 | **v1.9** — §5.16 digest semantics update (PRIO-12/14, Daniel 2026-09-01): (1) **Won't-fix is a complete state** — a lane whose title matches `won't fix` (case-insensitive, apostrophe optional) joins Done as a "complete lane": state marker ✅ in list items, inbox exclusion (PRIO-09), and digest reporting; digest renders Won't-fix items with ❌ (Done keeps ✅); each `done_since` item gains `lane_kind` (`"done"` | `"wont_fix"`). (2) **Report window** — "Done yesterday" becomes "Done since": the window runs from **00:00:00 of the most recent workday (Mon–Fri) at or before yesterday** to **23:59:59 of yesterday** (server local TZ). Monday: **Friday 00:00 → Sunday 23:59** (Friday work + the whole weekend; Daniel reports no weekend status). Tue–Fri: yesterday full-day. Sat: Friday. Sun: Fri–Sat (Sunday's own work lands in Monday's digest). Heading becomes `Done since {workday} — N items`. JSON key renamed `done_yesterday` → `done_since` (no external consumers existed — verified before the rename). |
@@ -2635,6 +2636,38 @@ A card that was filed under the wrong board (e.g. the Misc/capture board) moves 
 
 ---
 
+### 5.19 Board Real-Time Sync (RT-04/05/06)
+
+**Motivation (2026-09-15, Daniel):** any board mutation bumps the board version, and the existing poller (`board.js` → `pollBoardVersion()`) reacted to a 200 with `window.location.reload()`. Adding checklist items (already pure API) closed the card modal within 15s. All updates must be visible without a page reload.
+
+**Trigger contract (unchanged, RT-01/02):** `GET /v1/boards/{id}/version` with `If-None-Match`, 15s cadence, `304` = no-op. A `200` is the sync signal (this is the change: the reaction is no longer a full reload).
+
+**Sync payload (RT-05):** `GET /v1/boards/{id}/region` — new endpoint (see the fragment contract below). The data source is the same `getBoardWithLanesAndCards()`: lanes in position order, each with its cards in position order carrying the full display state: `id`, `title`, `position`, `due_date`, `assigned_users` (ids + names), `labels` (name + color), `comment_count`, `checklist_progress {done, total}`, `attachment_count`, `is_archived`.
+
+**Render contract (the key decision — no second card renderer in JS):** the board region markup (lanes + cards + add-lane ghost) lives in a **single shared PHP renderer** `include/templates/board-region.php`, included by (a) `www/board.php` (full page) and (b) the new fragment endpoint below — same markup, same i18n, same label dots / avatar stack / due-date classes, guaranteed identical. The sync is a region swap: `GET /v1/boards/{id}/region` → replace `.board-lanes-container` innerHTML. Consequences:
+
+- `board.js` keeps its **stable containers**: `.board-lanes-container` and `#board-announcer` are never touched by a swap; all its delegated listeners (drag-and-drop, card click/menus, add-card forms, keyboard nav, lane rename) survive swaps because they are bound on the container/document, verified 2026-09-15 (only `#btn-add-lane` was a direct listener — moved with the add-lane feature into `www/js/board-region.js`, re-initialized on every swap, `document`-bound close-on-outside-click guards against double registration).
+- **Fragment endpoint (RT-05):** `GET /v1/boards/{id}/region` — same access rules as the board (inaccessible board = 404, never 403), `Content-Type: text/html; charset=utf-8`, `Cache-Control: no-cache`, **`ETag = board version`** with `If-None-Match` → `304`; `?include_archived=1` mirrors the board page filter. The fragment must be drop-in-identical to what the board page renders for the same state (same renderer — that is the testable contract).
+- **Scroll:** the container keeps its own scroll (not swapped); per-lane card-list scroll position is captured before the swap and restored after.
+- **Board data attributes:** `data-board-id`, `data-board-version`, `data-labels`, `data-label-palette`, `data-label-can-mutate`, `data-include-archived` stay on `.board-view-page` (stable across swaps); the board header (title, archived toggle, manage-labels button) is **not** refreshed by a region swap — label-set changes surface on the next full navigation or on the modal-close reload path (RT-06). Documented limitation of v1.
+
+**Guards (RT-04/RT-06) — order of operations on a 200:**
+
+1. Card modal visible (`ShuffleCardModal.isCardModalVisible()`) → **defer**: `pendingSync = true`, skip this tick. The modal's `close()` handler performs the **traditional full reload once** (bounded, not a queue) — the modal is already gone, so the reload is safe, and it also refreshes board-header data a region swap does not cover. This is RT-06's fallback.
+2. Drag in flight (board.js tracks `dragstart → dragend`) → **defer** (a swap mid-drag would detach the dragged node); next tick (≤15s) retries, at which point the server state includes the completed move.
+3. Focus on an editable inside the region (lane rename is `contenteditable`; add-lane/add-card form inputs) → **defer** for the same tick's swap (swapping would drop the input); next tick retries.
+4. Fragment fetch fails (4xx/5xx/network) → silent for this tick; the ETag is NOT advanced, so the next poll retries (the board version still differs from the client's ETag).
+
+**What a sync does NOT touch:** open dialogs (card modal, merge, move-to-board, manage-labels), the board header, the nav/bell, URL state, `boardPage` data attributes. It DOES update: lanes (add/remove/reorder to `position`), cards (add/remove/reorder to `position` in lane), lane titles/icons, card title/due/assignees/labels/checklist-progress/comment-count/attachment-count/archive state — all via the shared renderer.
+
+**Self-change visibility:** a mutation from THIS client also bumps the version, so a later poll self-syncs (the old reload served this job too — keep the property, drop the reload). Optimistic UI in the modal stays authoritative for the modal; the region swap only updates the board view.
+
+**Files:** `www/board.php` (region loop extracted to the shared template; `data-include-archived` attribute), `include/templates/board-region.php` (shared renderer — single source of truth for the region), `www/js/board.js` (poll-200 → guards → fragment fetch → swap + scroll restore; `dragInFlight` guard; `window.ShuffleBoardSync = { syncNow, hasPendingSync }`; add-lane form + `#btn-add-lane` binding removed, relocated), `www/js/board-region.js` (new: add-lane button + create form + `resetLaneGhost`, idempotent `init()`), `www/js/card-modal.js` (`close()`: `if (ShuffleBoardSync.hasPendingSync()) location.reload()` — replaces the reload-after-close for archive/merge/move that already existed; expose `isCardModalVisible()` publicly), `tests/http-board-sync.sh` (fragment contract: field set, 404 isolation, 304 ETag, archived filter), `tests/board-sync.test.js` (guards + swap semantics, `priority-js.test.js` pattern). No CSS/i18n additions expected (renderer reuses existing tokens/keys).
+
+**Out of scope (explicit):** WebSocket push (RT-03, future — this keeps the poll/ETag shape so a push channel can replace the trigger without touching the sync body); reusing a server-rendered snapshot per card for O(1) partial updates (the template-swap is the v1 contract); mobile (Flutter) — out of web scope.
+
+---
+
 ## 6. Security Architecture
 
 ### 6.1 Password Hashing
@@ -3241,6 +3274,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | SEARCH-01 through SEARCH-05 | 3.15, 4.1 (cards FULLTEXT), 5.12 |
 | IMPORT-01 through IMPORT-10 | 3.15, 3.19, 8.3, 12.B |
 | RT-01 through RT-03 | 3.18, 4.3, 5.5 (version endpoint) |
+| RT-04 through RT-06 | 5.19 (poll-200 → in-place sync; guards: open modal defers + close→one reload; drag/focus defer; silent per-tick failure), 5.5 (sync payload = GET /v1/boards/{id}?include_lanes=1, board header fields included), 3.18 (www/js/board.js poll handler, www/js/card-modal.js close hook, www/board.php) |
 | PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
 | PRIO-12 through PRIO-14 | 3.15 (PriorityService::digest), 5.16 (digest API), 5.16 (priority-page UI) |
 | ACTIVITY-01 through ACTIVITY-03 | 3.14 (card_activity), 3.15 (CardActivityService), 3.18 (js/card.js History tab), 4.1 (card_activity), 5.14 |

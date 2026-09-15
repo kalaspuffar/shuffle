@@ -23,6 +23,17 @@
     var announcer = document.getElementById('board-announcer');
     var lanesContainer = document.querySelector('.board-lanes-container');
 
+    // Real-time sync state (RT-04/05/06, SPECIFICATION §5.19). The board region
+    // is refreshed IN PLACE from the server-rendered fragment
+    // (GET /v1/boards/{id}/region) — a full page reload is only the bounded
+    // fallback taken when the card modal is open (deferred, applied on close)
+    // or the legacy "self-mutation reloads" paths (lane/card create, move) keep
+    // using it. These two variables let the card-modal close hook (which lives
+    // in card-modal.js) and the poll handler coordinate without the modal
+    // clobbering an in-flight swap or vice-versa.
+    var pendingSync = false;   // a version-bump was seen while a guard was active
+    var dragInFlight = false;  // true between dragstart and dragend (see DnD section)
+
     /** Announces a message to screen readers via live region */
     function announce(message) {
         if (announcer) {
@@ -46,13 +57,16 @@
        Lane CRUD
        ============================================= */
 
-    // Create lane
-    var addLaneBtn = document.getElementById('btn-add-lane');
-    var laneGhost = document.getElementById('lane-ghost');
-
-    if (addLaneBtn && CAN_EDIT) {
-        addLaneBtn.addEventListener('click', function () {
-            showLaneCreateForm();
+    // Create lane. Delegated on the stable .board-lanes-container so the
+    // handler survives a real-time region swap (which re-creates #btn-add-lane).
+    // The add-lane ghost itself is re-resolved at call time (see showLaneCreateForm).
+    if (CAN_EDIT) {
+        lanesContainer.addEventListener('click', function (e) {
+            var btn = e.target.closest('#btn-add-lane');
+            if (btn) {
+                e.preventDefault();
+                showLaneCreateForm();
+            }
         });
     }
 
@@ -87,6 +101,7 @@
     }
 
     function showLaneCreateForm() {
+        var laneGhost = document.getElementById('lane-ghost');
         if (!laneGhost) return;
 
         var form = document.createElement('div');
@@ -237,9 +252,29 @@
     }
 
     function resetLaneGhost() {
-        if (!laneGhost || !addLaneBtn) return;
-        laneGhost.innerHTML = '';
-        laneGhost.appendChild(addLaneBtn);
+        // Restore the add-lane ghost after the create form was closed/used.
+        // The region swap re-creates #lane-ghost (with its button) from the
+        // shared renderer, so here we just make sure the ghost + button exist
+        // and hold no stale open form. Self-contained: never assumes the
+        // specific button node from a previous render is still reachable.
+        var ghost = document.getElementById('lane-ghost');
+        if (!ghost) {
+            ghost = document.createElement('div');
+            ghost.className = 'lane-ghost';
+            ghost.id = 'lane-ghost';
+            lanesContainer.appendChild(ghost);
+        }
+        ghost.innerHTML = '';
+        if (!ghost.querySelector('#btn-add-lane')) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'lane-ghost-button';
+            btn.id = 'btn-add-lane';
+            btn.innerHTML =
+                '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1v14M1 8h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg> ' +
+                escapeHtml(LANG.lane_create || 'Add Lane');
+            ghost.appendChild(btn);
+        }
     }
 
     // Lane inline rename
@@ -776,6 +811,7 @@
 
             draggedCard = card;
             card.setAttribute('data-dragging', 'true');
+            dragInFlight = true;   // guard for real-time region sync (RT-04): don't swap mid-drag
 
             // Set drag data
             e.dataTransfer.effectAllowed = 'move';
@@ -792,6 +828,7 @@
             }
             removeDropIndicator();
             removeDropTargets();
+            dragInFlight = false;  // release the real-time sync guard (RT-04); next tick can now swap
         });
 
         /* Resolve the insertion point from cursor geometry, never from
@@ -1262,32 +1299,165 @@
     }
 
     /* =============================================
-       Board Version Polling
+       Board Real-Time Sync (RT-04/05/06, SPECIFICATION §5.19)
        ============================================= */
 
     var POLL_INTERVAL = 15000; // 15 seconds
 
     /**
+     * True while a guard blocks an in-place region swap:
+     * - the card modal is open, or
+     * - a card drag is in flight, or
+     * - focus is on an editable control inside the region (a form input, or a
+     *   contenteditable lane title being renamed).
+     */
+    function syncGuardActive() {
+        // (1) Card modal open → defer; the modal's close() performs the bounded
+        //     full-reload fallback (RT-06). Detected via the public accessor.
+        if (window.ShuffleCardModal && window.ShuffleCardModal.isCardModalVisible &&
+            window.ShuffleCardModal.isCardModalVisible()) {
+            return 'modal';
+        }
+        // (2) Drag in flight — a swap would detach the node being dragged.
+        if (dragInFlight) {
+            return 'drag';
+        }
+        // (3) Focus on an editable inside the region — a swap would drop input.
+        var a = document.activeElement;
+        if (a && lanesContainer.contains(a)) {
+            var tag = a.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || a.isContentEditable) {
+                return 'focus';
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Swaps the board region's inner content with a freshly server-rendered
+     * fragment (same renderer as the board page — SPECIFICATION §5.19),
+     * preserving horizontal container scroll and per-lane card-list scroll.
+     */
+    function swapRegion(html) {
+        var beforeLaneScroll = [];
+        Array.prototype.slice.call(lanesContainer.querySelectorAll('.lane-cards')).forEach(function (lc) {
+            beforeLaneScroll.push(lc.scrollTop);
+        });
+        var containerLeft = lanesContainer.scrollLeft;
+        var containerTop = lanesContainer.scrollTop;
+
+        lanesContainer.innerHTML = html;
+
+        lanesContainer.scrollLeft = containerLeft;
+        lanesContainer.scrollTop = containerTop;
+        Array.prototype.slice.call(lanesContainer.querySelectorAll('.lane-cards')).forEach(function (lc, i) {
+            lc.scrollTop = beforeLaneScroll[i] || 0;
+        });
+
+        // The add-lane ghost + button come back server-rendered; if the user
+        // was mid create-cancel, nothing extra is needed (no live state held).
+    }
+
+    /**
+     * Applies one real-time sync tick: fetch the region fragment (same origin,
+     * same renderer) and swap it in place. Only called when no guard is active
+     * (the deferred paths — modal/drag/focus — are handled by their owners:
+     * modal close reloads; drag/focus retry on the next tick).
+     *
+     * @param {number} targetVersion  board version this sync is reconciling to.
+     */
+    function performRegionSync(targetVersion) {
+        var includeArchived = boardPage.dataset.includeArchived === '1' ? '&include_archived=1' : '';
+        var etag = '"' + targetVersion + '"';
+
+        Shuffle.api('/v1/boards/' + BOARD_ID + '/region' + includeArchived, {
+            headers: { 'If-None-Match': etag, 'Accept': 'text/html' }
+        }).then(function (result) {
+            if (result.status === 304) {
+                return; // already at this version — nothing to do
+            }
+            if (result.status !== 200 || typeof result.data !== 'string' || !result.data) {
+                // Silent per-tick failure (RT-06): do NOT advance boardVersion,
+                // so the next poll sees a 200 again and retries.
+                return;
+            }
+            swapRegion(result.data);
+            boardVersion = targetVersion; // only advance on success
+            // Announce the refresh (the region visibly updates; SR users need the signal).
+            announce(tmpl(LANG.board_sync || 'Board updated.', []));
+        });
+    }
+
+    /**
      * Polls the board version endpoint with If-None-Match header.
-     * Server responds 304 if version unchanged (no body), or 200 with new version.
+     * Server responds 304 if version unchanged (no body), or 200 with the new
+     * version. On 200 we perform an IN-PLACE region sync (RT-04) instead of a
+     * full page reload — unless a guard is active, in which case the sync is
+     * deferred (modal → resolved by a reload on modal close; drag/focus →
+     * retried on the next tick).
      */
     function pollBoardVersion() {
         var etag = '"' + boardVersion + '"';
         Shuffle.api('/v1/boards/' + BOARD_ID + '/version', {
             headers: { 'If-None-Match': etag }
         }).then(function (result) {
-            if (result.status === 200 && result.data && result.data.version) {
-                boardVersion = result.data.version;
-                // TODO: Replace full page reload with incremental DOM update via
-                // AJAX fetch of board data to avoid interrupting user activity
-                // (e.g. typing, mid-drag-and-drop).
-                window.location.reload();
+            if (result.status !== 200 || !result.data || !result.data.version) {
+                return; // 304 / error → no change (retry happens naturally)
             }
-            // 304 means no change — do nothing
+            var targetVersion = parseInt(result.data.version, 10);
+            if (targetVersion === boardVersion) {
+                return;
+            }
+
+            var guard = syncGuardActive();
+            if (guard) {
+                // Defer (RT-04/RT-06). Do NOT advance boardVersion: the next
+                // poll returns 200 again (ETag still old) and retries once the
+                // guard clears. For the modal guard, the deferred update is
+                // applied by card-modal.js close() via the pending_sync flag.
+                if (guard === 'modal') {
+                    pendingSync = true;
+                }
+                return;
+            }
+
+            // Safe to swap in place. (boardVersion advances only on success
+            // so a failed fetch is retried on the next tick.)
+            performRegionSync(targetVersion);
         });
     }
 
     setInterval(pollBoardVersion, POLL_INTERVAL);
+
+    /**
+     * Public accessor for the deferred-sync flag. card-modal.js `close()`
+     * consults this (RT-06): if a version bump arrived while the modal was
+     * open, it performs the classic full reload on close — now safe, since the
+     * modal is gone — and also refreshes board-header data a region swap does
+     * not touch (board title, label set, etc.).
+     */
+    function hasPendingSync() {
+        return pendingSync;
+    }
+    function clearPendingSync() {
+        pendingSync = false;
+    }
+    window.ShuffleBoardSync = {
+        hasPendingSync: hasPendingSync,
+        clearPendingSync: clearPendingSync,
+        syncNow: function (targetVersion) {
+            if (targetVersion === undefined || targetVersion === null) {
+                // Unknown target: use the server's current version.
+                Shuffle.api('/v1/boards/' + BOARD_ID + '/version').then(function (r) {
+                    if (r.status === 200 && r.data && r.data.version) {
+                        performRegionSync(parseInt(r.data.version, 10));
+                    }
+                });
+            } else {
+                performRegionSync(parseInt(targetVersion, 10));
+            }
+        }
+    };
 
     /* =============================================
        HTML Escape Helpers
