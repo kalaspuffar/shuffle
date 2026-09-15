@@ -191,6 +191,56 @@ class CardController
     }
 
     /**
+     * POST /v1/cards/{id}/move-to-board  (CARD-26, §5.18)
+     *
+     * Moves card `{id}` to another board (re-homing — the card keeps its
+     * id; its content stays with it). Body:
+     *   board_id  (int, required)   destination board
+     *   lane_id   (int, optional)   destination lane (default: the
+     *                               destination board's first lane)
+     *
+     * Access: member + canAccessBoard() on BOTH the card's current board
+     * and the destination board (BOARD-04b: an inaccessible destination is
+     * a 404, never a 400 leak).
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function moveToBoard(Request $request, Response $response, array $params): void
+    {
+        $currentUser = $this->auth->requireRole('member');
+        $cardId = (int) ($params['id'] ?? 0);
+
+        $sourceBoardId = $this->cardService->getBoardIdForCard($cardId);
+        if ($sourceBoardId === null || !$this->auth->canAccessBoard($sourceBoardId)) {
+            $response->error('Card not found', 404);
+            return;
+        }
+
+        $body = $request->getBody();
+        $boardId  = (int) ($body['board_id'] ?? 0);
+        $laneIdRaw = $body['lane_id'] ?? null;
+        $laneId = $laneIdRaw === null ? null : (int) $laneIdRaw;
+
+        // BOARD-04b: a destination board the caller cannot access is a 404,
+        // never a 400 that would confirm its existence.
+        if ($boardId > 0 && !$this->auth->canAccessBoard($boardId)) {
+            $response->error('Board not found', 404);
+            return;
+        }
+
+        try {
+            $card = $this->cardService->moveToBoard($cardId, $boardId, $laneId, $currentUser);
+            $response->json(['card' => $card]);
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            $response->error($e->getMessage(), 404);
+        }
+    }
+
+    /**
      * POST /v1/cards/{id}/archive
      *
      * Archives a card.

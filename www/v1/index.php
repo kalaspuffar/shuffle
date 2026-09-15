@@ -243,6 +243,7 @@ $router->get('/cards/{id}', [$cardController, 'show']);
 $router->post('/boards/{boardId}/lanes/{laneId}/cards', [$cardController, 'create']);
 $router->put('/cards/{id}', [$cardController, 'update']);
 $router->put('/cards/{id}/move', [$cardController, 'move']);
+$router->post('/cards/{id}/move-to-board', [$cardController, 'moveToBoard']);
 // Card merge (CARD-10..13): source = {id}, destination in the body.
 $router->post('/cards/{id}/merge', [$cardController, 'merge']);
 $router->post('/cards/{id}/archive', [$cardController, 'archive']);

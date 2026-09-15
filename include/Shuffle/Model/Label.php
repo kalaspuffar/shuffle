@@ -260,14 +260,22 @@ class Label
     // ---------------------------------------------------------------
 
     /**
-     * Copies every label attached to $fromCardId to $toCardId
-     * (idempotent — labels already on the survivor are not re-inserted).
+     * Finds a label by name on a board (case-insensitive — the name column
+     * is utf8mb4_unicode_ci, matching the uq_labels_board_name UNIQUE KEY;
+     * CARD-26: cross-board moves resolve labels by name).
      *
-     * The source's card_labels rows are left in place here; the caller
-     * deletes the source card afterwards, and the FK cascade removes them.
-     *
-     * @return int number of labels actually attached to $toCardId in this call
+     * @param string $name    Label name
+     * @param int    $boardId Board scoping the lookup
+     * @return array|null Full label row or null
      */
+    public function findByNameOnBoard(string $name, int $boardId): ?array
+    {
+        return $this->db->fetch(
+            'SELECT id, board_id, name, color, created_at FROM labels WHERE name = ? AND board_id = ?',
+            [$name, $boardId]
+        );
+    }
+
     public function unionToCard(int $fromCardId, int $toCardId): int
     {
         if ($fromCardId === $toCardId) {

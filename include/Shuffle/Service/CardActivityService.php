@@ -246,6 +246,11 @@ class CardActivityService
             case 'card_moved':
                 return array_intersect_key($payload, ['from_lane' => 1, 'to_lane' => 1]);
 
+            case 'card_moved_board':
+                // CARD-26: cross-board move. to_board is deliberately
+                // omitted — the card IS on that board now (§5.18 step 6).
+                return array_intersect_key($payload, ['from_board' => 1, 'from_lane' => 1, 'to_lane' => 1]);
+
             case 'card_edited':
                 $out = [];
                 if (isset($payload['fields_changed']) && is_array($payload['fields_changed'])) {

@@ -25,6 +25,8 @@ use Shuffle\Core\Database;
  *   comment_created | comment_edited | comment_deleted
  *   card_merged (CARD-10..13; written on the SURVIVOR card, payload
  *   {source_card: {id, title}})
+ *   card_moved_board (CARD-26; cross-board re-home, written on the CARD,
+ *   payload {from_board, to_board, from_lane, to_lane})
  *
  * label changes intentionally do NOT write an activity row (LABEL-01, 2026-09-02) — low-signal; the card_merged payload already snapshots the source for the merge case (LABEL-03).
  *
