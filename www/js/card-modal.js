@@ -432,6 +432,10 @@
         }
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
         if (saveBtn) saveBtn.hidden = readonly;
+        // Stage B: the description-local Save is a member+ affordance — a
+        // viewer can't change the card, so the button never appears even
+        // though the CSS would otherwise show it in Edit mode.
+        if (descSaveBtn) descSaveBtn.hidden = readonly;
 
         // Labels: viewer sees the chips (information) but no × for removal
         // and no "+ Add label" affordance; the chip render below honors
