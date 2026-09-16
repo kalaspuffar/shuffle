@@ -274,8 +274,20 @@ require ROOT_DIR . '/include/templates/header.php';
                         <input type="date" id="card-modal-due-date" class="form-input" aria-label="<?= htmlspecialchars($lang->get('card.due_date'), ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="form-group">
-                        <label for="card-modal-description" class="form-label"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></label>
-                        <textarea id="card-modal-description" class="form-textarea" rows="6" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                        <label for="card-modal-description" class="form-label" id="card-modal-description-label"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></label>
+                        <div class="description-wrap" id="card-modal-description-wrap">
+                            <!-- CARD-14 pane visibility is driven by the
+                                 .description-wrap .form-textarea / .description-preview
+                                 + .is-editing rules in app.css. No `hidden`
+                                 attribute here: it would fight [hidden] rules
+                                 elsewhere in the file and re-introduce the
+                                 double-pane Daniel reported in v1.12. -->
+                            <textarea id="card-modal-description" class="form-textarea" rows="6" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                            <div id="card-modal-description-preview" class="markdown-body description-preview" role="region" aria-labelledby="card-modal-description-label"></div>
+                            <div class="description-edit-actions" style="margin-top: 10px;">
+                                <button type="button" class="btn btn-ghost btn-sm" id="cm-desc-preview-toggle" aria-pressed="true"><?= htmlspecialchars($lang->get('card.description_edit'), ENT_QUOTES, 'UTF-8') ?></button>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group card-assignees-section" id="card-modal-assignees-section" data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" data-assigned="[]">
                         <label class="form-label"><?= htmlspecialchars($lang->get('card.assign'), ENT_QUOTES, 'UTF-8') ?></label>
@@ -455,6 +467,9 @@ $boardLang = json_encode([
     'card_title'           => $lang->get('card.title'),
     'card_due_date'        => $lang->get('card.due_date'),
     'card_description'     => $lang->get('card.description'),
+    'card_description_preview' => $lang->get('card.description_preview'),
+    'card_description_edit'    => $lang->get('card.description_edit'),
+    'card_description_empty'   => $lang->get('card.description_empty'),
     'card_assign'          => $lang->get('card.assign'),
     'card_add_assignee'    => $lang->get('card.add_assignee'),
     'card_full_details'    => $lang->get('card.full_details'),
@@ -568,7 +583,17 @@ $laneTemplatesJson = json_encode(
     JSON_HEX_TAG | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE
 );
 ?>
-<script id="board-script" src="/js/board.js" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
-<script src="/js/card-activity.js"></script>
-<script src="/js/card-modal.js"></script>
+<?php
+// CARD-14 Stage A fix (2026-09-16): cache-bust the modal scripts the same
+// way header.php cache-busts app.css. Without this, Daniel's browser ran a
+// stale card-modal.js against fresh HTML/CSS, which surfaced the pane
+// double-render he reported. mtime changes on every commit → fresh JS.
+$jsV   = function ($p) { return file_exists($p) ? (int) filemtime($p) : 1; };
+$boardJsV  = $jsV(__DIR__ . '/js/board.js');
+$activityJsV = $jsV(__DIR__ . '/js/card-activity.js');
+$modalJsV = $jsV(__DIR__ . '/js/card-modal.js');
+?>
+<script id="board-script" src="/js/board.js?v=<?= $boardJsV ?>" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
+<script src="/js/card-activity.js?v=<?= $activityJsV ?>"></script>
+<script src="/js/card-modal.js?v=<?= $modalJsV ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

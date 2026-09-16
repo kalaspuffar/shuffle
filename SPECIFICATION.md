@@ -1,6 +1,6 @@
 # Project Specification: Shuffle
 
-**Version:** 1.11
+**Version:** 1.12
 **Date:** 2026-09-15
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-16 | **v1.12** — CARD-14 description **Markdown preview toggle** (Daniel, "next up" on the v1.11 board-sync card): the card modal's Description edit gains an in-pane **Preview / Edit** toggle. Preview is **server-rendered**: a new `POST /v1/markdown/render` endpoint (body `{markdown}` → `{html}`) runs the description string through the **same Parsedown safe-mode pipeline** as the card/comment APIs (`Shuffle\Core\Markdown::render`), so the client still never parses Markdown itself (SEC-04 trust chain intact — the XHR body is the user's own draft text, response is safe-mode HTML injected into a known-safe container). Toggle is plain-JS pane switching (textarea ↔ rendered `.markdown-body`), debounced live re-render while typing (250 ms), and resets to Edit on every `applyCard()` (new card open) and for viewers (`applyReadonly`). Access: any authenticated user (renders a client-supplied string, not a stored card). Empty string → `200 {"html":""}`; non-string markdown → `422`; wrong verb → `405`. HTTP E2E `tests/http-markdown-preview.sh` (+ a shared `post` driver added to `tests/_rt_session.php`). |
 | 2026-09-15 | **v1.11** — §5.19 Board Real-Time Sync (RT-04/05/06): on poll-200 (board version changed), `board.js` requests the **region fragment** `GET /v1/boards/{id}/region` and swaps it into `.board-lanes-container` in place — never `window.location.reload()`. The fragment is **server-rendered from the same PHP renderer** as the board page (extracted to a shared function; `Content-Type: text/html`, `ETag` = board version, 304 support) so the client hand-rolls no card markup. Guards: card modal visible → `pendingSync = true`, deferred until modal close, which does the traditional full reload once; drag in flight / focus on an editable in the region → deferred, next tick (≤15s) retries. Sync failures silent per-tick (ETag not advanced, next poll retries). No new endpoints beyond `/v1/boards/{id}/region`. JS unit test (guards + swap) + HTTP smoke test (fragment field set, 404 for foreign board, 304 with ETag) + existing board E2E suites stay green (identical markup). |
 | 2026-09-10 | **v1.10** — §5.18 Card move between boards (CARD-26/27): `POST /v1/cards/{id}/move-to-board` (`board_id` + optional `lane_id`), `CardService::moveToBoard()` (the card is re-homed in place: same card id + assignees/comments/checklists/attachments/priority entries; labels matched by name onto the destination board's labels, unmatched dropped), activity event `card_moved_board` on the card (from board + from lane + to lane snapshotted; feed projection `card_moved_board` → `{from_board, from_lane, to_lane}`), card-modal "Move to board…" dialog (board select + lane select, lanes of the selected board; current board flagged and excluded), `GET /v1/boards/{id}/lanes` reused for the lane list (already exists). Access: member + `canAccessBoard` on BOTH boards; destination the caller cannot access → 404 (BOARD-04b). Card lands at the bottom of the destination lane. No schema changes. |
 | 2026-09-03 | **v2.0** — Labels (§5.15 expanded): curated 12-color palette + one free-hex escape hatch (server-validated), case-insensitive `(board_id, name)` uniqueness (`UNIQUE KEY uq_labels_board_name`, collation `utf8mb4_unicode_ci`), 7 REST endpoints (list/create/update/delete + card attach/detach), 409 on duplicate, role matrix (Admin/Member manage labels, Viewer read-only), card-modal chip picker + per-card attach/detach, label union on card merge (model `unionToCard`, null-safe), "Manage labels" board-header modal, 21 i18n keys. **Board-view label dots**: one 10px dot per attached label above the card title, inline `background-color` = stored hex (+width/height/border-radius inline so render never depends on CSS), hover tooltip, cap 4 dots + `+N` overflow badge, `aria-label` row. Batch load `Label::labelsForCards()` (no N+1) via optional `BoardService::setLabelModel()`. Cache-busted asset loading: `/css/app.css?v={mtime}`. **Test-safety invariant (Daniel 2026-09-03)**: no test may mutate the Daniel account (user id 1) — E2E suites default to the mya test account (id 4) and refuse user 1 at entry; assertions are state-relative (baseline delta, never absolute counts); cleanups restore the test user's row set exactly. `e2e-priority.php` rewritten on its own fixture board (was wiping the test user's list). |
@@ -2665,6 +2666,69 @@ A card that was filed under the wrong board (e.g. the Misc/capture board) moves 
 **Files:** `www/board.php` (region loop extracted to the shared template; `data-include-archived` attribute), `include/templates/board-region.php` (shared renderer — single source of truth for the region), `www/js/board.js` (poll-200 → guards → fragment fetch → swap + scroll restore; `dragInFlight` guard; `window.ShuffleBoardSync = { syncNow, hasPendingSync }`; add-lane form + `#btn-add-lane` binding removed, relocated), `www/js/board-region.js` (new: add-lane button + create form + `resetLaneGhost`, idempotent `init()`), `www/js/card-modal.js` (`close()`: `if (ShuffleBoardSync.hasPendingSync()) location.reload()` — replaces the reload-after-close for archive/merge/move that already existed; expose `isCardModalVisible()` publicly), `tests/http-board-sync.sh` (fragment contract: field set, 404 isolation, 304 ETag, archived filter), `tests/board-sync.test.js` (guards + swap semantics, `priority-js.test.js` pattern). No CSS/i18n additions expected (renderer reuses existing tokens/keys).
 
 **Out of scope (explicit):** WebSocket push (RT-03, future — this keeps the poll/ETag shape so a push channel can replace the trigger without touching the sync body); reusing a server-rendered snapshot per card for O(1) partial updates (the template-swap is the v1 contract); mobile (Flutter) — out of web scope.
+
+### 5.20 Markdown Preview (CARD-14)
+
+**Motivation (2026-09-14, Daniel):** the single card view's Description is the one field where a user types Markdown but can only ever see the raw source — long/structured descriptions (headings, lists, code) are hard to author blind. Give the Edit surface a **Preview / Edit** toggle so a user can see the rendered Markdown before saving.
+
+**The key decision — the client never parses Markdown.** Rendering is done **server-side** by a shared endpoint so the preview reuses the exact trust chain of the card/comment APIs (the only sanctioned Markdown → HTML path). The client supplies the *draft text*; the server returns *safe-mode HTML*. This keeps SEC-04 (Markdown XSS) intact for a fresh code path: the preview response is rendered HTML from our own origin — no new client-side parser, no new surface to audit.
+
+**Endpoint (new):**
+
+#### `POST /v1/markdown/render`
+
+| Field | Type | Notes |
+|---|---|---|
+| `markdown` | string (request body) | The raw text to render. Empty string is a valid input → `200 {"html":""}`. A non-string (`markdown: 42`) → `422`. |
+
+**Response `200`:** `{ "html": "…rendered HTML…" }` — produced by `Shuffle\Core\Markdown::render()` (Parsedown, `setSafeMode(true)`), the same helper the card (`description_html`), comment (`body_html`), and activity pipelines call. Raw `<script>`/`<img onerror>` in the source is escaped, never emitted.
+
+**Access:** any authenticated user. It renders a *client-supplied* string (not a stored card), so there is no board/card scope to enforce — the only gate is `requireAuth()`. This is deliberately a *capability-free* endpoint: it has no write path, no stored state, and no user-specific data in or out.
+
+**Contract / limits:**
+- `Content-Type: application/json`, `Cache-Control: no-store` (all v1 endpoints).
+- The response `html` is **read-only** to the caller — it is never accepted back as the saved description. The card's saved value is always the raw Markdown the user typed in the Edit pane.
+- No size cap is imposed in v1 (the preview renders the description field's own draft; it is bounded by the same practical textarea length a user can enter). A pathological multi-megabyte draft is rejected by the same request body the API already tolerates for a description PUT.
+- Verb gate: `GET /v1/markdown/render` → `405` (route registered POST-only, `Router::dispatch()` enforces it).
+
+**UI (the description edit pane):** the textarea (`#card-modal-description`) and a rendered `.markdown-body` preview (`#card-modal-description-preview`) occupy the same field slot. A **Preview / Edit** toggle button (`#cm-desc-preview-toggle`) swaps which is visible:
+- **Edit** (default) — the textarea. The saved value is always read from here.
+- **Preview** — the rendered HTML, populated by a `POST /v1/markdown/render` with the *current* textarea value (so it reflects unsaved edits made in Edit, not the last-saved card). Rendering happens **on activation** (Preview is clicked): while Preview is active the Edit textarea is hidden, so there is no live-refresh path — the user goes back to Edit to keep typing, then re-activates Preview to re-render. This matches Trello's Edit/Preview model and keeps the preview a pure read-only view.
+
+**Guards / state hygiene (`card-modal.js`):**
+- `applyCard()` (every card open) resets the pane to **Edit** and clears the preview, so a card opened while the previous card's preview was live never shows a stale render.
+- `applyReadonly()` (viewers / `data-can-edit=0`) hides the toggle — a viewer's description is frozen, so a preview affordance would be misleading.
+- The preview element is `aria-hidden`/`role`-neutral and never focusable; keyboard flow stays on the Edit textarea (WCAG: the toggle is a plain `role`-less `button`, `aria-pressed` reflects state).
+
+**Files:** `include/Shuffle/Controller/CardController.php` (`renderMarkdown()`), `www/v1/index.php` (route `POST /markdown/render`), `www/board.php` (description wrap + preview pane + toggle button + i18n map keys), `www/js/card-modal.js` (toggle + debounced render + `applyCard`/`applyReadonly` guards), `include/lang/en.json` (`card.description_preview` / `..._edit` / `..._empty`), `www/css/app.css` (`.description-preview` surface), `tests/http-markdown-preview.sh` (status/shape/XSS/verb contract; uses the `post` driver added to `tests/_rt_session.php`).
+
+**Out of scope (explicit):** Markdown *editing* enhancements (a full WYSIWYG or editor component — v1 keeps the raw textarea + a read-only render); rendering of non-Description Markdown surfaces (this endpoint is general-purpose and *could* serve comments, but comments already get `body_html` server-side — no client needs it); live collaborative cursors; mobile.
+
+### 5.21 Future card-modal UX stages (planned — NOT implemented in v1.12)
+
+**Motivation (Daniel, 2026-09-16):** the shipped v1.12 preview toggle is a first pass. Daniel reviewed it and wants the card surface re-oriented around *reading* the card, with editing as an explicit, local act. The full target:
+
+1. **Preview is the default.** Opening a card shows the **rendered** description immediately. Clicking the preview area (or its toggle) replaces it with the **Edit** pane; the saved value is always the raw Markdown in Edit.
+2. **Panes are strictly exclusive** — never both visible (a v1.12 display bug where both could coexist; also root-caused to the *un-cache-busted* `card-modal.js` serving an older script than the HTML — fixed in v1.12 as part of Stage A).
+3. **Description-specific Save.** Below the Edit pane: **Save** saves *only the description* and returns to Preview. The modal-level Save in the fixed footer is removed as the description save mechanism.
+4. **Footer = actions only.** The fixed footer keeps the card's actions (Archive / Restore, Merge into…, Move to board…, Delete) — no generic Save / Cancel.
+5. **Title and due date autosave inline** (on blur / change, debounce ≈800 ms; failure surfaces as a flash and the field retains the unsaved text). Assignees and labels already mutate instantly per action (no Save needed).
+6. **Cancel is dropped.** With title/due autosaving and description having a local Save, a modal-level revert no longer has semantics. If an explicit "discard unsaved description" is later wanted, it is a per-field *Reset*, not a modal Cancel.
+
+**Staging (split for review):**
+
+| Stage | Scope | Status |
+|---|---|---|
+| **A. v1.12 (this branch)** | Preview-default + exclusive toggle + destination-labeled button + cache-busted script tags + corrected §5.19-free preview contract | ✅ implemented |
+| **B. (next branch, after review)** | Description-local Save under Edit (POST description-only PATCH/PUT), return-to-Preview on success; remove the modal-level Save for description | ⏳ planned |
+| **C. (same or following branch)** | Footer reduced to actions-only (Archive/Restore, Merge, Move, Delete); Save button out of the footer | ⏳ planned |
+| **D. (same or following branch)** | Title + due date inline autosave (blur/debounce, per-field dirty tracking, flash on failure) | ⏳ planned |
+
+**Contract notes for Stages B–D (decided now, implemented later):**
+- The description save reuses the existing `PUT /v1/cards/{id}` with a **description-only payload** (the service already diffs per-field; no new endpoint). On success the card version bumps → board-sync (RT-04) will in-place refresh the board view and the modal re-renders into Preview with the saved value (the modal-close reload path already covers header data).
+- Inline autosave fires **only after a real change** (same per-field diff as today's no-op Save) — no version bump on open, on focus, or on blur-without-change.
+- Viewer parity: viewer's Edit pane remains a disabled textarea under a **Preview** default (read-only render is *more* useful for viewers; their Save/toggle for mutation stays hidden).
+- WCAG: the Edit/Preview toggle stays a button with `aria-pressed`; focusing the preview renders nothing further (no focus trap); the description-local Save is a plain button (keyboard-reachable order: textarea → Save).
 
 ---
 

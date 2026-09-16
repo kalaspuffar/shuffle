@@ -299,6 +299,37 @@ class CardController
     }
 
     /**
+     * POST /v1/markdown/render
+     *
+     * Server-side Markdown → HTML preview for the card modal's
+     * description preview toggle (CARD-14). Same Markdown pipeline as
+     * the card/comment APIs (Parsedown safe mode) — the client never
+     * parses Markdown itself (XSS safety, §5.2 / SEC-04).
+     *
+     * Access: any authenticated user (no board scope: it renders a
+     * client-supplied markdown string, not a stored card).
+     *
+     * Body:  { "markdown": "…" }   (empty string → 200 with empty html)
+     * Resp:  { "html": "…" }
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     */
+    public function renderMarkdown(Request $request, Response $response): void
+    {
+        $this->auth->requireAuth();
+
+        $body = $request->getBody();
+        $markdown = $body['markdown'] ?? '';
+        if (!is_string($markdown)) {
+            $response->error('Invalid request', 422);
+            return;
+        }
+
+        $response->json(['html' => \Shuffle\Core\Markdown::render($markdown)]);
+    }
+
+    /**
      * DELETE /v1/cards/{id}
      *
      * Permanently deletes a card. Requires admin role since this is a
