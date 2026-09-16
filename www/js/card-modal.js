@@ -60,6 +60,11 @@
     var titleInput   = document.getElementById('card-modal-title-input');
     var dueInput     = document.getElementById('card-modal-due-date');
     var descInput    = document.getElementById('card-modal-description');
+    // CARD-14: description Markdown preview toggle.
+    var descPreview  = document.getElementById('card-modal-description-preview');
+    var descToggleBtn = document.getElementById('cm-desc-preview-toggle');
+    var descPreviewActive = false;      // true while the preview pane is showing
+    var descPreviewBusy = false;        // render-fetch double-click guard
     var assigneesSection = document.getElementById('card-modal-assignees-section');
     var addAssigneeBtn   = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
     var avatarRow        = assigneesSection ? assigneesSection.querySelector('.card-assignees-avatars') : null;
@@ -328,6 +333,16 @@
         if (dueInput) dueInput.value = (card.due_date ? String(card.due_date).slice(0, 10) : '');
         if (descInput) descInput.value = card.description || '';
 
+        // CARD-14: re-show the edit pane + default the toggle to Edit, in
+        // case the preview was active when the previous card was open.
+        if (descToggleBtn) {
+            descPreviewActive = false;
+            if (descPreview) descPreview.hidden = true;
+            if (descInput) descInput.hidden = false;
+            descToggleBtn.setAttribute('aria-pressed', 'false');
+            descToggleBtn.textContent = t('card_description_preview') || 'Preview';
+        }
+
         // Archived badge in the header + Archive vs Restore action button.
         var isArchived = !!card.is_archived;
         if (archivedBadge) archivedBadge.hidden = !isArchived;
@@ -388,6 +403,8 @@
         [titleInput, dueInput, descInput].forEach(function (el) {
             if (el) el.disabled = readonly;
         });
+        // CARD-14: no preview toggle for viewers (their card is frozen).
+        if (descToggleBtn) descToggleBtn.hidden = readonly;
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
         if (saveBtn) saveBtn.hidden = readonly;
 
@@ -1407,6 +1424,58 @@
 
     /* Chunk 09: actions (save + archive/restore + merge + delete) + public API
        =================================================================== */
+
+    // ---- Description Markdown preview (CARD-14) ------------------------
+    // Server-rendered (POST /v1/markdown/render, Parsedown safe mode) — the
+    // client never parses Markdown; same trust chain as the card API's
+    // description_html (SEC-04). Toggle only switches which pane is shown.
+
+    function renderDescPreview() {
+        if (!descPreview || !descInput) return;
+        if (descPreviewBusy || !descPreviewActive) return;
+        descPreviewBusy = true;
+        api('/v1/markdown/render', {
+            method: 'POST',
+            body: { markdown: descInput.value || '' }
+        }).then(function (result) {
+            descPreviewBusy = false;
+            if (result.status === 200 && result.data && typeof result.data.html === 'string') {
+                descPreview.innerHTML = result.data.html ||
+                    '<p class="text-secondary">' + escapeHtml(t('card_description_empty') || 'No description yet.') + '</p>';
+            } else if (result.status === 200) {
+                descPreview.innerHTML = '';
+            }
+            // else: silent — preview re-renders on the next keystroke/toggle.
+        }, function () { descPreviewBusy = false; });
+    }
+
+    function setDescPreview(on) {
+        if (!descPreview || !descInput || !descToggleBtn) return;
+        descPreviewActive = on;
+        descPreview.hidden = !on;
+        descInput.hidden = on;
+        descToggleBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        descToggleBtn.textContent = on
+            ? (t('card_description_edit') || 'Edit')
+            : (t('card_description_preview') || 'Preview');
+        if (on) {
+            renderDescPreview();
+        } else {
+            descInput.focus();
+        }
+    }
+
+    if (descToggleBtn && descPreview && descInput) {
+        descToggleBtn.addEventListener('click', function () {
+            setDescPreview(!descPreviewActive);
+        });
+        // NOTE: no live-refresh listener — while Preview is active the
+        // textarea is hidden, so there is nothing to re-render against. The
+        // preview is always rendered from the textarea's CURRENT value at the
+        // moment Preview is (re-)activated (renderDescPreview reads
+        // descInput.value), so it reflects unsaved edits, not the last-saved
+        // card.
+    }
 
     // ---- Save (title / due date / description) --------------------------
 

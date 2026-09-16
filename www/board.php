@@ -274,8 +274,15 @@ require ROOT_DIR . '/include/templates/header.php';
                         <input type="date" id="card-modal-due-date" class="form-input" aria-label="<?= htmlspecialchars($lang->get('card.due_date'), ENT_QUOTES, 'UTF-8') ?>">
                     </div>
                     <div class="form-group">
-                        <label for="card-modal-description" class="form-label"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></label>
-                        <textarea id="card-modal-description" class="form-textarea" rows="6" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                        <label for="card-modal-description" class="form-label" id="card-modal-description-label"><?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?></label>
+                        <div class="description-wrap" id="card-modal-description-wrap">
+                            <textarea id="card-modal-description" class="form-textarea" rows="6" aria-label="<?= htmlspecialchars($lang->get('card.description'), ENT_QUOTES, 'UTF-8') ?>"></textarea>
+                            <!-- CARD-14: Markdown preview (server-rendered via Parsedown safe mode) -->
+                            <div id="card-modal-description-preview" class="markdown-body description-preview" role="region" aria-labelledby="card-modal-description-label" hidden></div>
+                            <div class="description-edit-actions" style="margin-top: 10px;">
+                                <button type="button" class="btn btn-ghost btn-sm" id="cm-desc-preview-toggle" aria-pressed="false"><?= htmlspecialchars($lang->get('card.description_preview'), ENT_QUOTES, 'UTF-8') ?></button>
+                            </div>
+                        </div>
                     </div>
                     <div class="form-group card-assignees-section" id="card-modal-assignees-section" data-users="<?= htmlspecialchars(json_encode($pickerUsers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>" data-assigned="[]">
                         <label class="form-label"><?= htmlspecialchars($lang->get('card.assign'), ENT_QUOTES, 'UTF-8') ?></label>
@@ -455,6 +462,9 @@ $boardLang = json_encode([
     'card_title'           => $lang->get('card.title'),
     'card_due_date'        => $lang->get('card.due_date'),
     'card_description'     => $lang->get('card.description'),
+    'card_description_preview' => $lang->get('card.description_preview'),
+    'card_description_edit'    => $lang->get('card.description_edit'),
+    'card_description_empty'   => $lang->get('card.description_empty'),
     'card_assign'          => $lang->get('card.assign'),
     'card_add_assignee'    => $lang->get('card.add_assignee'),
     'card_full_details'    => $lang->get('card.full_details'),
