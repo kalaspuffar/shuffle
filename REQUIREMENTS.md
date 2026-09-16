@@ -1,7 +1,7 @@
 # Requirements Document: Shuffle
 
-**Version:** 1.9
-**Date:** 2026-09-01
+**Version:** 2.0
+**Date:** 2026-09-15
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
@@ -376,6 +376,9 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | RT-01 | Web client uses **lightweight polling** to detect changes made by other users | Must-have |
 | RT-02 | Polling should be efficient — check for update availability before fetching full data | Must-have |
 | RT-03 | WebSocket-based real-time push updates | Future |
+| RT-04 | A poll that detects a board version change (200) applies an **in-place incremental sync** — it never performs a full page reload. The sync re-renders the board region (lanes + cards: create/update/remove, reorder, all per-card display state) from a **server-rendered HTML fragment**, so the client never hand-rolls card markup. A sync that cannot run while the user is active (card modal open, drag in flight, focus on an editable in the region) is **deferred**; the open-modal case resolves on modal close with the traditional full reload (RT-06). (Daniel, 2026-09-15: adding checklist items closed the modal within 15s because the poller reloaded the page) | Must-have |
+| RT-05 | **Sync fragment contract:** `GET /v1/boards/{id}/region` (new endpoint; same access rules as the board — inaccessible board is a 404, never a 403) returns a **server-rendered HTML fragment** containing the lanes in position order, each with its cards in position order and the same per-card display markup the board page renders (title, due date + overdue/soon state, assigned avatars, label dots, comment count, checklist progress, attachment count, archived flag). The fragment is produced by the **same renderer** the board page uses (shared PHP render path — no second client-side card renderer). `?include_archived=1` includes archived cards (parity with the board page). `If-None-Match` (ETag = board version) returns `304` when unchanged. The client is plain JS; a `text/html` fragment from our own origin is render-safe (no scripts in the markup) | Must-have |
+| RT-06 | **No stale boards:** a sync deferred by an active guard is remembered (`pendingSync`). While the guard is drag or focus, the next poll tick (≤15s) retries automatically. While the guard is the **open card modal**, the sync is applied by the **modal's close handler performing the traditional full reload** (the modal is closed at that point, so reload is safe and also refreshes board-header data that region sync does not cover, e.g. label set / board title). Sync fetch failures (401/403/404/5xx) are silent for that tick and retried on the next poll (the ETag is not advanced) | Must-have |
 
 ### 7.14 Onboarding Wizard
 

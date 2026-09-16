@@ -203,6 +203,74 @@ class BoardController
     }
 
     /**
+     * GET /v1/boards/{id}/region
+     *
+     * Board Real-Time Sync (RT-04/05, SPECIFICATION section 5.19).
+     *
+     * Returns the server-rendered HTML fragment for the board region
+     * (lanes + cards + add-lane ghost) — produced by the SAME shared
+     * renderer (include/templates/board-region.php) that www/board.php
+     * uses, so the fragment is drop-in-identical to the board page.
+     *
+     * Headers: Content-Type: text/html, Cache-Control: no-cache,
+     * ETag = board version (If-None-Match match => 304, empty body).
+     * Access: same rules as the board (404 for boards the caller cannot
+     * access — BOARD-04b, never a 403 leak). ?include_archived=1 mirrors
+     * the board page filter.
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function region(Request $request, Response $response, array $params): void
+    {
+        // Shared renderer scope: board.php top-level scope has these globals
+        // in scope. Inside this method they don't — bind explicitly.
+        global $lang;
+        $currentUser = $this->auth->requireAuth();
+        $id = (int) ($params['id'] ?? 0);
+
+        if (!$this->auth->canAccessBoard($id)) {
+            $response->error('Board not found', 404);
+            return;
+        }
+
+        $includeArchived = in_array($request->getQuery('include_archived'), ['1', 'true'], true);
+
+        $board = $this->boardService->getBoardWithLanesAndCards($id, $includeArchived);
+        if ($board === null) {
+            $response->error('Board not found', 404);
+            return;
+        }
+
+        // ETag = board version (the RT-02 cheap-change signal already used
+        // by /version) — a synced client sends It, gets 304 when unchanged.
+        $etag = '"' . ((int) $board['version']) . '"';
+        $ifNoneMatch = trim((string) $request->getHeader('If-None-Match', ''));
+        if ($ifNoneMatch !== '' && $ifNoneMatch === $etag) {
+            http_response_code(304);
+            header('ETag: ' . $etag);
+            header('Cache-Control: no-cache');
+            return;
+        }
+
+        // Shared renderer scope (www/board.php contract): $board, $canEdit, $lang,
+        // $boardId. ($lang is a bootstrapped global from include/bootstrap.php.)
+        $canEdit = in_array($currentUser['role'], ['admin', 'member'], true);
+        $boardId = $id;
+
+        ob_start();
+        require ROOT_DIR . '/include/templates/board-region.php';
+        $fragment = ob_get_clean();
+
+        http_response_code(200);
+        header('Content-Type: text/html; charset=utf-8');
+        header('Cache-Control: no-cache');
+        header('ETag: ' . $etag);
+        echo $fragment;
+    }
+
+    /**
      * GET /v1/boards/{id}/version
      *
      * Returns the current board version for polling. Supports ETag/If-None-Match.

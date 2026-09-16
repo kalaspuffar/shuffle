@@ -105,6 +105,7 @@
   "board.restore": "Restore board",
   "board.restore_success": "Board restored successfully.",
   "board.show_archived": "Show archived",
+  "board.sync": "Board updated",
   "board.title": "Board Title",
   "board.update_success": "Board updated successfully.",
   "board.visibility": "Visibility",
