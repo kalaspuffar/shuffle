@@ -60,10 +60,11 @@
     var titleInput   = document.getElementById('card-modal-title-input');
     var dueInput     = document.getElementById('card-modal-due-date');
     var descInput    = document.getElementById('card-modal-description');
-    // CARD-14: description Markdown preview toggle.
+    // CARD-14: description Markdown preview toggle. Default: Preview.
+    var descPreviewWrap = document.getElementById('card-modal-description-wrap');
     var descPreview  = document.getElementById('card-modal-description-preview');
     var descToggleBtn = document.getElementById('cm-desc-preview-toggle');
-    var descPreviewActive = false;      // true while the preview pane is showing
+    var descPreviewActive = true;       // true while the preview pane is showing (default)
     var descPreviewBusy = false;        // render-fetch double-click guard
     var assigneesSection = document.getElementById('card-modal-assignees-section');
     var addAssigneeBtn   = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
@@ -333,14 +334,24 @@
         if (dueInput) dueInput.value = (card.due_date ? String(card.due_date).slice(0, 10) : '');
         if (descInput) descInput.value = card.description || '';
 
-        // CARD-14: re-show the edit pane + default the toggle to Edit, in
-        // case the preview was active when the previous card was open.
+        // CARD-14: default EVERY card open to the Preview pane (the modal is a
+        // read-first surface). This also clears any stale edit state from the
+        // previous card. Seed the preview from the ALREADY-rendered
+        // description_html on the card record — no extra round-trip.
+        if (descPreviewWrap) { descPreviewWrap.classList.remove('is-editing'); }
         if (descToggleBtn) {
-            descPreviewActive = false;
-            if (descPreview) descPreview.hidden = true;
-            if (descInput) descInput.hidden = false;
-            descToggleBtn.setAttribute('aria-pressed', 'false');
-            descToggleBtn.textContent = t('card_description_preview') || 'Preview';
+            descPreviewActive = true;
+            descToggleBtn.setAttribute('aria-pressed', 'true');
+            descToggleBtn.textContent = t('card_description_edit') || 'Edit';
+            var seedHtml = (typeof card.description_html === 'string') ? card.description_html : null;
+            if (seedHtml === null) {
+                seedHtml = (card.description || '') ? null : '';  // empty → emptyDescHtml()
+            }
+            if (seedHtml !== null) {
+                if (descPreview) descPreview.innerHTML = seedHtml || emptyDescHtml();
+            } else {
+                renderDescPreview();
+            }
         }
 
         // Archived badge in the header + Archive vs Restore action button.
@@ -404,7 +415,14 @@
             if (el) el.disabled = readonly;
         });
         // CARD-14: no preview toggle for viewers (their card is frozen).
+        // Viewers land in the Edit pane (their textarea is disabled) so the
+        // description is still readable as raw Markdown — the toggle that
+        // would switch to the Preview pane is not shown.
         if (descToggleBtn) descToggleBtn.hidden = readonly;
+        if (descPreviewWrap && readonly) {
+            descPreviewWrap.classList.add('is-editing');
+            descPreviewActive = false;
+        }
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
         if (saveBtn) saveBtn.hidden = readonly;
 
@@ -1430,6 +1448,11 @@
     // client never parses Markdown; same trust chain as the card API's
     // description_html (SEC-04). Toggle only switches which pane is shown.
 
+    function emptyDescHtml() {
+        return '<p class="text-secondary">' +
+            escapeHtml(t('card_description_empty') || 'No description yet.') + '</p>';
+    }
+
     function renderDescPreview() {
         if (!descPreview || !descInput) return;
         if (descPreviewBusy || !descPreviewActive) return;
@@ -1440,28 +1463,37 @@
         }).then(function (result) {
             descPreviewBusy = false;
             if (result.status === 200 && result.data && typeof result.data.html === 'string') {
-                descPreview.innerHTML = result.data.html ||
-                    '<p class="text-secondary">' + escapeHtml(t('card_description_empty') || 'No description yet.') + '</p>';
+                descPreview.innerHTML = result.data.html || emptyDescHtml();
             } else if (result.status === 200) {
                 descPreview.innerHTML = '';
             }
-            // else: silent — preview re-renders on the next keystroke/toggle.
+            // else: silent — preview re-renders on the next toggle.
         }, function () { descPreviewBusy = false; });
     }
 
-    function setDescPreview(on) {
-        if (!descPreview || !descInput || !descToggleBtn) return;
+    function setDescPreview(on, htmlOverride) {
+        if (!descPreviewWrap || !descToggleBtn) return;
         descPreviewActive = on;
-        descPreview.hidden = !on;
-        descInput.hidden = on;
+        // Pane visibility is class-driven (see .description-wrap rules):
+        //   is-editing present  => textarea shown, preview hidden (Edit)
+        //   is-editing absent   => preview shown, textarea hidden (Preview)
+        descPreviewWrap.classList.toggle('is-editing', !on);
+        // Button label = the DESTINATION the click will land on.
         descToggleBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
         descToggleBtn.textContent = on
             ? (t('card_description_edit') || 'Edit')
             : (t('card_description_preview') || 'Preview');
         if (on) {
-            renderDescPreview();
+            if (typeof htmlOverride === 'string') {
+                // Use the pre-rendered HTML from the card record (GET already
+                // returned description_html via Markdown::render) — no extra
+                // round-trip on card open or after save.
+                descPreview.innerHTML = htmlOverride || emptyDescHtml();
+            } else {
+                renderDescPreview();
+            }
         } else {
-            descInput.focus();
+            if (descInput) descInput.focus();
         }
     }
 

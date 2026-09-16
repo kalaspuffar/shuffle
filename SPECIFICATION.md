@@ -2704,6 +2704,32 @@ A card that was filed under the wrong board (e.g. the Misc/capture board) moves 
 
 **Out of scope (explicit):** Markdown *editing* enhancements (a full WYSIWYG or editor component — v1 keeps the raw textarea + a read-only render); rendering of non-Description Markdown surfaces (this endpoint is general-purpose and *could* serve comments, but comments already get `body_html` server-side — no client needs it); live collaborative cursors; mobile.
 
+### 5.21 Future card-modal UX stages (planned — NOT implemented in v1.12)
+
+**Motivation (Daniel, 2026-09-16):** the shipped v1.12 preview toggle is a first pass. Daniel reviewed it and wants the card surface re-oriented around *reading* the card, with editing as an explicit, local act. The full target:
+
+1. **Preview is the default.** Opening a card shows the **rendered** description immediately. Clicking the preview area (or its toggle) replaces it with the **Edit** pane; the saved value is always the raw Markdown in Edit.
+2. **Panes are strictly exclusive** — never both visible (a v1.12 display bug where both could coexist; also root-caused to the *un-cache-busted* `card-modal.js` serving an older script than the HTML — fixed in v1.12 as part of Stage A).
+3. **Description-specific Save.** Below the Edit pane: **Save** saves *only the description* and returns to Preview. The modal-level Save in the fixed footer is removed as the description save mechanism.
+4. **Footer = actions only.** The fixed footer keeps the card's actions (Archive / Restore, Merge into…, Move to board…, Delete) — no generic Save / Cancel.
+5. **Title and due date autosave inline** (on blur / change, debounce ≈800 ms; failure surfaces as a flash and the field retains the unsaved text). Assignees and labels already mutate instantly per action (no Save needed).
+6. **Cancel is dropped.** With title/due autosaving and description having a local Save, a modal-level revert no longer has semantics. If an explicit "discard unsaved description" is later wanted, it is a per-field *Reset*, not a modal Cancel.
+
+**Staging (split for review):**
+
+| Stage | Scope | Status |
+|---|---|---|
+| **A. v1.12 (this branch)** | Preview-default + exclusive toggle + destination-labeled button + cache-busted script tags + corrected §5.19-free preview contract | ✅ implemented |
+| **B. (next branch, after review)** | Description-local Save under Edit (POST description-only PATCH/PUT), return-to-Preview on success; remove the modal-level Save for description | ⏳ planned |
+| **C. (same or following branch)** | Footer reduced to actions-only (Archive/Restore, Merge, Move, Delete); Save button out of the footer | ⏳ planned |
+| **D. (same or following branch)** | Title + due date inline autosave (blur/debounce, per-field dirty tracking, flash on failure) | ⏳ planned |
+
+**Contract notes for Stages B–D (decided now, implemented later):**
+- The description save reuses the existing `PUT /v1/cards/{id}` with a **description-only payload** (the service already diffs per-field; no new endpoint). On success the card version bumps → board-sync (RT-04) will in-place refresh the board view and the modal re-renders into Preview with the saved value (the modal-close reload path already covers header data).
+- Inline autosave fires **only after a real change** (same per-field diff as today's no-op Save) — no version bump on open, on focus, or on blur-without-change.
+- Viewer parity: viewer's Edit pane remains a disabled textarea under a **Preview** default (read-only render is *more* useful for viewers; their Save/toggle for mutation stays hidden).
+- WCAG: the Edit/Preview toggle stays a button with `aria-pressed`; focusing the preview renders nothing further (no focus trap); the description-local Save is a plain button (keyboard-reachable order: textarea → Save).
+
 ---
 
 ## 6. Security Architecture

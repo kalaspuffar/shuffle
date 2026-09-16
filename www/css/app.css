@@ -2459,6 +2459,14 @@ small,
     background-color: var(--color-raised);
 }
 
+/* CARD-14 pane exclusivity — class-based so it never depends on [hidden].
+   While editing = textarea visible, preview hidden.
+   While preview = preview visible, textarea hidden. */
+.description-wrap .form-textarea { display: none; }         /* default: hidden */
+.description-wrap .description-preview { display: block; }  /* default: shown   */
+.description-wrap.is-editing .form-textarea { display: block; }
+.description-wrap.is-editing .description-preview { display: none; }
+
 /* =============================================
    25. Comments
    ============================================= */
@@ -4105,7 +4113,13 @@ small,
    Tab bar (Card / History), tab panels, and the activity feed list.
    ===================================================================== */
 
-   override the attribute otherwise the hidden History panel leaks. */
+/* The [hidden] attribute alone is not enough for `.card-detail-panel` (and
+   other components in this block) — they set `display: block / flex` which
+   would beat the UA style `display: none` that the [hidden] attribute
+   implies, leaking the hidden panel (CARD-15 ARIA tabs). This override
+   is required for tab switching to look right (Daniel 2026-09-16: it was
+   silently broken by a missing `/*` on the previous line and caused the
+   card-modal Description panes to coexist in v1.12). */
 [hidden] {
     display: none !important;
 }
