@@ -64,8 +64,11 @@
     var descPreviewWrap = document.getElementById('card-modal-description-wrap');
     var descPreview  = document.getElementById('card-modal-description-preview');
     var descToggleBtn = document.getElementById('cm-desc-preview-toggle');
+    // Stage B: description-local Save (Edit pane only, shown by CSS).
+    var descSaveBtn   = document.getElementById('cm-desc-save');
     var descPreviewActive = true;       // true while the preview pane is showing (default)
     var descPreviewBusy = false;        // render-fetch double-click guard
+    var descSaving = false;             // double-submit guard on the local Save
     var assigneesSection = document.getElementById('card-modal-assignees-section');
     var addAssigneeBtn   = assigneesSection ? assigneesSection.querySelector('.btn-add-assignee') : null;
     var avatarRow        = assigneesSection ? assigneesSection.querySelector('.card-assignees-avatars') : null;
@@ -332,6 +335,10 @@
         // Title / due date / description (edit form)
         if (titleInput) titleInput.value = card.title || '';
         if (dueInput) dueInput.value = (card.due_date ? String(card.due_date).slice(0, 10) : '');
+        // Clear any unsaved description draft state from the previous card
+        // (Stage B local-Save dirty tracking). Programmatic .value assignment
+        // does NOT fire the `input` handler, so the flag must be reset here.
+        card._descDirty = false;
         if (descInput) descInput.value = card.description || '';
 
         // CARD-14: default EVERY card open to the Preview pane (the modal is a
@@ -425,6 +432,10 @@
         }
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
         if (saveBtn) saveBtn.hidden = readonly;
+        // Stage B: the description-local Save is a member+ affordance — a
+        // viewer can't change the card, so the button never appears even
+        // though the CSS would otherwise show it in Edit mode.
+        if (descSaveBtn) descSaveBtn.hidden = readonly;
 
         // Labels: viewer sees the chips (information) but no × for removal
         // and no "+ Add label" affordance; the chip render below honors
@@ -1507,6 +1518,72 @@
         // moment Preview is (re-)activated (renderDescPreview reads
         // descInput.value), so it reflects unsaved edits, not the last-saved
         // card.
+
+        // Stage B: mark the description dirty ONLY on a real keystroke (not
+        // on programmatic fill in applyCard), so the local Save knows whether
+        // the draft differs from the saved card.
+        descInput.addEventListener('input', function () {
+            if (state.card) state.card._descDirty = true;
+        });
+    }
+
+    // ---- Stage B: description-local Save -------------------------------
+    // Saves ONLY the description (description-only payload → the service
+    // diffs per-field, so title/due are untouched and no other fields are
+    // re-sent). On success returns to the Preview pane, re-seeded from the
+    // server's canonical description_html. A no-op (user typed nothing, or
+    // only whitespace) short-circuits to Preview with no round-trip, matching
+    // the modal-save no-op contract.
+
+    function saveDesc() {
+        if (!CAN_EDIT) { setDescPreview(true); return; }
+        if (descSaving) return;
+        var card = state.card;
+        if (!card) return;
+
+        var desc = descInput ? descInput.value : (card.description || '');
+
+        if (!card._descDirty) {
+            // Nothing typed since the last open/save → no round-trip, no
+            // version bump; just close the Edit pane.
+            setDescPreview(true);
+            return;
+        }
+
+        descSaving = true;
+        if (descSaveBtn) descSaveBtn.disabled = true;
+        api('/v1/cards/' + state.cardId, {
+            method: 'PUT',
+            body: { description: desc }
+        }).then(function (result) {
+            descSaving = false;
+            if (descSaveBtn) descSaveBtn.disabled = false;
+            if (result.status === 200 && result.data && result.data.card) {
+                state.card = result.data.card;
+                state.card._descDirty = false;
+                // Return to Preview, seeded from the server's rendered HTML
+                // (no extra /markdown/render round-trip).
+                var seeded = typeof result.data.card.description_html === 'string'
+                    ? result.data.card.description_html
+                    : null;
+                setDescPreview(true, seeded);
+                flash(t('card_update_success') || 'Card saved', 'success');
+            } else {
+                // Keep the Edit pane + the user's text on failure.
+                flashErr(result);
+            }
+        }, function () {
+            descSaving = false;
+            if (descSaveBtn) descSaveBtn.disabled = false;
+            flash(t('error_bad_request') || 'Error', 'error');
+        });
+    }
+
+    if (descSaveBtn) {
+        descSaveBtn.addEventListener('click', function (e) {
+            e.preventDefault();
+            saveDesc();
+        });
     }
 
     // ---- Save (title / due date / description) --------------------------

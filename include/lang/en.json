@@ -133,6 +133,7 @@
   "card.description_preview": "Preview",
   "card.description_edit": "Edit",
   "card.description_empty": "No description yet.",
+  "card.description_save": "Save description",
   "card.draggable_card": "Draggable card",
   "card.due_date": "Due Date",
   "card.due_overdue": "Overdue",

@@ -286,6 +286,7 @@ require ROOT_DIR . '/include/templates/header.php';
                             <div id="card-modal-description-preview" class="markdown-body description-preview" role="region" aria-labelledby="card-modal-description-label"></div>
                             <div class="description-edit-actions" style="margin-top: 10px;">
                                 <button type="button" class="btn btn-ghost btn-sm" id="cm-desc-preview-toggle" aria-pressed="true"><?= htmlspecialchars($lang->get('card.description_edit'), ENT_QUOTES, 'UTF-8') ?></button>
+                                <button type="button" class="btn btn-primary btn-sm cm-desc-save-btn" id="cm-desc-save"><?= htmlspecialchars($lang->get('card.description_save'), ENT_QUOTES, 'UTF-8') ?></button>
                             </div>
                         </div>
                     </div>
@@ -470,6 +471,7 @@ $boardLang = json_encode([
     'card_description_preview' => $lang->get('card.description_preview'),
     'card_description_edit'    => $lang->get('card.description_edit'),
     'card_description_empty'   => $lang->get('card.description_empty'),
+    'card_description_save'    => $lang->get('card.description_save'),
     'card_assign'          => $lang->get('card.assign'),
     'card_add_assignee'    => $lang->get('card.add_assignee'),
     'card_full_details'    => $lang->get('card.full_details'),

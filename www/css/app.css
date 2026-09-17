@@ -2467,6 +2467,12 @@ small,
 .description-wrap.is-editing .form-textarea { display: block; }
 .description-wrap.is-editing .description-preview { display: none; }
 
+/* Stage B: description-local Save is an Edit-pane affordance — never shown
+   in Preview mode (CSS-only default; JS also hides it for viewers). */
+.description-wrap .description-edit-actions #cm-desc-save { display: none; }
+.description-wrap.is-editing .description-edit-actions #cm-desc-save { display: inline-block; }
+
+
 /* =============================================
    25. Comments
    ============================================= */

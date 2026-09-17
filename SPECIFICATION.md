@@ -2720,7 +2720,7 @@ A card that was filed under the wrong board (e.g. the Misc/capture board) moves 
 | Stage | Scope | Status |
 |---|---|---|
 | **A. v1.12 (this branch)** | Preview-default + exclusive toggle + destination-labeled button + cache-busted script tags + corrected §5.19-free preview contract | ✅ implemented |
-| **B. (next branch, after review)** | Description-local Save under Edit (POST description-only PATCH/PUT), return-to-Preview on success; remove the modal-level Save for description | ⏳ planned |
+| **B. v1.12 (this branch)** | Description-local Save under Edit (`#cm-desc-save`, description-only `PUT /v1/cards/{id}`), return-to-Preview on success, preview re-seeded from the server's `description_html`. Dirty-tracking via `input` (only a real keystroke marks the draft dirty); an unchanged draft short-circuits to Preview with **no round-trip** — that is the client-side zero-traffic-noop contract (the server bumps the board version on any received field; the no-bump guarantee lives in the client guard). Busy-guard disables the button in-flight. The footer Save is left in place as the title/due (+ catch-all) save and is removed in Stage C | ✅ implemented |
 | **C. (same or following branch)** | Footer reduced to actions-only (Archive/Restore, Merge, Move, Delete); Save button out of the footer | ⏳ planned |
 | **D. (same or following branch)** | Title + due date inline autosave (blur/debounce, per-field dirty tracking, flash on failure) | ⏳ planned |
 
