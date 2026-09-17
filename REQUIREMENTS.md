@@ -1,10 +1,11 @@
 # Requirements Document: Shuffle
 
-**Version:** 2.0
-**Date:** 2026-09-15
+**Version:** 2.1
+**Date:** 2026-09-17
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
+**Changelog (v2.1):** USER-01..04 (added 2026-09-10 during the digest work) become the next implementation target — no requirement text changes in this release.
 
 ---
 

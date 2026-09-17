@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS `users` (
     `password_hash`           VARCHAR(255)                          NOT NULL,
     `name`                    VARCHAR(128)                          NOT NULL,
     `email`                   VARCHAR(255)                          NOT NULL,
+    `phone`                   VARCHAR(32)                           NULL,          -- USER-01 (v1.14)
+    `location`                VARCHAR(120)                          NULL,          -- USER-01 (v1.14)
+    `bio`                     TEXT                                  NULL,          -- USER-01 (v1.14)
     `role`                    ENUM('admin', 'member', 'viewer')     NOT NULL DEFAULT 'member',
     `organization_id`         INT UNSIGNED                          NULL,
     `is_placeholder`          TINYINT(1)                            NOT NULL DEFAULT 0,

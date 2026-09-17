@@ -194,17 +194,16 @@ TEXT;
             $updateData['name'] = $data['name'];
         }
 
-        // Email — any user can update their own
-        if (isset($data['email'])) {
-            if (!filter_var($data['email'], FILTER_VALIDATE_EMAIL)) {
-                throw new \InvalidArgumentException('A valid email address is required');
-            }
-            $existing = $this->userModel->findByEmail($data['email']);
-            if ($existing !== null && $existing['id'] != $id) {
-                throw new \RuntimeException('This email address is already in use');
-            }
-            $updateData['email'] = $data['email'];
+        // Email — immutable in the v1 surface (USER-01..03 / AUTH-04: the email
+        // is the identity anchor set at invite; changing it is a later admin
+        // flow, out of scope). Reject on every path (self or admin).
+        if (array_key_exists('email', $data)) {
+            throw new \InvalidArgumentException('Email is immutable in the v1 surface (identity anchor — see AUTH-04/USER-02)');
         }
+
+        // Profile contact fields (USER-01) — self via /v1/me, any user by an
+        // admin via /v1/admin/users/{id} (both funnel through updateMeFields()).
+        $updateData = array_merge($updateData, $this->updateMeFields($data));
 
         // Admin-only fields: role, organization_id, status
         if ($isAdmin) {
@@ -273,6 +272,159 @@ TEXT;
         return $this->userModel->findAll($filters);
     }
 
+    /**
+     * Self-service profile update (USER-02, §5.22): PUT /v1/me.
+     *
+     * Updates the actor's own `name` in addition to the profile fields
+     * (`phone`, `location`, `bio`). Email is rejected (immutable in v1 —
+     * identity anchor, AUTH-04). Only provided fields are written; a blank
+     * string clears a nullable field; `null` is a clear for all three.
+     *
+     * @param int   $actorId The authenticated actor's user id
+     * @param array $data    Fields to update
+     * @return array The updated user record
+     * @throws \InvalidArgumentException On an invalid / immutable / over-length field
+     */
+    public function updateMe(int $actorId, array $data): array
+    {
+        return $this->updateUser($actorId, $data, ['id' => $actorId, 'role' => 'member']);
+    }
+
+    /**
+     * Change one's own password (USER-02, §5.22): PUT /v1/me/password.
+     *
+     * Verifies the current password before writing the new one. New password
+     * must be at least 8 characters (same rule as activation — AUTH-03).
+     *
+     * @param int    $actorId        The authenticated actor's user id
+     * @param array  $data           `{current_password, new_password}`
+     * @return void
+     * @throws \InvalidArgumentException If the new password is missing/short (shape error)
+     * @throws \RuntimeException         "Current password is incorrect" on a wrong current password (403)
+     */
+    public function changeMyPassword(int $actorId, array $data): void
+    {
+        $target = $this->userModel->findById($actorId);
+        if ($target === null) {
+            throw new \RuntimeException('User not found');
+        }
+
+        $newPassword  = isset($data['new_password']) ? (string) $data['new_password'] : '';
+        if (strlen($newPassword) < 8) {
+            throw new \InvalidArgumentException('New password must be at least 8 characters');
+        }
+
+        $currentPassword = isset($data['current_password']) ? (string) $data['current_password'] : '';
+        $hash = $this->userModel->findPasswordHashById($actorId);
+
+        if ($hash === null || !password_verify($currentPassword, $hash)) {
+            throw new \RuntimeException('Current password is incorrect');
+        }
+
+        $this->userModel->update($actorId, [
+            'password_hash' => password_hash($newPassword, PASSWORD_ARGON2ID),
+        ]);
+    }
+
+    /**
+     * Admin reset of any user's password (USER-03, §5.22):
+     * POST /v1/admin/users/{id}/reset-password.
+     *
+     * The admin does NOT need the user's current password. Requires admin
+     * role on the actor (enforced here AND by the controller — defense in
+     * depth; the controller is the single HTTP boundary and already guards
+     * this, but the service guard means a future internal caller cannot
+     * accidentally bypass it).
+     *
+     * @param int    $adminId      The admin's own user id
+     * @param array  $data         `{new_password}`
+     * @return void
+     * @throws \InvalidArgumentException If new password is missing/short
+     * @throws \RuntimeException         "Access denied" for a non-admin actor, or
+     *                                   "User not found" for an unknown target
+     */
+    public function adminResetPassword(int $adminId, int $targetId, array $data): void
+    {
+        $admin = $this->userModel->findById($adminId);
+        if ($admin === null || $admin['role'] !== 'admin') {
+            throw new \RuntimeException('Access denied');
+        }
+
+        if ($this->userModel->findById($targetId) === null) {
+            throw new \RuntimeException('User not found');
+        }
+
+        $newPassword = isset($data['new_password']) ? (string) $data['new_password'] : '';
+        if (strlen($newPassword) < 8) {
+            throw new \InvalidArgumentException('New password must be at least 8 characters');
+        }
+
+        $this->userModel->update($targetId, [
+            'password_hash' => password_hash($newPassword, PASSWORD_ARGON2ID),
+        ]);
+    }
+
+    /**
+     * Validates + normalizes the USER-01 profile contact fields
+     * (`phone`, `location`, `bio`). Shared by `updateUser()` (admin and
+     * self paths) so the validation contract is not duplicated.
+     *
+     * Semantics:
+     *   - omitted key            → field untouched
+     *   - null                   → cleared (NULL in DB)
+     *   - '' (empty string)      → cleared (same as null — convenient for UIs
+     *                              that can't send null through a form)
+     *   - any other string       → validated for length, stored as-is
+     *
+     * Lengths (all UTF-8 aware; bio is free-form prose):
+     *   phone     ≤ 32 (a phone line with country code — not a full dial string)
+     *   location  ≤ 120 (a one-line location)
+     *   bio       ≤ 500 (a short profile blurb — longer is a page, not a bio)
+     *
+     * @param array $data Input fields
+     * @return array The validated subset of $data keyed by column name
+     * @throws \InvalidArgumentException If a provided field is not a string / is over-length
+     */
+    private function updateMeFields(array $data): array
+    {
+        $limit = [
+            'phone'    => 32,
+            'location' => 120,
+            'bio'      => 500,
+        ];
+
+        $out = [];
+        foreach ($limit as $field => $max) {
+            if (!array_key_exists($field, $data)) {
+                continue;
+            }
+
+            $val = $data[$field];
+
+            if ($val === null || $val === '') {
+                $out[$field] = null;
+                continue;
+            }
+
+            if (!is_string($val)) {
+                throw new \InvalidArgumentException("$field must be a string");
+            }
+            if (mb_strlen($val, 'UTF-8') > $max) {
+                throw new \InvalidArgumentException("$field must be $max characters or fewer");
+            }
+            // Trim trailing whitespace on store (UIs often leave a stray space).
+            // Leading whitespace on a phone/location is a sign of an editor
+            // accident, not a signal. Trim both — bio keeps its internal
+            // whitespace but also trims the outer edges.
+            $trimmed = trim($val);
+            if (mb_strlen($trimmed, 'UTF-8') > $max) {
+                throw new \InvalidArgumentException("$field must be $max characters or fewer");
+            }
+            $out[$field] = $trimmed;
+        }
+
+        return $out;
+    }
     /**
      * Validates a username against format and length rules.
      *

@@ -14,7 +14,7 @@ class User
     private Database $db;
 
     /** Columns returned in standard user queries (excludes password_hash) */
-    private const SELECT_COLUMNS = 'id, username, name, email, role, organization_id, is_placeholder, status, created_at, updated_at';
+    private const SELECT_COLUMNS = 'id, username, name, email, phone, location, bio, role, organization_id, is_placeholder, status, created_at, updated_at';
 
     /**
      * @param Database $db Database instance
@@ -64,6 +64,26 @@ class User
             'SELECT ' . self::SELECT_COLUMNS . ' FROM users WHERE email = ?',
             [$email]
         );
+    }
+
+    /**
+     * Returns the stored password hash for a user.
+     *
+     * Password hashes never appear in SELECT_COLUMNS (API safety). This is the
+     * only sanctioned read path for password verification (login flows,
+     * USER-02 current-password confirmation, §5.22).
+     *
+     * @param int $id User ID
+     * @return string|null The hashed password, or null if the user does not exist
+     */
+    public function findPasswordHashById(int $id): ?string
+    {
+        $row = $this->db->fetch(
+            'SELECT password_hash FROM users WHERE id = ?',
+            [$id]
+        );
+
+        return $row['password_hash'] ?? null;
     }
 
     /**
@@ -147,7 +167,7 @@ class User
      */
     public function update(int $id, array $data): void
     {
-        $allowedFields = ['name', 'email', 'role', 'organization_id', 'status', 'username', 'password_hash'];
+        $allowedFields = ['name', 'email', 'phone', 'location', 'bio', 'role', 'organization_id', 'status', 'username', 'password_hash'];
         $setClauses = [];
         $params = [];
 

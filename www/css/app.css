@@ -4776,3 +4776,89 @@ small,
     border-color: var(--color-text);
     box-shadow: 0 0 0 2px var(--color-primary);
 }
+
+/* =============================================
+   Profile page (USER-01..02, v1.14 §5.22)
+   ============================================= */
+
+.profile-section {
+    background-color: var(--color-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--space-5);
+    margin-top: var(--space-5);
+}
+
+.profile-section h2 {
+    font-size: var(--font-size-md);
+    font-weight: var(--font-weight-semibold);
+    margin-bottom: var(--space-3);
+    color: var(--color-text);
+}
+
+.profile-identity {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: var(--space-2) var(--space-4);
+    margin: 0;
+}
+
+.profile-identity dt {
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm);
+}
+
+.profile-identity dd {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    word-break: break-word;
+}
+
+.profile-readonly-hint {
+    margin-left: var(--space-2);
+    cursor: help;
+}
+
+.profile-form .form-group {
+    margin-bottom: var(--space-4);
+}
+
+.profile-form textarea.form-input {
+    resize: vertical;
+    min-height: 80px;
+}
+
+.profile-form .form-actions {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-5);
+}
+
+/* Dropdown "Profile" link — match the logout button's baseline (the
+   .user-dropdown a/button rules already cover it; this just ensures the
+   link never inherits a text-decoration underline). */
+.user-dropdown .dropdown-btn--link {
+    display: block;
+    text-decoration: none;
+}
+
+.user-dropdown .dropdown-btn--link:hover,
+.user-dropdown .dropdown-btn--link:focus-visible {
+    background-color: var(--color-hover-overlay);
+}
+
+/* Admin user edit + reset-password modals (USER-03, v1.14) */
+.user-edit-modal {
+    max-width: 480px;
+}
+
+.user-edit-modal .form-actions {
+    display: flex;
+    gap: var(--space-2);
+    justify-content: flex-end;
+    margin-top: var(--space-5);
+}
+
+.user-reset-password-modal {
+    max-width: 420px;
+}

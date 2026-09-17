@@ -1,10 +1,10 @@
 # Project Specification: Shuffle
 
-**Version:** 1.12
-**Date:** 2026-09-15
+**Version:** 1.14
+**Date:** 2026-09-17
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v2.0 (RT-04/05/06)
+**Based on:** REQUIREMENTS.md v2.1 (USER-01..04)
 **License:** MIT
 
 ## Changes since the 1.0 draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-17 | **v1.14** — **User profiles & contact info (USER-01..04)** (§5.22 + §4.1 + §3.16 + §3.17): `users` gains **`phone VARCHAR(32) NULL`, `location VARCHAR(120) NULL`, `bio TEXT NULL`** (display data, not identity — USER-01). **Self-service (USER-02 + AUTH-04):** new **`PUT /v1/me`** updates the actor's own `name`, `phone`, `location`, `bio` (only provided fields; blank string clears a nullable field); **email is read-only on every surface** (identity anchor — set at invite, changed only by an admin flow out of v1). **Password change** (`PUT /v1/me/password`): requires `current_password` (min 8 chars); wrong current → **403** *Identity not confirmed*; `current_password` accepted-but-wrong vs missing → 400 (shape) vs 403 (verification) — different diagnostics. **Admin (USER-03):** `PUT /v1/admin/users/{id}` manages **role, status** (existing §5.3 `PUT /v1/users/{id}` admin path, unchanged) *plus the new* `name/phone/location/bio` — admin may not change `email` in v1 (send 400 `email_immutable`); `POST /v1/admin/users/{id}/reset-password` sets the password (admin does not need the current one) → 200 `{message}`. **Profile surface (new §3.16):** `www/profile.php` + `www/js/profile.js` — Profile section (name/phone/location/bio, email shown read-only with the `user.email_readonly` hint) and Password section (new + confirm, current) as separate forms/save-points; flash on success/failure; i18n `profile.*`. **Admin surface (new §3.17):** `www/admin/users.php` gains a per-user **Edit modal** (name/phone/location/bio/role — status stays an inline badge action; email field shown read-only) and a **Reset password** dialog (new + confirm, busy-guarded); viewer/placeholder self-row invariants unchanged. **Contact surfacing (USER-04, v1 = minimal):** assignee avatar stacks (`include/templates/assignee-avatar-stack.php`) gain a name tooltip; **phone/location chips are deferred** to a follow-up behind the tooltip contract (the `assigned_users` payload already carries id/name/avatar and the endpoint contract for a `/v1/users/{id}` contact payload remains `GET /v1/users/{id}` — extend, don't add). **Migration:** `bin/add-user-profile-fields.php` — idempotent `ALTER TABLE users ADD COLUMN` ×3 (`phone`, `location`, `bio`), safe re-run (checks information_schema first); `doc/schema.sql` synced (three NULL-able columns after `email`, before `role`). **Tests:** `php tests/e2e-user-profile.php` (service contract: field validation lengths, email rejection, phone/location/bio set+clear via blank, password current-wrong 403 vs missing 400, admin fields, admin email_immutable 400, reset-password path, fixtures on mya id 4 or dedicated test users — never id 1) + `php tests/http-profile.php` (PUT /v1/me + /me/password over HTTP against the auth-gate, `PUT /v1/admin/users/{id}` role/status/fields/email_immutable/reset) + `php tests/http-admin-user-edit.php` (page-render contract: modal markup, i18n keys present, self-row invariants). **i18n:** `profile.*` (title, sections, fields, hints: `profile.email_readonly`, `profile.password_current`, `profile.password_new`, `profile.password_confirm`, `profile.saved`, `profile.current_password_wrong`, `profile.password_too_short`, `profile.password_mismatch`, `profile.name_required`) + `admin.users.edit_title`, `admin.users.edit_save`, `admin.users.reset_password_title`, `admin.users.reset_password_btn`, `admin.users.email_immutable`, `admin.users.password_reset` — all `--color-*` tokens in CSS. |
 | 2026-09-17 | **v1.13** — CARD-14 **Stages C + D** (§5.21): the card modal becomes fully read-first. **Stage C** — the modal footer's Save + Cancel are gone: the card is closed by the header ×, Escape, or backdrop (all already bound via `.modal-close`), and every remaining mutation is an explicit action in the in-body action row (Archive/Restore, Merge into…, Move to board…, Delete) or the description-local Save of Stage B. The `<form>` wrapper stays (inputs can't submit into a default navigation without a submit button — none remain). **Stage D** — title and due date autosave inline: `input` handlers mark the field dirty and debounce (≈800 ms) a **field-only** `PUT /v1/cards/{id}` (title-only or `due_date`-only — the service already diffs per-field, so the other fields are untouched and *not sent*; clearing the due date sends `due_date: null`, which the server stores as a clear, distinct from an omitted field). Blur flushes a pending save; `Escape` reverts the field to the stored value and discards the schedule; a real-change test against `state.card` is the no-op contract (blur-without-change never round-trips — the zero-bump guarantee the server does not provide). Save failures keep the field's unsaved text (flash surfaces the error) and resync only the affected inputs + header title on success (no `applyCard` re-render, no close). An empty title is rejected client-side (the server 422s it) — the field reverts and flashes `card.title_required`. **Tests**: server contract pin `tests/e2e-autosave.php` (22 checks: title-only / due-only / clear-due / empty-title-rejected / no-op) + client logic suite `tests/card-modal-autosave.test.js` (24 checks: single-PUT + field-scoped body, debounce collapse, no-op short-circuit, stale-timer cancellation on re-open, Escape revert, close-after-save region sync) ; Stage B suites + CSS sanity + rendered-page verification (no footer remnants) stay green. **Board-tile reconciliation** (Daniel report 2026-09-17: the tile title / due stayed stale after an autosave until a reload): the old behavior relied on the 15 s poll tick setting `pendingSync` while the modal was open — true only if a tick landed AFTER the save. A save in the last ~15 s of the interval (the common case) set no flag and the board tile showed the old title/due until reload. Now `close()`: (1) first the existing `pendingSync` path (full reload) if a tick already saw a bump; (2) else if the modal itself made ≥1 successful card mutation this open, it calls `ShuffleBoardSync.syncNow()` — the board.js in-place region swap (server-rendered fragment, scroll positions preserved, no full reload) — BEFORE focus returns to the card tile (focusing first would trip the "focus on an editable in the region" guard); (3) then the usual focus-return + state reset. Zero-mutation closes sync nothing (no-op close = no region fetch). |
 | 2026-09-16 | **v1.12** — CARD-14 description **Markdown preview toggle** (Daniel, "next up" on the v1.11 board-sync card): the card modal's Description edit gains an in-pane **Preview / Edit** toggle. Preview is **server-rendered**: a new `POST /v1/markdown/render` endpoint (body `{markdown}` → `{html}`) runs the description string through the **same Parsedown safe-mode pipeline** as the card/comment APIs (`Shuffle\Core\Markdown::render`), so the client still never parses Markdown itself (SEC-04 trust chain intact — the XHR body is the user's own draft text, response is safe-mode HTML injected into a known-safe container). Toggle is plain-JS pane switching (textarea ↔ rendered `.markdown-body`), debounced live re-render while typing (250 ms), and resets to Edit on every `applyCard()` (new card open) and for viewers (`applyReadonly`). Access: any authenticated user (renders a client-supplied string, not a stored card). Empty string → `200 {"html":""}`; non-string markdown → `422`; wrong verb → `405`. HTTP E2E `tests/http-markdown-preview.sh` (+ a shared `post` driver added to `tests/_rt_session.php`). |
 | 2026-09-15 | **v1.11** — §5.19 Board Real-Time Sync (RT-04/05/06): on poll-200 (board version changed), `board.js` requests the **region fragment** `GET /v1/boards/{id}/region` and swaps it into `.board-lanes-container` in place — never `window.location.reload()`. The fragment is **server-rendered from the same PHP renderer** as the board page (extracted to a shared function; `Content-Type: text/html`, `ETag` = board version, 304 support) so the client hand-rolls no card markup. Guards: card modal visible → `pendingSync = true`, deferred until modal close, which does the traditional full reload once; drag in flight / focus on an editable in the region → deferred, next tick (≤15s) retries. Sync failures silent per-tick (ETag not advanced, next poll retries). No new endpoints beyond `/v1/boards/{id}/region`. JS unit test (guards + swap) + HTTP smoke test (fragment field set, 404 for foreign board, 304 with ETag) + existing board E2E suites stay green (identical markup). |
@@ -846,7 +847,10 @@ All tables use InnoDB engine, `utf8mb4` charset, `utf8mb4_unicode_ci` collation.
 | `username` | VARCHAR(64) | NOT NULL, UNIQUE |
 | `password_hash` | VARCHAR(255) | NOT NULL |
 | `name` | VARCHAR(128) | NOT NULL |
-| `email` | VARCHAR(255) | NOT NULL, UNIQUE |
+| `email` | VARCHAR(255) | NOT NULL, UNIQUE (identity anchor — AUTH-04, immutable in the v1 surface) |
+| `phone` | VARCHAR(32) | NULL (USER-01, v1.14 — contact display data; max 32 chars after trim) |
+| `location` | VARCHAR(120) | NULL (USER-01, v1.14 — one-line location; max 120 chars after trim) |
+| `bio` | TEXT | NULL (USER-01, v1.14 — short profile blurb; service cap 500 chars after trim) |
 | `role` | ENUM('admin', 'member', 'viewer') | NOT NULL, DEFAULT 'member' |
 | `organization_id` | INT UNSIGNED | NULL, FK → organizations.id |
 | `is_placeholder` | TINYINT(1) | NOT NULL, DEFAULT 0 |
@@ -1271,20 +1275,22 @@ Activates an invited user (sets username and password). No session required — 
 
 #### `PUT /v1/users/{id}`
 
-Updates a user. Admins can update any user. Non-admins can only update their own `name` and `email`.
+Updates a user. Admins can update any user. Non-admins can only update their own `name` (the self-service surface is `PUT /v1/me` — §5.22). **`email` is immutable in v1 (AUTH-04)** — sending it on any path (self or admin) returns 400 `Email is immutable in the v1 surface`.
 
 **Request:**
 ```json
 {
     "name": "Updated Name",
-    "email": "newemail@example.com",
+    "phone": "+46 70 815 5672",
+    "location": "Stockholm",
+    "bio": "Working on Shuffle",
     "role": "viewer",
     "organization_id": 2,
     "status": "inactive"
 }
 ```
 
-Only provided fields are updated. `role`, `organization_id`, and `status` require Admin role.
+Only provided fields are updated (a blank string or `null` clears a nullable profile field). `role`, `organization_id`, and `status` require Admin role. `phone` ≤ 32, `location` ≤ 120, `bio` ≤ 500 (validated UTF-8 lengths, outer whitespace trimmed; 400 `… must be N characters or fewer` on overflow).
 
 **Response (200):**
 ```json
@@ -2731,6 +2737,51 @@ A card that was filed under the wrong board (e.g. the Misc/capture board) moves 
 - Viewer parity: viewer's Edit pane remains a disabled textarea under a **Preview** default (read-only render is *more* useful for viewers; their Save/toggle for mutation stays hidden).
 - WCAG: the Edit/Preview toggle stays a button with `aria-pressed`; focusing the preview renders nothing further (no focus trap); the description-local Save is a plain button (keyboard-reachable order: textarea → Save).
 
+### 5.22 User Profiles & Contact Info (USER-01..04)
+
+**Motivation (Daniel, 2026-09-10):** need to be able to contact someone working on a card — show their **name + contact info** without a PM round-trip. Users need a self-service profile.
+
+**Scope (v1.14):** display fields + self-service + admin management + a **minimal** contact-surfacing surface (USER-04 is *Nice-to-have* in REQUIREMENTS.md — the v1 implementation is deliberately the smallest slice that makes the other three useful: a name tooltip on the assignee avatar stack; full phone/location chips on the card surface are deferred to a follow-up that reuses this contract).
+
+**Data (USER-01):** new columns on `users` (see §4.1 + `doc/schema.sql`):
+`phone VARCHAR(32) NULL · location VARCHAR(120) NULL · bio TEXT NULL` (service enforces ≤500).
+Migration: `bin/add-user-profile-fields.php` (idempotent — checks `information_schema.COLUMNS` per column before the `ALTER`).
+
+**API — all four new routes require an authenticated session:**
+
+| Verb & Path | Access | Purpose |
+|---|---|---|
+| `PUT /v1/me` | any authenticated | update own `name`/`phone`/`location`/`bio` (only provided fields; blank/`null` clears) |
+| `PUT /v1/me/password` | any authenticated | change own password (`current_password` + `new_password`) |
+| `PUT /v1/users/{id}` | admin (for others; self via `PUT /v1/me`) | existing admin surface, extended with `phone`/`location`/`bio`; **`email` is now rejected (400, immutable)** |
+| `POST /v1/admin/users/{id}/reset-password` | admin | set any user's password without their current (returns **204**, no body) |
+
+**Error semantics (intentional split):**
+
+- `PUT /v1/me/password` — `403` *Current password is incorrect* when the current password is wrong (so the client can say "wrong" instead of "malformed"). `400` for a shape error (new password missing/short). This mirrors the existing `updateUser()` convention in §5.3 where `403` = verified-authz failure and `400/422` = input failure.
+- `PUT /v1/users/{id}` — `400` when `email` is present (immutable, AUTH-04); `400` for length overflow on the profile fields; `403` for a non-admin actor on an admin-only field; `404` for an unknown id.
+- `POST /v1/admin/users/{id}/reset-password` — `204` on success (no body — the new password must not be echoed back in the JSON response), `400` for a short/missing new password, `404` for an unknown id, `403` for a non-admin actor.
+
+**Self-service profile page (§3.16):** `www/profile.php` is a normal server-rendered page with two JS-driven forms (progressive enhancement, no framework). It calls the JSON API: profile section → `PUT /v1/me` with `{name, phone, location, bio}`; password section → `PUT /v1/me/password` with `{current_password, new_password}`. Email is shown as a read-only text with the `profile.email_readonly` hint. Flash via the existing `flash-message` pattern (a `role="status" aria-live="polite"` region that the JS fills).
+
+**Admin surface (new section, §3.17):** `www/admin/users.php` gains a per-row **"Edit"** action (not destructive like Deactivate/Delete — a neutral `btn btn-ghost`). Clicking opens a modal with `name`/`phone`/`location`/`bio`/`role` inputs + a read-only `email` field. Save → `PUT /v1/users/{id}` with the provided fields (only non-blank fields are sent). A separate "Reset password" button opens a smaller dialog with the new-password input → `POST /v1/admin/users/{id}/reset-password`.
+
+**Contact surfacing (USER-04, v1 minimal):** `include/templates/assignee-avatar-stack.php` already renders the `aria-label` and `title` as the assignee name. v1.14 does **not** add a phone/location chip — that is deferred to a follow-up spec that reuses the same stack, reads from the existing `/v1/users/{id}` response (which already carries `phone`/`location`/`bio` after the model SELECT_COLUMNS update), and renders an additional `<span class="user-contact" title="…">` when present. Rationale for deferring: (a) the assignee stack is already 3+overflow, adding chips would crowd the card surface; (b) the full phone display is a personal-data-visibility decision Daniel should make before every board card shows a phone number; (c) the API contract is already in place, so the follow-up is pure UI.
+
+**i18n keys (v1.14 additions to `include/lang/en.json`):**
+`profile.title, profile.profile_save, profile.email_readonly, profile.password_current, profile.password_new, profile.password_confirm, profile.password_save, profile.saved, profile.error.name_required, profile.error.phone_too_long, profile.error.location_too_long, profile.error.bio_too_long, profile.error.password_too_short, profile.error.password_mismatch, profile.error.current_password_wrong, admin.users.edit, admin.users.edit_title, admin.users.edit_save, admin.users.email_immutable, admin.users.reset_password, admin.users.reset_password_hint, admin.users.reset_password_new, admin.users.reset_password_btn, flash.user_profile_saved, flash.user_password_changed, flash.user_password_reset`
+
+**Test suite (v1.14, all fixture-based + self-cleaning — never touches Daniel's id 1):**
+- `tests/e2e-user-profile.php` — service contract: profile field validate (length / blank-clears / non-string reject / email-immutable 400 / `updateMe` self path / `changeMyPassword` wrong-current 403 vs 8-char 400 vs ok / `adminResetPassword` admin-yes, non-admin-403, user-404).
+- `tests/http-user-profile.sh` — over live Apache: `PUT /v1/me` (auth, shape, blank-clear, email immutability round-trip), `PUT /v1/me/password` (wrong-current 403, short 400, success + login-with-new works), `POST /v1/admin/users/{id}/reset-password` (204 + login-as-target succeeds, short → 400, 404 for unknown id, non-admin → 403).
+- `tests/http-admin-user-edit.php` — page-render contract: `www/admin/users.php` includes the Edit button in the `actions` `<td>` for non-self rows, omits it for self/placeholder (already the status invariant), the modal markup exists in the DOM (hidden), the reset-password dialog markup exists (hidden), i18n keys present in the `users-script` `data-lang`.
+
+**Out of scope (v1):**
+- Full contact-surfacing chips on the card surface (USER-04, Nice-to-have in REQUIREMENTS.md) — see follow-up above.
+- Password strength meter / policy beyond the existing 8-char minimum.
+- Multi-factor, OAuth, SSO (AUTH-06, already "Future" in REQUIREMENTS.md).
+- Audit log rows for profile / password changes (could be a `card_activity` extension in the future, but not v1 — and there is no `user_activity` table today).
+
 ---
 
 ## 6. Security Architecture
@@ -3343,6 +3394,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
 | PRIO-12 through PRIO-14 | 3.15 (PriorityService::digest), 5.16 (digest API), 5.16 (priority-page UI) |
 | ACTIVITY-01 through ACTIVITY-03 | 3.14 (card_activity), 3.15 (CardActivityService), 3.18 (js/card.js History tab), 4.1 (card_activity), 5.14 |
+| USER-01 through USER-04 | 4.1 (users: phone/location/bio), 5.3 (PUT /v1/users/{id} extended + email immutable), 5.22 (PUT /v1/me, PUT /v1/me/password, POST /v1/admin/users/{id}/reset-password), www/profile.php + www/js/profile.js (self-service), www/admin/users.php + www/js/users.js (admin edit + reset), include/templates/header.php (nav link), bin/add-user-profile-fields.php (migration) |
 | ONBOARD-01 through ONBOARD-11 | Future (Nice-to-have) |
 | PERF-01 through PERF-04 | 9.4, 10 (Phase 7) |
 | SEC-01 through SEC-08 | 6.1 through 6.8 |
