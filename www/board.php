@@ -381,10 +381,14 @@ require ROOT_DIR . '/include/templates/header.php';
             </div><!-- /card-panel-history -->
         </div><!-- /modal-card-body -->
 
-        <div class="modal-footer card-modal-footer">
-            <button type="button" class="btn btn-secondary modal-close"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
-            <button type="button" class="btn btn-primary" id="card-modal-save" form="card-modal-form"><?= htmlspecialchars($lang->get('action.save'), ENT_QUOTES, 'UTF-8') ?></button>
-        </div>
+        <!-- v1.13 Stage C (§5.21): the footer's Save / Cancel are gone.
+             Title + due date autosave inline (Stage D); the description has
+             its own local Save in the Edit pane (Stage B); every other
+             mutation is an explicit action in the in-body action row below —
+             or the header "×" / Escape / backdrop click to close (the header
+             close stays bound via the .modal-close class in card-modal.js).
+             The <form> wrapper above remains so the text inputs can't be
+             submitted into a default form navigation. -->
     </div>
 </div>
 
@@ -485,6 +489,7 @@ $boardLang = json_encode([
     'card_assignee_overflow_singular' => $lang->get('card.assignee_overflow_singular'),
     'card_assignee_overflow_plural' => $lang->get('card.assignee_overflow_plural'),
     'card_update_success'  => $lang->get('card.update_success'),
+    'card_title_required'  => $lang->get('card.title_required'),
     'card_tab_comments'    => $lang->get('card.tab_comments', ['{0}']),
     'card_archive_success' => $lang->get('card.archive_success'),
     'card_restore_success' => $lang->get('card.restore_success'),

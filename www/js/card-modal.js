@@ -45,7 +45,6 @@
     var bodyScroll  = document.getElementById('card-modal-body');
     var modalTitle  = document.getElementById('card-modal-title');
     var archivedBadge = document.getElementById('card-modal-archived-badge');
-    var saveBtn     = document.getElementById('card-modal-save');
 
     var tablist     = modal ? modal.querySelector('.card-detail-tabs') : null;
     var tabs        = tablist ? Array.prototype.slice.call(tablist.querySelectorAll('[role="tab"]')) : [];
@@ -56,7 +55,6 @@
     };
     var commentsCountBadge = document.getElementById('card-tab-comments-count');
 
-    var form         = document.getElementById('card-modal-form');
     var titleInput   = document.getElementById('card-modal-title-input');
     var dueInput     = document.getElementById('card-modal-due-date');
     var descInput    = document.getElementById('card-modal-description');
@@ -140,6 +138,9 @@
         mergeBusy: false,
         moveBusy: false,    // double-mutation guard on the move-to-board dialog
         labelsBusy: false,   // double-mutation guard on chip attach/detach
+        boardMutations: 0,   // Stage D: count of successful autosave PUTs this open
+                             // (set by save() success; reset by applyCard; used
+                             // by close() to trigger an immediate region sync)
         highlightCommentId: null  // NOTIF-09 deep-link target (auto-cleared)
     };
 
@@ -229,13 +230,9 @@
         if (!isCardModalVisible()) return;
         overlay.hidden = true;
         overlay.setAttribute('aria-hidden', 'true');
-        // Focus returns to the opener (the card on the board), not the body.
-        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
-        state.lastOpener = null;
-        // Reset comment-input + any in-flight edit state (the next open re-fetches).
-        if (commentInput) commentInput.value = '';
-        Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
-            .forEach(function (f) { f.hidden = true; });
+        // ---- board reconciliation (BEFORE focus returns to the card tile —
+        //      returning focus first would trip board.js's syncGuardActive()
+        //      "focus on an editable inside the region" guard and defer it)
         // RT-06 (SPECIFICATION §5.19): if a board version bump arrived while the
         // modal was open, the real-time sync was deferred. Now that the modal is
         // gone a full reload is safe — and it also refreshes board-header data
@@ -245,7 +242,31 @@
         if (window.ShuffleBoardSync && window.ShuffleBoardSync.hasPendingSync()) {
             window.ShuffleBoardSync.clearPendingSync();
             window.location.reload();
+            return;
         }
+        // v1.13 Stage D (RT-04 companion): the modal's OWN mutations (title /
+        // due autosave, description Save, assignee changes) bumped the board
+        // version, but the deferred-sync flag above is only set when a 15 s
+        // POLL tick observed a bump — a save in the last second of the interval
+        // (the common case) sets no flag, leaving the board tile stale until
+        // the next poll. Now that the overlay is hidden the board.js guard is
+        // clear: do an immediate in-place region sync (no reload — the modal
+        // is card-centric, and the server-rendered fragment is the board's
+        // source of truth for the tile title / due date / avatars it shows).
+        if (state.boardMutations > 0) {
+            state.boardMutations = 0;
+            if (window.ShuffleBoardSync && window.ShuffleBoardSync.syncNow) {
+                window.ShuffleBoardSync.syncNow();
+            }
+        }
+        // ---- focus return + state reset -------------------------------------
+        // Focus returns to the opener (the card on the board), not the body.
+        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
+        state.lastOpener = null;
+        // Reset comment-input + any in-flight edit state (the next open re-fetches).
+        if (commentInput) commentInput.value = '';
+        Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
+            .forEach(function (f) { f.hidden = true; });
     }
 
     function desiredInitialFocus() {
@@ -340,6 +361,13 @@
         // does NOT fire the `input` handler, so the flag must be reset here.
         card._descDirty = false;
         if (descInput) descInput.value = card.description || '';
+        // Stage D: clear title/due autosave dirty state (a previous card's
+        // unsaved flags must not survive an applyCard — programmatic .value
+        // assignment doesn't fire the input handlers that set them).
+        _resetAutosaveState();
+        // boardMutations is per-OPEN, not per-card: a fresh card opened within
+        // the same modal session inherits the same board, and a close will
+        // reconcile the tile (count stays non-zero → syncNow still fires).
 
         // CARD-14: default EVERY card open to the Preview pane (the modal is a
         // read-first surface). This also clears any stale edit state from the
@@ -431,7 +459,6 @@
             descPreviewActive = false;
         }
         if (addAssigneeBtn) addAssigneeBtn.hidden = readonly;
-        if (saveBtn) saveBtn.hidden = readonly;
         // Stage B: the description-local Save is a member+ affordance — a
         // viewer can't change the card, so the button never appears even
         // though the CSS would otherwise show it in Edit mode.
@@ -740,6 +767,7 @@
         }).then(function (result) {
             if (result.status === 200) {
                 refreshAvatarRow();
+                noteBoardMutation();   // tile-relevant (avatars); close() syncs the tile
             } else {
                 // Revert optimistic state
                 var i2 = assignedIds.indexOf(userId);
@@ -1527,6 +1555,11 @@
         });
     }
 
+    /** Stage D: mark that a successful modal mutation bumped the board
+     *  version — close() will then reconcile the board tile immediately
+     *  instead of waiting for the next 15 s poll tick. */
+    function noteBoardMutation() { state.boardMutations++; }
+
     // ---- Stage B: description-local Save -------------------------------
     // Saves ONLY the description (description-only payload → the service
     // diffs per-field, so title/due are untouched and no other fields are
@@ -1560,6 +1593,7 @@
             if (descSaveBtn) descSaveBtn.disabled = false;
             if (result.status === 200 && result.data && result.data.card) {
                 state.card = result.data.card;
+                noteBoardMutation();   // tile-relevant (description meta count); close() syncs
                 state.card._descDirty = false;
                 // Return to Preview, seeded from the server's rendered HTML
                 // (no extra /markdown/render round-trip).
@@ -1586,53 +1620,64 @@
         });
     }
 
-    // ---- Save (title / due date / description) --------------------------
-
-    /** Detects changed fields against state.card and PUTs only those.
-     *  A no-op save closes (matches the pre-refactor contract: zero version
-     *  bump when nothing changed). */
+    // ---- Save (title / due date) — v1.13 Stages C/D (§5.21) -------------
+    // Stage C removed the modal-level Save button; this is the field-level
+    // path: it PUTs ONLY the changed field(s) of title / due date (the
+    // description lives in the description-local Save above). Called from
+    // the inline autosave (onBlurTitle / onBlurDue). A no-op (nothing
+    // changed since the last load/save) short-circuits with no round-trip —
+    // the zero-bump-on-noop is a CLIENT contract (the server bumps the
+    // board version on ANY received field, so we must not send unchanged
+    // fields).
     function save() {
-        if (!CAN_EDIT) { close(); return; }
+        if (!CAN_EDIT) return;
         if (state.saving) return;
         var card = state.card;
         if (!card) return;
 
         var payload = {};
-        var title = titleInput ? titleInput.value.trim() : (card.title || '');
-        var due = dueInput ? dueInput.value : '';
-        var desc = descInput ? descInput.value : (card.description || '');
+        var origTitle = card.title || '';
+        var origDue   = card.due_date ? String(card.due_date).slice(0, 10) : '';
+        var newTitle  = titleInput ? titleInput.value.trim() : origTitle;
+        var newDue    = dueInput  ? dueInput.value  : origDue;
 
-        if (title !== (card.title || '')) payload.title = title;
-        var origDue = card.due_date ? String(card.due_date).slice(0, 10) : '';
-        if ((due || null) !== (origDue || null)) payload.due_date = due || null;
-        if (desc !== (card.description || '')) payload.description = desc;
+        if (newTitle !== origTitle) payload.title = newTitle;
+        if (newDue   !== origDue)  payload.due_date = newDue || null;
 
-        if (!Object.keys(payload).length) {
-            // Nothing changed — the server would no-op; close without
-            // a round-trip (and no version bump).
-            close();
-            return;
-        }
+        if (Object.keys(payload).length === 0) return;   // no-op: nothing to send
 
-        if (!title) {
-            flash('Title cannot be empty', 'error');
-            if (titleInput) titleInput.focus();
+        // Client-side guard: an empty title is rejected by the server with
+        // 422; we'd rather not round-trip just to learn that. Revert the
+        // field to the stored value and flash.
+        if (payload.title !== undefined && newTitle === '') {
+            if (titleInput) titleInput.value = origTitle;
+            flash(t('card_title_required') || 'Title cannot be empty', 'error');
             return;
         }
 
         state.saving = true;
         api('/v1/cards/' + state.cardId, {
-            method: 'PUT', body: payload
+            method: 'PUT',
+            body: payload
         }).then(function (result) {
             state.saving = false;
             if (result.status === 200 && result.data && result.data.card) {
-                state.card = result.data.card;
-                // Re-render the sections affected by the save (the assignee
-                // picker keeps its local state; the saved card is canonical).
-                applyCard(result.data.card);
-                flash(t('card_update_success') || 'Card saved', 'success');
-                close();
+                var saved = result.data.card;
+                state.card = saved;
+                noteBoardMutation();   // close() will refresh the board tile
+                // The autosaved fields are the ONLY things that just changed —
+                // re-sync just those inputs + the header title (no need to
+                // touch the assignee picker / checklist / label state; the
+                // server's response for a field-only payload doesn't change
+                // those sections). The board version bump flows through the
+                // RT-04 poll, which refreshes the board region (the modal
+                // itself is the card's source of truth here, so no reload).
+                if (titleInput && 'title' in payload) titleInput.value = saved.title || '';
+                if (dueInput   && 'due_date' in payload) dueInput.value = saved.due_date ? String(saved.due_date).slice(0, 10) : '';
+                if (modalTitle) modalTitle.textContent = saved.title || '';
             } else {
+                // Keep the user's text (Stage D: the field retains the
+                // unsaved value so they can retry / fix it).
                 flashErr(result);
             }
         }, function () {
@@ -1641,10 +1686,97 @@
         });
     }
 
-    if (saveBtn) saveBtn.addEventListener('click', function (e) {
-        e.preventDefault();
-        save();
-    });
+    /* ---- Stage D: inline autosave for title + due date (§5.21) ----------
+     * Fires on blur / change; debounce ≈800 ms (spec — see _scheduleSave).
+     * The field RETAINS the unsaved text on save failure (we only revert on
+     * the empty-title client-side guard above — the server-rejection path
+     * leaves the input alone so the user can fix + retry).
+     * A real-change test (against state.card) is the no-op contract — blur-
+     * without-change must not round-trip.
+     *
+     * The autosave is field-scoped: each field has its own dirty flag +
+     * debounce, so a blur on Title doesn't cancel an in-flight due save.
+     -------------------------------------------------------------------- */
+    var _titleDirty = false;
+    var _dueDirty   = false;
+    var _titleTimer = 0;
+    var _dueTimer   = 0;
+    var AUTOSAVE_DEBOUCE_MS = 800;   // Stage D spec: ≈800 ms
+
+    function _scheduleSave(field) {
+        // Both fields settle into the same save() (which diffs the whole
+        // card against state.card), so one debounce timer is enough — whichever
+        // field's flag is still set will be captured. A single shared timer
+        // keeps rapid title+due edits into at most one round-trip.
+        clearTimeout(_titleTimer); clearTimeout(_dueTimer);
+        var id = setTimeout(function () {
+            _titleTimer = 0; _dueTimer = 0;
+            save();
+        }, AUTOSAVE_DEBOUCE_MS);
+        if (field === 'title') _titleTimer = id; else _dueTimer = id;
+    }
+
+    function _markTitleDirty() { if (state.card) state.card._titleDirty = true; }
+    function _markDueDirty()   { if (state.card) state.card._dueDirty   = true; }
+
+    // Reset per-open (applyCard). Programmatic .value assignments do NOT fire
+    // `input`, so a fresh open with identical values must still clear the
+    // dirty flags or a stale flag from the previous card would round-trip.
+    function _resetAutosaveState() {
+        _titleDirty = false; _dueDirty = false;
+        clearTimeout(_titleTimer); clearTimeout(_dueTimer);
+        if (state.card) { state.card._titleDirty = false; state.card._dueDirty = false; }
+    }
+
+    if (titleInput && CAN_EDIT) {
+        titleInput.addEventListener('input', function () {
+            var card = state.card;
+            if (!card) return;
+            var v   = titleInput.value.trim();
+            var orig = card.title || '';
+            // Real-change test against the STORED card (the autosave's
+            // no-op contract is on the field, not the whole payload).
+            if (v !== orig) { _markTitleDirty(); _scheduleSave('title'); }
+        });
+        titleInput.addEventListener('blur', function () {
+            if (!CAN_EDIT || !(state.card && state.card._titleDirty)) return;
+            _scheduleSave('title');   // final flush on leaving the field
+        });
+        titleInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                // Cancel the edit: revert to the stored value (Stage D: the
+                // field retains unsaved text on SAVE failure; Escape is the
+                // explicit "discard" the spec reserves for per-field Reset).
+                if (titleInput) titleInput.value = (state.card && state.card.title) || '';
+                if (state.card) state.card._titleDirty = false;
+                clearTimeout(_titleTimer); _titleTimer = 0;
+                titleInput.blur();
+            }
+        });
+    }
+
+    if (dueInput && CAN_EDIT) {
+        dueInput.addEventListener('input', function () {
+            var card = state.card;
+            if (!card) return;
+            var v   = dueInput.value;
+            var orig = card.due_date ? String(card.due_date).slice(0, 10) : '';
+            if (v !== orig) { _markDueDirty(); _scheduleSave('due'); }
+        });
+        dueInput.addEventListener('blur', function () {
+            if (!CAN_EDIT || !(state.card && state.card._dueDirty)) return;
+            _scheduleSave('due');
+        });
+        dueInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') {
+                var orig = (state.card && state.card.due_date) ? String(state.card.due_date).slice(0, 10) : '';
+                if (dueInput) dueInput.value = orig;
+                if (state.card) state.card._dueDirty = false;
+                clearTimeout(_dueTimer); _dueTimer = 0;
+                dueInput.blur();
+            }
+        });
+    }
 
     // ---- Archive / Restore ---------------------------------------------
 
@@ -2129,6 +2261,7 @@
                     attachLocal(target);
                     closeLabelPicker();
                     renderLabelChips(currentLabels());
+                    noteBoardMutation();   // tile-relevant (label dots); close() syncs the tile
                 }
             }, function () { flash((t && t('label.attach_failed') || 'Unable to attach label'), 'error'); })
             .then(function () { state.labelsBusy = false; });
@@ -2146,6 +2279,7 @@
                 } else {
                     detachLocal(labelId);
                     renderLabelChips(currentLabels());
+                    noteBoardMutation();   // tile-relevant (label dots); close() syncs the tile
                 }
             }, flashErr)
             .then(function () { state.labelsBusy = false; });

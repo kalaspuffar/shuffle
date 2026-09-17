@@ -1336,16 +1336,13 @@ small,
     gap: var(--space-2);
 }
 
-/* Footer layout: "Full details" on the left, action buttons on the right */
-.card-modal-footer {
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-}
-
-.card-modal-footer .modal-close,
-.card-modal-footer #card-modal-save {
-    margin-left: var(--space-2);
+/* v1.13 Stage C (§5.21): the card modal's footer (Save / Cancel) was removed —
+   title + due auto-save inline, description saves in its own Edit pane. The
+   only persistent action row is the in-body .cm-actions block (archive /
+   restore / merge / move / delete) inside the Card tab. Keep its layout
+   rules (previously split across footer + section styles). */
+.cm-actions.card-detail-section {
+    margin-top: var(--space-4);
 }
 
 /* Assignee row inside the modal */

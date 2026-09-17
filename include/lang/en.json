@@ -170,6 +170,7 @@
   "card.title_placeholder": "Enter card title...",
   "card.unassigned_self": "Removed yourself from {0}.",
   "card.update_success": "Card updated successfully.",
+  "card.title_required": "Title cannot be empty.",
   "checklist.add": "Add Checklist",
   "checklist.checklists": "Checklists",
   "checklist.create_success": "Checklist created successfully.",
