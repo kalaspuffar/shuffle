@@ -117,6 +117,19 @@ require ROOT_DIR . '/include/templates/header.php';
                     </td>
                     <td class="admin-table-actions">
                         <?php if (!$isSelf && !$isPlaceholder): ?>
+                            <button type="button"
+                                    class="btn btn-ghost btn-edit-user"
+                                    data-user-id="<?= $userId ?>"
+                                    aria-label="<?= htmlspecialchars($lang->get('admin.users.edit'), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>">
+                                <?= htmlspecialchars($lang->get('admin.users.edit'), ENT_QUOTES, 'UTF-8') ?>
+                            </button>
+                            <button type="button"
+                                    class="btn btn-ghost btn-reset-password-user"
+                                    data-user-id="<?= $userId ?>"
+                                    data-user-name="<?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>"
+                                    aria-label="<?= htmlspecialchars($lang->get('admin.users.reset_password'), ENT_QUOTES, 'UTF-8') ?> <?= htmlspecialchars($user['name'], ENT_QUOTES, 'UTF-8') ?>">
+                                <?= htmlspecialchars($lang->get('admin.users.reset_password'), ENT_QUOTES, 'UTF-8') ?>
+                            </button>
                             <?php if ($userStatus === 'active'): ?>
                             <button type="button"
                                     class="btn btn-ghost btn-deactivate-user"
@@ -152,7 +165,100 @@ require ROOT_DIR . '/include/templates/header.php';
 </div>
 
 <?php
-// Pass i18n strings and config to external JS via data attribute (CSP-compliant)
+// User Edit + Reset-password modals (USER-03, v1.14 §5.22).
+// Rendered once on the page (always in the DOM, hidden); the JS populates
+// the edit fields from the per-user row data on open. All actions are
+// JSON API calls via Shuffle.api() (CSRF handled by app.js).
+
+// Per-row payload used by the Edit modal: id -> {name, phone, location, bio, role, email}.
+// Built from the SAME $users the table renders above (already filtered), so
+// the modal always reflects the server's canonical row.
+$userRows = [];
+foreach ($users as $u) {
+    $userRows[(int) $u['id']] = [
+        'name'     => (string) ($u['name'] ?? ''),
+        'phone'    => (string) ($u['phone'] ?? ''),
+        'location' => (string) ($u['location'] ?? ''),
+        'bio'      => (string) ($u['bio'] ?? ''),
+        'role'     => (string) ($u['role'] ?? 'member'),
+        'email'    => (string) ($u['email'] ?? ''),
+    ];
+}
+?>
+
+<!-- Edit user modal (name / phone / location / bio / role; email read-only) -->
+<div class="modal-overlay" id="user-edit-overlay" hidden>
+    <div class="modal user-edit-modal" role="dialog" aria-labelledby="user-edit-title" aria-modal="true">
+        <div class="modal-header">
+            <h2 id="user-edit-title"><?= htmlspecialchars($lang->get('admin.users.edit_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close" data-close="user-edit" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">×</button>
+        </div>
+        <div class="modal-body">
+            <form id="user-edit-form" novalidate>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-name"><?= htmlspecialchars($lang->get('user.name'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="text" id="user-edit-name" name="name" class="form-input" maxlength="128" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-email"><?= htmlspecialchars($lang->get('user.email'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="text" id="user-edit-email" class="form-input" readonly
+                        title="<?= htmlspecialchars($lang->get('admin.users.email_immutable'), ENT_QUOTES, 'UTF-8') ?>">
+                    <small class="form-hint text-secondary"><?= htmlspecialchars($lang->get('admin.users.email_immutable'), ENT_QUOTES, 'UTF-8') ?></small>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-phone"><?= htmlspecialchars($lang->get('profile.phone'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="text" id="user-edit-phone" name="phone" class="form-input" maxlength="32">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-location"><?= htmlspecialchars($lang->get('profile.location'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="text" id="user-edit-location" name="location" class="form-input" maxlength="120">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-bio"><?= htmlspecialchars($lang->get('profile.bio'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <textarea id="user-edit-bio" name="bio" class="form-input" rows="2" maxlength="500"></textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="user-edit-role"><?= htmlspecialchars($lang->get('user.role'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <select id="user-edit-role" name="role" class="form-select">
+                        <option value="admin"><?= htmlspecialchars($lang->get('user.role_admin'), ENT_QUOTES, 'UTF-8') ?></option>
+                        <option value="member"><?= htmlspecialchars($lang->get('user.role_member'), ENT_QUOTES, 'UTF-8') ?></option>
+                        <option value="viewer"><?= htmlspecialchars($lang->get('user.role_viewer'), ENT_QUOTES, 'UTF-8') ?></option>
+                    </select>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close" data-close="user-edit"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-primary" id="user-edit-save"><?= htmlspecialchars($lang->get('admin.users.edit_save'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+
+<!-- Reset password modal (USER-03) -->
+<div class="modal-overlay" id="user-reset-overlay" hidden>
+    <div class="modal user-reset-password-modal" role="dialog" aria-labelledby="user-reset-title" aria-describedby="user-reset-hint" aria-modal="true">
+        <div class="modal-header">
+            <h2 id="user-reset-title"><?= htmlspecialchars($lang->get('admin.users.reset_password_title'), ENT_QUOTES, 'UTF-8') ?></h2>
+            <button type="button" class="btn btn-ghost modal-close" data-close="user-reset" aria-label="<?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?>">×</button>
+        </div>
+        <div class="modal-body">
+            <p class="text-secondary" id="user-reset-hint"><?= htmlspecialchars($lang->get('admin.users.reset_password_hint'), ENT_QUOTES, 'UTF-8') ?></p>
+            <form id="user-reset-form" novalidate>
+                <div class="form-group">
+                    <label class="form-label" for="user-reset-new"><?= htmlspecialchars($lang->get('admin.users.reset_password_new'), ENT_QUOTES, 'UTF-8') ?></label>
+                    <input type="password" id="user-reset-new" name="new_password" class="form-input" autocomplete="new-password" minlength="8" required>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary modal-close" data-close="user-reset"><?= htmlspecialchars($lang->get('action.cancel'), ENT_QUOTES, 'UTF-8') ?></button>
+            <button type="button" class="btn btn-primary" id="user-reset-save"><?= htmlspecialchars($lang->get('admin.users.reset_password_btn'), ENT_QUOTES, 'UTF-8') ?></button>
+        </div>
+    </div>
+</div>
+
+<?php
+// Pass i18n strings + the user-rows payload to the JS.
 $usersLang = json_encode([
     'update_success'      => $lang->get('user.update_success'),
     'deactivate_success'  => $lang->get('user.deactivate_success'),
@@ -166,6 +272,11 @@ $usersLang = json_encode([
     'deactivate'          => $lang->get('user.deactivate'),
     'activate'            => $lang->get('user.activate'),
     'error_bad_request'   => $lang->get('error.bad_request'),
+    // v1.14 USER-03 additions
+    'edit_saved'          => $lang->get('flash.user_updated'),
+    'reset_done'          => $lang->get('flash.user_password_reset'),
+    'reset_error'         => $lang->get('error.server_error'),
+    'rows'                => $userRows,
 ], JSON_HEX_TAG | JSON_HEX_AMP);
 ?>
 <script id="users-script" src="/js/users.js" data-lang="<?= htmlspecialchars($usersLang, ENT_QUOTES, 'UTF-8') ?>"></script>

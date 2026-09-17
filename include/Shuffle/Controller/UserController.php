@@ -195,4 +195,88 @@ class UserController
             $response->error($e->getMessage(), 404);
         }
     }
+
+    /**
+     * PUT /v1/me
+     *
+     * Self-service profile update (USER-02, §5.22). Updates the actor's own
+     * `name`, `phone`, `location`, `bio` — only provided fields. Email is
+     * rejected (immutable in v1 — identity anchor, AUTH-04).
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     */
+    public function updateMe(Request $request, Response $response): void
+    {
+        $currentUser = $this->auth->requireAuth();
+
+        try {
+            $user = $this->userService->updateMe((int) $currentUser['id'], $request->getBody());
+            $response->json(['user' => $user]);
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
+        }
+    }
+
+    /**
+     * PUT /v1/me/password
+     *
+     * Change one's own password (USER-02, §5.22). Requires the current
+     * password for identity confirmation. 403 (not 400) when the current
+     * password is wrong so the client can surface "wrong current password"
+     * distinctly from a malformed request.
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     */
+    public function changeMyPassword(Request $request, Response $response): void
+    {
+        $currentUser = $this->auth->requireAuth();
+
+        try {
+            $this->userService->changeMyPassword((int) $currentUser['id'], $request->getBody());
+            $response->json(['message' => 'Password changed']);
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            $status = ($message === 'Current password is incorrect') ? 403 : 404;
+            $response->error($message, $status);
+        }
+    }
+
+    /**
+     * POST /v1/admin/users/{id}/reset-password
+     *
+     * Admin reset of any user's password (USER-03, §5.22). The admin does not
+     * need the user's current password. 404 for an unknown user id; 400 for a
+     * malformed password; 204 on success (no body — the new password must not
+     * be echoed back).
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function resetPassword(Request $request, Response $response, array $params): void
+    {
+        $currentUser = $this->auth->requireRole('admin');
+        $id = (int) ($params['id'] ?? 0);
+
+        try {
+            $this->userService->adminResetPassword((int) $currentUser['id'], $id, $request->getBody());
+            $response->noContent();
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
+        } catch (\RuntimeException $e) {
+            $message = $e->getMessage();
+            if (str_starts_with($message, 'Access denied')) {
+                $status = 403;
+            } elseif ($message === 'User not found') {
+                $status = 404;
+            } else {
+                $status = 400;
+            }
+            $response->error($message, $status);
+        }
+    }
 }

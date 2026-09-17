@@ -211,6 +211,12 @@ $router->post('/users/activate', [$userController, 'activate']);
 $router->put('/users/{id}', [$userController, 'update']);
 $router->delete('/users/{id}', [$userController, 'delete']);
 
+// Self-service profile (USER-02, §5.22)
+$router->put('/me', [$userController, 'updateMe']);
+$router->put('/me/password', [$userController, 'changeMyPassword']);
+// Admin password reset (USER-03, §5.22)
+$router->post('/admin/users/{id}/reset-password', [$userController, 'resetPassword']);
+
 // Organization routes
 $router->get('/organizations', [$orgController, 'index']);
 $router->get('/organizations/{id}', [$orgController, 'show']);
