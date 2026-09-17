@@ -270,9 +270,23 @@ function makeSandbox() {
     // assert that the module actually un-scheduled the pending save.
     const timeouts = [];
     const clearLog = [];
+    const syncState = { calls: [], log: [] };
+    const boardSyncStub = {
+        hasPendingSync: () => false,
+        clearPendingSync: function () {},
+        syncNow: function (targetVersion) {
+            syncState.calls.push(targetVersion);
+            syncState.log.push(targetVersion);
+            return Promise.resolve();
+        },
+    };
     const sandbox = {
         document: documentObj,
-        window: { location: { search: '' }, setTimeout, clearTimeout },
+        window: {
+            location: { search: '' },
+            Shuffle: null,   // filled right after the sandbox object is built
+            ShuffleBoardSync: boardSyncStub,
+        },
         console, Promise, JSON,
         parseInt: (v, r) => parseInt(v, r),
         setTimeout: (fn, ms) => { const id = setTimeout(fn, ms || 0); timeouts.push(id); return id; },
@@ -287,8 +301,7 @@ function makeSandbox() {
     vm.createContext(sandbox);
     sandbox.Shuffle = shuffleObj;   // card-modal.js calls a bare `Shuffle` global
     sandbox.window.Shuffle = shuffleObj;   // flash() reads `window.Shuffle.showFlash` for the guard path (test [2])
-    sandbox.window.ShowFlash = (m, t) => shuffleObj.showFlash && shuffleObj.showFlash(m, t);
-    return { dom, sandbox, shuffleObj, apiLog, timeouts, clearLog, queue, domObj: documentObj };
+    return { dom, sandbox, shuffleObj, apiLog, timeouts, clearLog, queue, domObj: documentObj, syncState };
 }
 
 function runModule(s, card) {
@@ -472,6 +485,74 @@ const BASE = {
             const puts = s.apiLog.slice(before).filter(x => x.method === 'PUT');
             check('no PUT after Escape + settle', puts.length === 0, JSON.stringify(s.apiLog.slice(before)));
             check('field reverted to the stored title', s.dom.titleInput.value === 'Autosave card', 'got: ' + JSON.stringify(s.dom.titleInput.value));
+        }
+
+        // ================= [9] close after save → immediate region sync ====
+        // The bug Daniel hit: autosave bumped the board version but the tile
+        // stayed stale (the 15 s poll tick hadn't run → pendingSync unset →
+        // no reconcile on close). close() must now call ShuffleBoardSync
+        // .syncNow() exactly once.
+        console.log('\n[9] close after a successful autosave → one syncNow() call');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+
+            s.dom.titleInput.value = 'Fresh title';
+            s.dom.titleInput.dispatch('input', {});
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Fresh title' } } });
+            await settle(900);
+
+            const before = s.syncState.calls.length;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(20);
+
+            check('exactly one syncNow() call after a save + close', s.syncState.calls.length === before + 1,
+                'calls=' + JSON.stringify(s.syncState.calls));
+        }
+
+        // ================= [10] close without any mutation → no sync =======
+        console.log('\n[10] close with no mutations this open → no syncNow() call');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+
+            s.dom.titleInput.dispatch('blur', {});
+            await settle(200);
+            const before = s.syncState.calls.length;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(100);
+
+            check('no syncNow() when nothing was saved this open', s.syncState.calls.length === before,
+                'calls=' + JSON.stringify(s.syncState.calls));
+        }
+
+        // ================= [11] syncNow is not doubled ======================
+        console.log('\n[11] two closes in a row with one save between → exactly one syncNow() per close-after-save');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            // Open 1: save then close → 1 call
+            s.dom.titleInput.value = 'Title one';
+            s.dom.titleInput.dispatch('input', {});
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Title one' } } });
+            await settle(900);
+            const beforeA = s.syncState.calls.length;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(20);
+            check('close #1 (after save) fires syncNow once', s.syncState.calls.length === beforeA + 1,
+                'calls=' + JSON.stringify(s.syncState.calls));
+            // Open 2 (no save) then close → 0 additional
+            s.sandbox.window.ShuffleCardModal.openById(42);
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Title one' } } });
+            await settle(10);
+            const beforeB = s.syncState.calls.length;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(20);
+            check('close #2 (no save) fires no syncNow', s.syncState.calls.length === beforeB,
+                'calls=' + JSON.stringify(s.syncState.calls));
         }
 
         console.log('\n-----------------------------------');

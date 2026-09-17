@@ -138,6 +138,9 @@
         mergeBusy: false,
         moveBusy: false,    // double-mutation guard on the move-to-board dialog
         labelsBusy: false,   // double-mutation guard on chip attach/detach
+        boardMutations: 0,   // Stage D: count of successful autosave PUTs this open
+                             // (set by save() success; reset by applyCard; used
+                             // by close() to trigger an immediate region sync)
         highlightCommentId: null  // NOTIF-09 deep-link target (auto-cleared)
     };
 
@@ -227,13 +230,9 @@
         if (!isCardModalVisible()) return;
         overlay.hidden = true;
         overlay.setAttribute('aria-hidden', 'true');
-        // Focus returns to the opener (the card on the board), not the body.
-        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
-        state.lastOpener = null;
-        // Reset comment-input + any in-flight edit state (the next open re-fetches).
-        if (commentInput) commentInput.value = '';
-        Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
-            .forEach(function (f) { f.hidden = true; });
+        // ---- board reconciliation (BEFORE focus returns to the card tile —
+        //      returning focus first would trip board.js's syncGuardActive()
+        //      "focus on an editable inside the region" guard and defer it)
         // RT-06 (SPECIFICATION §5.19): if a board version bump arrived while the
         // modal was open, the real-time sync was deferred. Now that the modal is
         // gone a full reload is safe — and it also refreshes board-header data
@@ -243,7 +242,31 @@
         if (window.ShuffleBoardSync && window.ShuffleBoardSync.hasPendingSync()) {
             window.ShuffleBoardSync.clearPendingSync();
             window.location.reload();
+            return;
         }
+        // v1.13 Stage D (RT-04 companion): the modal's OWN mutations (title /
+        // due autosave, description Save, assignee changes) bumped the board
+        // version, but the deferred-sync flag above is only set when a 15 s
+        // POLL tick observed a bump — a save in the last second of the interval
+        // (the common case) sets no flag, leaving the board tile stale until
+        // the next poll. Now that the overlay is hidden the board.js guard is
+        // clear: do an immediate in-place region sync (no reload — the modal
+        // is card-centric, and the server-rendered fragment is the board's
+        // source of truth for the tile title / due date / avatars it shows).
+        if (state.boardMutations > 0) {
+            state.boardMutations = 0;
+            if (window.ShuffleBoardSync && window.ShuffleBoardSync.syncNow) {
+                window.ShuffleBoardSync.syncNow();
+            }
+        }
+        // ---- focus return + state reset -------------------------------------
+        // Focus returns to the opener (the card on the board), not the body.
+        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
+        state.lastOpener = null;
+        // Reset comment-input + any in-flight edit state (the next open re-fetches).
+        if (commentInput) commentInput.value = '';
+        Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
+            .forEach(function (f) { f.hidden = true; });
     }
 
     function desiredInitialFocus() {
@@ -342,6 +365,9 @@
         // unsaved flags must not survive an applyCard — programmatic .value
         // assignment doesn't fire the input handlers that set them).
         _resetAutosaveState();
+        // boardMutations is per-OPEN, not per-card: a fresh card opened within
+        // the same modal session inherits the same board, and a close will
+        // reconcile the tile (count stays non-zero → syncNow still fires).
 
         // CARD-14: default EVERY card open to the Preview pane (the modal is a
         // read-first surface). This also clears any stale edit state from the
@@ -741,6 +767,7 @@
         }).then(function (result) {
             if (result.status === 200) {
                 refreshAvatarRow();
+                noteBoardMutation();   // tile-relevant (avatars); close() syncs the tile
             } else {
                 // Revert optimistic state
                 var i2 = assignedIds.indexOf(userId);
@@ -1528,6 +1555,11 @@
         });
     }
 
+    /** Stage D: mark that a successful modal mutation bumped the board
+     *  version — close() will then reconcile the board tile immediately
+     *  instead of waiting for the next 15 s poll tick. */
+    function noteBoardMutation() { state.boardMutations++; }
+
     // ---- Stage B: description-local Save -------------------------------
     // Saves ONLY the description (description-only payload → the service
     // diffs per-field, so title/due are untouched and no other fields are
@@ -1561,6 +1593,7 @@
             if (descSaveBtn) descSaveBtn.disabled = false;
             if (result.status === 200 && result.data && result.data.card) {
                 state.card = result.data.card;
+                noteBoardMutation();   // tile-relevant (description meta count); close() syncs
                 state.card._descDirty = false;
                 // Return to Preview, seeded from the server's rendered HTML
                 // (no extra /markdown/render round-trip).
@@ -1631,6 +1664,7 @@
             if (result.status === 200 && result.data && result.data.card) {
                 var saved = result.data.card;
                 state.card = saved;
+                noteBoardMutation();   // close() will refresh the board tile
                 // The autosaved fields are the ONLY things that just changed —
                 // re-sync just those inputs + the header title (no need to
                 // touch the assignee picker / checklist / label state; the
@@ -2227,6 +2261,7 @@
                     attachLocal(target);
                     closeLabelPicker();
                     renderLabelChips(currentLabels());
+                    noteBoardMutation();   // tile-relevant (label dots); close() syncs the tile
                 }
             }, function () { flash((t && t('label.attach_failed') || 'Unable to attach label'), 'error'); })
             .then(function () { state.labelsBusy = false; });
@@ -2244,6 +2279,7 @@
                 } else {
                     detachLocal(labelId);
                     renderLabelChips(currentLabels());
+                    noteBoardMutation();   // tile-relevant (label dots); close() syncs the tile
                 }
             }, flashErr)
             .then(function () { state.labelsBusy = false; });
