@@ -15,13 +15,13 @@ set -u
 H='-H Host:shuffle.ea.org'
 B=http://127.0.0.1
 
-# Resolve admin session + CSRF (user 1) from the DB at runtime.
+# Resolve harness session + CSRF (user 4=mya) from the DB at runtime.
 # (Session ROW owner must be user 1 for an authenticated admin; the test
 #  FIXTURES are created/deleted by user 1 in the harness — the test-safety
 #  invariant about not MUTATING user 1's data is enforced by full cleanup.)
 SESS=$(cd ~/shuffle && php -r '
   require "include/bootstrap.php";
-  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 1 ORDER BY last_activity DESC LIMIT 1");
+  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 4 ORDER BY last_activity DESC LIMIT 1");
   if (!$row || !preg_match("/csrf_token\\|s:64:\\\"([0-9a-f]{64})\\\"/", $row["data"], $m)) exit(3);
   echo $row["id"] . "\n" . $m[1];' 2>/dev/null) || { echo "no live admin session — run a login first"; exit 1; }
 SID=$(printf '%s' "$SESS" | head -1)
@@ -41,10 +41,10 @@ cd ~/shuffle
 FIXTURE=$(php -r '
   require "include/bootstrap.php";
   $bm = new \Shuffle\Model\Board($db); $lm = new \Shuffle\Model\Lane($db); $cm = new \Shuffle\Model\Card($db);
-  $src  = $bm->create(["title" => "HTTP Move SRC", "visibility" => "private", "created_by" => 1]);
+  $src  = $bm->create(["title" => "HTTP Move SRC", "visibility" => "private", "created_by" => 4]);
   $ls   = $lm->create(["board_id" => $src, "title" => "Inbox S", "position" => 1000]);
-  $card = $cm->create(["lane_id" => $ls, "title" => "HTTP MOVE CARD", "created_by" => 1]);
-  $dst  = $bm->create(["title" => "HTTP Move DST", "visibility" => "private", "created_by" => 1]);
+  $card = $cm->create(["lane_id" => $ls, "title" => "HTTP MOVE CARD", "created_by" => 4]);
+  $dst  = $bm->create(["title" => "HTTP Move DST", "visibility" => "private", "created_by" => 4]);
   $la   = $lm->create(["board_id" => $dst, "title" => "Inbox D", "position" => 1000]);
   $lb   = $lm->create(["board_id" => $dst, "title" => "Backlog D", "position" => 2000]);
   echo json_encode(["src"=>$src, "ls"=>$ls, "card"=>$card, "dst"=>$dst, "la"=>$la, "lb"=>$lb]);

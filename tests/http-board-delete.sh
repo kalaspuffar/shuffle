@@ -6,10 +6,10 @@ H='-H Host:shuffle.ea.org'
 B=http://127.0.0.1
 
 # Resolve a live admin session + CSRF from the DB at runtime (no hardcoded
-# tokens). Requires a reachable local shuffle DB and user_id=1 = admin.
+# tokens). Requires a reachable local shuffle DB and user_id=4 = mya (harness account).
 SESS=$(cd ~/shuffle && php -r '
   require "include/bootstrap.php";
-  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 1 ORDER BY last_activity DESC LIMIT 1");
+  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 4 ORDER BY last_activity DESC LIMIT 1");
   if (!$row || !preg_match("/csrf_token\|s:64:\"([0-9a-f]{64})\"/", $row["data"], $m)) exit(3);
   echo $row["id"] . "\n" . $m[1];') || { echo "no live admin session — run login first"; exit 1; }
 SID=$(printf '%s' "$SESS" | head -1)
@@ -24,9 +24,9 @@ ck() { # ck <name> <cond:0=fail>
 cd ~/shuffle
 SID2=$(cd ~/shuffle && php -r '
   require "include/bootstrap.php";
-  $b = (new \Shuffle\Model\Board($db))->create(["title"=>"Mya HTTP E2E board","visibility"=>"private","created_by"=>1]);
+  $b = (new \Shuffle\Model\Board($db))->create(["title"=>"Mya HTTP E2E board","visibility"=>"private","created_by"=>4]);
   $l = (new \Shuffle\Model\Lane($db))->create(["board_id"=>$b,"title"=>"Inbox","position"=>1000]);
-  (new \Shuffle\Model\Card($db))->create(["lane_id"=>$l,"title"=>"HTTP card","created_by"=>1]);
+  (new \Shuffle\Model\Card($db))->create(["lane_id"=>$l,"title"=>"HTTP card","created_by"=>4]);
   echo $b;')
 echo "fixture board id: $SID2"
 

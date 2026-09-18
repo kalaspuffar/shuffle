@@ -48,6 +48,22 @@ $userModelForLog = new \Shuffle\Model\User($db2);
 $activityModel  = new \Shuffle\Model\CardActivity($db2);
 
 // ---------------------------------------------------------------------------
+// Fixture: a dedicated second user (assignee/comment/priority roles).
+// Never a real account (Daniel/mya) — created here, deleted in cleanup.
+// ---------------------------------------------------------------------------
+$fixtureUserModel = new \Shuffle\Model\User($db2);
+$fxNameM = 'e2e-move-' . substr(bin2hex(random_bytes(4)), 0, 8);
+$fixtureUserIdM = $fixtureUserModel->create([
+    'username'      => $fxNameM,
+    'password_hash' => password_hash('fixture-pass-1', PASSWORD_ARGON2ID),
+    'name'          => 'Move Fixture',
+    'email'         => $fxNameM . '@example.test',
+    'organization_id' => 1,
+    'role'          => 'member',
+    'status'        => 'active',
+]);
+
+// ---------------------------------------------------------------------------
 // Fixtures: source board (Misc-like) + destination board with 2 lanes +
 // a label on each board (one matching by name, one not)
 // ---------------------------------------------------------------------------
@@ -72,19 +88,19 @@ $movedCard = $cardModel->create(['lane_id' => $srcLane, 'title' => 'MOVING CARD'
 $labelModel->attach($movedCard, $srcBug);
 $labelModel->attach($movedCard, $srcMisc);
 
-// Assignees: user 2 (olaf) + user 4 (mya)
-$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$movedCard, 2]);
+// Assignees: fixture user + user 4 (mya)
+$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$movedCard, $fixtureUserIdM]);
 $db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$movedCard, 4]);
 
 // Comment + checklist + attachment keyed on the card id (must all survive)
-$commentModel->create(['card_id' => $movedCard, 'user_id' => 2, 'body' => 'move e2e comment']);
+$commentModel->create(['card_id' => $movedCard, 'user_id' => $fixtureUserIdM, 'body' => 'move e2e comment']);
 $checklistModel->create(['card_id' => $movedCard, 'title' => 'move e2e checklist']);
 $attachmentModel->create(['card_id' => $movedCard, 'user_id' => 4, 'file_name' => 'm.txt', 'file_size' => 5, 's3_key' => 'move-e2e/m-' . $movedCard . '.txt', 'mime_type' => 'text/plain']);
 
-// user_prio entries for user 4 and user 2 (a move must NOT clear them —
+// user_prio entries for user 4 and the fixture user (a move must NOT clear them —
 // re-homing keeps the id, unlike CARD-13 merge semantics)
 $db2->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, 1000)', [4, $movedCard]);
-$db2->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, 1000)', [2, $movedCard]);
+$db2->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, 1000)', [$fixtureUserIdM, $movedCard]);
 
 // ---------------------------------------------------------------------------
 // Wire the service (mirrors www/v1/index.php)
@@ -168,11 +184,13 @@ if (count($laneB) === 2) {
 // § 1. Content preserved (all key on the card id)
 $assigned = array_map(static fn ($u) => (int) $u['id'], $cardModel->getAssignedUsers($cardIdBefore));
 sort($assigned);
-check('survives: assignees [2,4] intact', $assigned === [2, 4]);
+$expectedAssigned = [4, $fixtureUserIdM];
+sort($expectedAssigned);
+check('survives: assignees [fx,mya] intact', $assigned === $expectedAssigned);
 check('survives: comment intact', count($commentModel->findByCard($cardIdBefore)) === 1);
 check('survives: checklist intact', count($checklistModel->findByCard($cardIdBefore)) === 1);
 check('survives: attachment intact', count($attachmentModel->findByCard($cardIdBefore)) === 1);
-foreach ([4, 2] as $uid) {
+foreach ([4, $fixtureUserIdM] as $uid) {
     check('survives: user_prio preserved for user ' . $uid,
         $db2->fetch('SELECT id FROM user_prio WHERE user_id=? AND card_id=?', [$uid, $cardIdBefore]) !== null);
 }
@@ -240,6 +258,10 @@ $leftovers = $db2->fetch(
 check('cleanup: both fixture boards gone', (int) $leftovers['c'] === 0);
 $leftoverCards = $db2->fetch('SELECT COUNT(*) AS c FROM cards WHERE id = ?', [$cardIdBefore]);
 check('cleanup: moved card cascade-deleted with its board', (int) $leftoverCards['c'] === 0);
+
+// Fixture user
+$fixtureUserModel->delete($fixtureUserIdM);
+check('cleanup: fixture user gone', $fixtureUserModel->findById($fixtureUserIdM) === null);
 
 echo "\n$checks checks, $failures failures\n";
 exit($failures === 0 ? 0 : 1);

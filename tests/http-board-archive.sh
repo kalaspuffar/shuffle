@@ -20,7 +20,7 @@
 #
 # Cleanup: deletes any fixture board it creates.
 #
-# Requires: a live admin session in the DB (user_id=1).
+# Requires: a live harness session in the DB (user_id=4, mya).
 set -u
 H='-H Host:shuffle.ea.org'
 B=http://127.0.0.1
@@ -36,7 +36,7 @@ resolve_session() {
     echo $row["id"] . "\n" . $m[1];' "$1"
 }
 
-SESS=$(resolve_session 1) || { echo "no live admin session — run login first"; exit 1; }
+SESS=$(resolve_session 4) || { echo "no live admin session — run login first"; exit 1; }
 SID_A=$(printf '%s' "$SESS" | head -1)
 CSRF_A=$(printf '%s' "$SESS" | tail -1)
 COOKIE_A="shuffle_session=$SID_A"
@@ -56,11 +56,11 @@ $(php -r '
   $b = new \Shuffle\Model\Board($db);
   $l = new \Shuffle\Model\Lane($db);
   $c = new \Shuffle\Model\Card($db);
-  $bId = $b->create(["title"=>"Mya HTTP-BA-board-$(date +%s)","visibility"=>"private","created_by"=>1]);
+  $bId = $b->create(["title"=>"Mya HTTP-BA-board-$(date +%s)","visibility"=>"private","created_by"=>4]);
   $lId = $l->create(["board_id"=>$bId,"title"=>"In Progress","position"=>1000]);
-  $cId = $c->create(["lane_id"=>$lId,"title"=>"Mya HTTP-BA-card","created_by"=>1]);
-  $db->execute("INSERT INTO card_assignments (card_id, user_id) VALUES (?,?)", [$cId, 1]);
-  (new \Shuffle\Model\UserPrio($db))->add(1, $cId, 1000);
+  $cId = $c->create(["lane_id"=>$lId,"title"=>"Mya HTTP-BA-card","created_by"=>4]);
+  $db->execute("INSERT INTO card_assignments (card_id, user_id) VALUES (?,?)", [$cId, 4]);
+  (new \Shuffle\Model\UserPrio($db))->add(4, $cId, 1000);
   echo $bId . " " . $cId;')
 EOF
 echo "fixture: board=$FIX_BID card=$FIX_CID"

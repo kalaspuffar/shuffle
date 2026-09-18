@@ -30,8 +30,8 @@ resolve_session() {
     echo $row["id"] . "\n" . $m[1];' "$1"
 }
 
-ADMIN="${1:-1}"
-TARGET="${2:-2}"
+ADMIN="${1:-4}"
+TARGET="${2:-4}"
 
 SESS=$(resolve_session "$ADMIN") || { echo "no live admin session — log in first"; exit 1; }
 SID_A=$(printf '%s' "$SESS" | head -1)
