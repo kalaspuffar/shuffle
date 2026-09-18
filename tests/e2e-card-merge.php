@@ -30,10 +30,10 @@ function check(string $name, bool $cond): void {
     echo ($cond ? 'PASS' : 'FAIL') . "  $name\n";
 }
 
-$user = ['id' => 1, 'username' => 'admin', 'name' => 'Admin', 'email' => 'admin@example.com',
-         'role' => 'admin', 'organization_id' => 1];
+$user = ['id' => 4, 'username' => 'mya', 'name' => 'Mya (harness)', 'email' => 'harness@example.test',
+         'role' => 'member', 'organization_id' => 1];
 
-$actor = ['id' => 1];
+$actor = ['id' => 4];
 
 $db2 = $db;
 $boardModel   = new \Shuffle\Model\Board($db2);
@@ -47,29 +47,45 @@ $userModelForLog = new \Shuffle\Model\User($db2);
 $activityModel  = new \Shuffle\Model\CardActivity($db2);
 
 // ---------------------------------------------------------------------------
+// Fixture: a dedicated second user for the assignee/comment/priority roles.
+// Never a real account (Daniel/mya) — created here, deleted below.
+// ---------------------------------------------------------------------------
+$fixtureUserModel = new \Shuffle\Model\User($db2);
+$fxName = 'e2e-merge-' . substr(bin2hex(random_bytes(4)), 0, 8);
+$fixtureUserId = $fixtureUserModel->create([
+    'username'      => $fxName,
+    'password_hash' => password_hash('fixture-pass-1', PASSWORD_ARGON2ID),
+    'name'          => 'Merge Fixture',
+    'email'         => $fxName . '@example.test',
+    'organization_id' => 1,
+    'role'          => 'member',
+    'status'        => 'active',
+]);
+
+// ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
-$board = $boardModel->create(['title' => 'Mya E2E Merge', 'visibility' => 'private', 'created_by' => 1]);
+$board = $boardModel->create(['title' => 'Mya E2E Merge', 'visibility' => 'private', 'created_by' => $actor['id']]);
 $laneA = $laneModel->create(['board_id' => $board, 'title' => 'Inbox A', 'position' => 1000]);
 $laneB = $laneModel->create(['board_id' => $board, 'title' => 'Inbox B', 'position' => 2000]);
 
 // Cross-board fixture (for rejection check)
-$boardX = $boardModel->create(['title' => 'Mya E2E Merge X', 'visibility' => 'private', 'created_by' => 1]);
+$boardX = $boardModel->create(['title' => 'Mya E2E Merge X', 'visibility' => 'private', 'created_by' => $actor['id']]);
 $laneX  = $laneModel->create(['board_id' => $boardX, 'title' => 'Inbox', 'position' => 1000]);
-$cardX  = $cardModel->create(['lane_id' => $laneX, 'title' => 'cross-board card', 'created_by' => 1]);
+$cardX  = $cardModel->create(['lane_id' => $laneX, 'title' => 'cross-board card', 'created_by' => $actor['id']]);
 
-$srcCard = $cardModel->create(['lane_id' => $laneA, 'title' => 'SRC', 'created_by' => 1]);
-$dstCard = $cardModel->create(['lane_id' => $laneB, 'title' => 'DST', 'created_by' => 1]);
+$srcCard = $cardModel->create(['lane_id' => $laneA, 'title' => 'SRC', 'created_by' => $actor['id']]);
+$dstCard = $cardModel->create(['lane_id' => $laneB, 'title' => 'DST', 'created_by' => $actor['id']]);
 
-// Assignees: user 1 to both (overlap), user 2 to source-only (should land on dest)
-$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$srcCard, 1]);
-$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$dstCard, 1]);
-$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$srcCard, 2]);
+// Assignees: harness to both (overlap), fixture user to source-only (must land on dest)
+$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$srcCard, $actor['id']]);
+$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$dstCard, $actor['id']]);
+$db2->execute('INSERT INTO card_assignments (card_id, user_id) VALUES (?, ?)', [$srcCard, $fixtureUserId]);
 
-// Comments: 1 on each card (author 1 + 2 each) — after merge, all 4 on dest,
+// Comments: 1 on each card (harness + fixture) — after merge, both on dest,
 // source-own timestamps stay put.
-$cDest = $commentModel->create(['card_id' => $dstCard, 'user_id' => 2, 'body' => 'dest comment']);
-$cSrc  = $commentModel->create(['card_id' => $srcCard, 'user_id' => 2, 'body' => 'src comment']);
+$cDest = $commentModel->create(['card_id' => $dstCard, 'user_id' => $fixtureUserId, 'body' => 'dest comment']);
+$cSrc  = $commentModel->create(['card_id' => $srcCard, 'user_id' => $fixtureUserId, 'body' => 'src comment']);
 
 // Checklists: one on dst, two on src (with different item counts to spot order)
 $clDest = $checklistModel->create(['card_id' => $dstCard, 'title' => 'D-checklist']);
@@ -84,18 +100,18 @@ $checklistItemModel->create(['checklist_id' => $clSrc2, 'title' => 's2-item-2'])
 // Attachments: one shared s3_key (should drop on merge) + one unique
 $s3Shared = 'merge-e2e/shared-' . $srcCard . '.txt';
 $s3Unique = 'merge-e2e/unique-' . $srcCard . '.png';
-$attachmentModel->create(['card_id' => $dstCard, 'user_id' => 1, 'file_name' => 'f.txt', 'file_size' => 10, 's3_key' => $s3Shared, 'mime_type' => 'text/plain']);
-$attachmentModel->create(['card_id' => $srcCard, 'user_id' => 1, 'file_name' => 'f.txt', 'file_size' => 10, 's3_key' => $s3Shared, 'mime_type' => 'text/plain']);
-$attachmentModel->create(['card_id' => $srcCard, 'user_id' => 1, 'file_name' => 'u.png', 'file_size' => 100, 's3_key' => $s3Unique, 'mime_type' => 'image/png']);
+$attachmentModel->create(['card_id' => $dstCard, 'user_id' => $actor['id'], 'file_name' => 'f.txt', 'file_size' => 10, 's3_key' => $s3Shared, 'mime_type' => 'text/plain']);
+$attachmentModel->create(['card_id' => $srcCard, 'user_id' => $actor['id'], 'file_name' => 'f.txt', 'file_size' => 10, 's3_key' => $s3Shared, 'mime_type' => 'text/plain']);
+$attachmentModel->create(['card_id' => $srcCard, 'user_id' => $actor['id'], 'file_name' => 'u.png', 'file_size' => 100, 's3_key' => $s3Unique, 'mime_type' => 'image/png']);
 
-// Priority list: both source+dest prioritized for user 1 and user 2 (CARD-13 test)
-foreach ([1, 2] as $uid) {
+// Priority list: both source+dest prioritized for harness and fixture user (CARD-13 test)
+foreach ([$actor['id'], $fixtureUserId] as $uid) {
     $db2->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, 1000)', [$uid, $srcCard]);
     $db2->execute('INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, 2000)', [$uid, $dstCard]);
 }
 
 // Source's own activity feed (to verify cascade-away on merge)
-$activityModel->insert($srcCard, $board, 'card_created', 1, null);
+$activityModel->insert($srcCard, $board, 'card_created', $actor['id'], null);
 
 // ---------------------------------------------------------------------------
 // Wire the service (mirrors www/v1/index.php — the legacy harness path is
@@ -158,11 +174,13 @@ $mergedCard = $cardService->mergeInto($srcCard, $dstCard, $actor);
 check('merge: returns the destination card id',
     (int) ($mergedCard['id'] ?? 0) === $dstCard);
 
-// Assignees union (source-only user 2 must be on the survivor; shared user 1 still appears once)
+// Assignees union (source-only fixture user must be on the survivor; harness still appears once)
 $dstAssigned = $cardModel->getAssignedUsers($dstCard);
 $assignedIds = array_map(static fn ($u) => (int) $u['id'], $dstAssigned);
 sort($assignedIds);
-check('assignees: survivor has [1,2] (union, deduped)', $assignedIds === [1, 2]);
+$expectedAssigned = [$actor['id'], $fixtureUserId];
+sort($expectedAssigned);
+check('assignees: survivor has [harness, fixture] (union, deduped)', $assignedIds === $expectedAssigned);
 
 // Comments: all 4 on dest, source comment keeps original created_at
 $dstComments = $commentModel->findByCard($dstCard);
@@ -198,8 +216,8 @@ check('attachments: survivor has shared + unique (2 rows)', $dstAttKeys === [$s3
 $srcAtt = $attachmentModel->findByCard($srcCard);
 check('attachments: source card row is gone (no leftover rows for deleted card)', count($srcAtt) === 0);
 
-// Priority list: source card cleared for BOTH user 1 and user 2 (CARD-13)
-foreach ([1, 2] as $uid) {
+// Priority list: source card cleared for harness AND fixture user (CARD-13)
+foreach ([$actor['id'], $fixtureUserId] as $uid) {
     $rowForSrc = $db2->fetch('SELECT id FROM user_prio WHERE user_id=? AND card_id=?', [$uid, $srcCard]);
     $rowForDst = $db2->fetch('SELECT id FROM user_prio WHERE user_id=? AND card_id=?', [$uid, $dstCard]);
     check('CARD-13: user_prio cleared for user ' . $uid . ' on source card', $rowForSrc === null);
@@ -242,6 +260,10 @@ $leftovers = $db2->fetchAll(
     [$board, $boardX]
 );
 check('cleanup: both fixture boards gone', (int) $leftovers[0]['c'] === 0);
+
+// Fixture user (no cascade reaches it — boards created_by must go first)
+$fixtureUserModel->delete($fixtureUserId);
+check('cleanup: fixture user gone', $fixtureUserModel->findById($fixtureUserId) === null);
 
 echo "\n$checks checks, $failures failures\n";
 exit($failures === 0 ? 0 : 1);

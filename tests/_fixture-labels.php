@@ -7,10 +7,10 @@ require dirname(__DIR__) . '/include/bootstrap.php';
 $bm = new \Shuffle\Model\Board($db);
 $lm = new \Shuffle\Model\Lane($db);
 $cm = new \Shuffle\Model\Card($db);
-$board = $bm->create(['title' => 'HTTP LABELS ' . time(), 'visibility' => 'organization', 'created_by' => 1]);
+$board = $bm->create(['title' => 'HTTP LABELS ' . time(), 'visibility' => 'organization', 'created_by' => 4]);
 $lane  = $lm->create(['board_id' => $board, 'title' => 'L1', 'position' => 1000]);
-$c1    = $cm->create(['lane_id' => $lane, 'title' => 'LBL src card', 'created_by' => 1]);
-$c2    = $cm->create(['lane_id' => $lane, 'title' => 'LBL dest card', 'created_by' => 1]);
+$c1    = $cm->create(['lane_id' => $lane, 'title' => 'LBL src card', 'created_by' => 4]);
+$c2    = $cm->create(['lane_id' => $lane, 'title' => 'LBL dest card', 'created_by' => 4]);
 // Temp org (id may not be 999 — we capture whatever the PK is) + temp viewer.
 $db->execute('INSERT INTO organizations (name) VALUES (?)', ['LBL temp org ' . time()]);
 $org = $db->fetchAll('SELECT id FROM organizations ORDER BY id DESC LIMIT 1');

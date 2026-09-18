@@ -28,10 +28,10 @@ B=http://127.0.0.1
 T=/tmp/lb-$$
 rm -f "$T"-*
 
-# Admin session + CSRF (user 1) from the DB — same pattern as http-card-merge.sh.
+# Harness session + CSRF (user 4=mya) from the DB — same pattern as http-card-merge.sh.
 SESS=$(php -r '
   require "include/bootstrap.php";
-  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 1 ORDER BY last_activity DESC LIMIT 1");
+  $row = $db->fetch("SELECT id, `data` FROM sessions WHERE user_id = 4 ORDER BY last_activity DESC LIMIT 1");
   if (!$row || !preg_match("/csrf_token\\\\|s:64:.*?([0-9a-f]{64})/", $row["data"], $m)) exit(3);
   echo $row["id"] . "\n" . $m[1];') || { echo "no live admin session — log in as admin first"; exit 1; }
 ASESS=$(printf '%s' "$SESS" | head -1)

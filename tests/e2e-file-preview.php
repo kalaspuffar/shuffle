@@ -170,7 +170,7 @@ try {
 //     the type gate fires before any S3 touch).
 $svgId = $attachmentModel->create([
     'card_id'   => $cardAId,
-    'user_id'   => 1,
+    'user_id'   => 4,
     'file_name' => 'icon.svg',
     'file_size' => 4,
     's3_key'    => '__no_object_never_fetched__',
