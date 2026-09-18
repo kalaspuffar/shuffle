@@ -15,6 +15,23 @@ class Attachment
 {
     private Database $db;
 
+    /**
+     * Previewable MIME types (FILE-06/07, §5.23) — the SINGLE source of
+     * truth shared by the model query, AttachmentService::preview() and
+     * (mirrored client-side) card-modal.js PREVIEWABLE_MIME.
+     *
+     * SVG is deliberately excluded (it can carry script; the preview
+     * surface is shared with <embed>, where <img> sanitization does not
+     * apply — spec §5.23 decision note).
+     */
+    public const PREVIEWABLE_MIME = [
+        'image/png',
+        'image/jpeg',
+        'image/webp',
+        'image/gif',
+        'application/pdf',
+    ];
+
     // uploaded_at is aliased to created_at to match the documented API response shape
     private const SELECT_COLUMNS = 'id, card_id, user_id, file_name, file_size, s3_key, mime_type, uploaded_at AS created_at';
 
@@ -150,6 +167,58 @@ class Attachment
         );
 
         return array_column($rows, 's3_key');
+    }
+
+    /**
+     * Returns the FIRST previewable attachment per card (FILE-06, §5.23).
+     *
+     * One grouped query over all card ids (no N+1). "First" = MIN(id) —
+     * attachment ids are monotonic with upload time, so this is the
+     * earliest uploaded previewable file on the card. Used for the board
+     * tile thumbnail (board-region.php).
+     *
+     * @param array $cardIds Card ids (empty array → empty result, no SQL)
+     * @return array<int, array{id: int, file_name: string, mime_type: string}>
+     */
+    public function firstPreviewableByCards(array $cardIds): array
+    {
+        if (empty($cardIds)) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_map('intval', $cardIds)));
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $mimeList = self::PREVIEWABLE_MIME;
+        $typePlaceholders = implode(',', array_fill(0, count($mimeList), '?'));
+
+        // First previewable (MIN(id)) per card, joined back so file_name /
+        // mime_type come from THAT row (correlated subquery keeps this
+        // safe under MariaDB's ONLY_FULL_GROUP_BY — a plain
+        // ANY_VALUE(MIN-join) is not the same row guarantee).
+        $rows = $this->db->fetchAll(
+            "SELECT a.card_id AS card_id, a.id AS id, a.file_name AS file_name,
+                    a.mime_type AS mime_type
+             FROM attachments a
+             JOIN (
+                 SELECT card_id, MIN(id) AS first_id
+                 FROM attachments
+                 WHERE card_id IN ($placeholders)
+                   AND mime_type IN ($typePlaceholders)
+                 GROUP BY card_id
+             ) AS f ON f.card_id = a.card_id AND f.first_id = a.id",
+            array_merge($ids, array_values($mimeList))
+        );
+
+        $byCard = [];
+        foreach ($rows as $row) {
+            $byCard[(int) $row['card_id']] = [
+                'id'        => (int) $row['id'],
+                'file_name' => (string) $row['file_name'],
+                'mime_type' => (string) $row['mime_type'],
+            ];
+        }
+        return $byCard;
     }
 
     /**

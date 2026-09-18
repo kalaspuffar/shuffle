@@ -1,6 +1,7 @@
 <?php
 namespace Shuffle\Service;
 
+use Shuffle\Model\Attachment;
 use Shuffle\Model\Board;
 use Shuffle\Model\Card;
 use Shuffle\Model\Label;
@@ -40,6 +41,19 @@ class BoardService
     private ?UserPrio $userPrio = null;
     /** @var Label|null When injected, getBoardWithLanesAndCards() enriches each card with its labels (board-view label dots). */
     private ?Label $labelModel = null;
+
+    /** @var Attachment|null When injected, getBoardWithLanesAndCards() enriches each card with its firstPreviewable attachment (board tile thumbnail, FILE-06 / §5.23). */
+    private ?Attachment $attachmentModel = null;
+
+    /**
+     * Injects the Attachment model (optional). When null, the tile thumbnail
+     * data key stays absent on every card and templates skip it — same
+     * null-safe contract as the Label injection.
+     */
+    public function setAttachmentModel(?Attachment $attachmentModel): void
+    {
+        $this->attachmentModel = $attachmentModel;
+    }
 
     /**
      * Injects the Label model (optional — board view without labels renders
@@ -303,6 +317,11 @@ class BoardService
         $labelsMap = $this->labelModel !== null
             ? $this->labelModel->labelsForCards($allCardIds)
             : [];
+        // Board tile thumbnail (FILE-06, §5.23): the first previewable
+        // attachment per card, one grouped query (no N+1) — see Label pattern.
+        $previewMap = $this->attachmentModel !== null
+            ? $this->attachmentModel->firstPreviewableByCards($allCardIds)
+            : [];
 
         foreach ($lanes as &$lane) {
             $laneId = (int) $lane['id'];
@@ -317,6 +336,16 @@ class BoardService
                 $card['checklist_progress'] = $checklistMap[$cid] ?? ['total' => 0, 'done' => 0];
                 if ($this->labelModel !== null) {
                     $card['labels'] = $labelsMap[$cid] ?? [];
+                }
+                // Key presence itself signals "has a previewable attachment"
+                // (board-region.php checks isset, not truthiness), so an
+                // absent key renders no thumbnail — byte-identical output
+                // for cards without one, and for the no-injection path.
+                if ($this->attachmentModel !== null && isset($previewMap[$cid])) {
+                    $card['preview_attachment'] = [
+                        'id'        => (int) $previewMap[$cid]['id'],
+                        'file_name' => (string) $previewMap[$cid]['file_name'],
+                    ];
                 }
             }
             unset($card);

@@ -3182,6 +3182,19 @@ small,
    Attachments
    ============================================= */
 
+/* Board tile thumbnail (FILE-06, §5.23) — the first previewable
+   attachment on a card renders as a 28×28 icon in the meta row.
+   Fixed width/height: no reflow when the lazy image arrives (no CLS). */
+.card-thumb {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--color-border);
+    background: var(--color-raised);
+}
+
 .attachment {
     display: flex;
     align-items: center;
@@ -3190,7 +3203,7 @@ small,
     padding: var(--space-2) var(--space-3);
     background: var(--color-elevated);
     border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--border-radius-md);
     margin-bottom: var(--space-2);
 }
 
@@ -3253,14 +3266,14 @@ small,
     flex: 1;
     height: 6px;
     background: var(--color-border);
-    border-radius: var(--radius-full);
+    border-radius: var(--border-radius-full);
     overflow: hidden;
 }
 
 .attachment-progress-fill {
     height: 100%;
     background: var(--color-primary);
-    border-radius: var(--radius-full);
+    border-radius: var(--border-radius-full);
     transition: width 0.1s linear;
     width: 0%;
 }
@@ -3270,6 +3283,82 @@ small,
     color: var(--color-text-secondary);
     min-width: 3ch;
     text-align: right;
+}
+
+/* =============================================
+   Attachment preview overlay (FILE-06/07, §5.23)
+   =============================================
+   Full-screen viewable surface above the card modal
+   (z-tooltip 500 > z-drag 400 > z-notification 300 >
+   z-modal 250). Image: object-fit contain. PDF: <embed>,
+   the browser's viewer drives the ranged GETs. */
+.attachment-preview-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-tooltip);
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    flex-direction: column;
+}
+
+.attachment-preview-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-raised);
+    border-bottom: 1px solid var(--color-border);
+}
+
+.attachment-preview-filename {
+    flex: 1;
+    min-width: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.attachment-preview-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+    padding: var(--space-3);
+}
+
+.attachment-preview-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+.attachment-preview-embed {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--color-base);
+}
+
+.attachment-preview-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    cursor: pointer;
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius-md);
+    padding: var(--space-1) var(--space-2);
+}
+
+.attachment-preview-btn:hover {
+    color: var(--color-text);
+    border-color: var(--color-primary);
 }
 
 /* ==========================================================

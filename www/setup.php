@@ -469,9 +469,9 @@ function processStep4(object $lang, object $db): array
 // Security headers
 // --------------------------------------------------------------------------
 
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'none'");
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; frame-ancestors 'self'");
 header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
+header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 

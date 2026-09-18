@@ -12,7 +12,7 @@ require_once dirname(__DIR__, 2) . '/include/bootstrap.php';
 
 // Security headers for API responses
 header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
+header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Cache-Control: no-store');
@@ -74,6 +74,8 @@ $cardModel       = new Shuffle\Model\Card($db);
 $userPrioModel   = new Shuffle\Model\UserPrio($db);
 
 $boardService    = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel, $userPrioModel);
+$attachmentModelBoard = new Shuffle\Model\Attachment($db);
+$boardService->setAttachmentModel($attachmentModelBoard); // board tile thumbnails in the region sync fragment (FILE-06, §5.23)
 $boardController = new Shuffle\Controller\BoardController($auth, $boardService);
 
 $laneService    = new Shuffle\Service\LaneService($laneModel, $boardModel);
@@ -307,6 +309,7 @@ $router->post('/setup/test-s3',   [$setupController, 'testS3']);
 $router->post('/cards/{cardId}/attachments', [$attachmentController, 'create']);
 $router->get('/cards/{cardId}/attachments', [$attachmentController, 'index']);
 $router->get('/attachments/{id}/download', [$attachmentController, 'download']);
+$router->get('/attachments/{id}/preview', [$attachmentController, 'preview']);
 $router->delete('/attachments/{id}', [$attachmentController, 'delete']);
 
 // Dispatch

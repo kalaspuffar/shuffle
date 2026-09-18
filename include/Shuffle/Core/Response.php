@@ -87,4 +87,53 @@ class Response
             fclose($stream);
         }
     }
+
+    /**
+     * Streams a file as an INLINE viewable document (FILE-06/07, §5.23).
+     *
+     * Same fpassthru streaming as stream(), but:
+     *   - Content-Disposition: inline; filename="..." (RFC 5987 filename*
+     *     percent-encoding for non-ASCII names, ASCII fallback kept)
+     *   - Accept-Ranges: bytes (the preview endpoint supports ranged reads)
+     *   - Cache-Control: private, no-store (auth-gated proxy — must not be
+     *     shared-cached across identities; download uses no-cache)
+     *   - optional $range: ['start' => int, 'end' => int, 'total' => int]
+     *     → 206 Partial Content + Content-Range: bytes start-end/total.
+     *     Omitted → 200 full object.
+     *
+     * @param resource        $stream      Readable stream (closed here)
+     * @param string          $contentType MIME type served
+     * @param int             $size        Body length actually served (range length for 206)
+     * @param string          $filename    Suggested name for Save-As
+     * @param array|null      $range       start/end/total when serving a 206 range
+     */
+    public function streamInline($stream, string $contentType, int $size, string $filename, ?array $range = null): void
+    {
+        // RFC 5987: keep an ASCII-only fallback filename, add filename* for the real one
+        $asciiName = preg_match('/^[\x20-\x7E]*$/', $filename) ? $filename : 'download';
+        $disposition = 'inline; filename="' . addslashes($asciiName) . '"';
+        if ($asciiName !== $filename) {
+            $disposition .= "; filename*=UTF-8''" . rawurlencode($filename);
+        }
+
+        if ($range !== null) {
+            http_response_code(206);
+            header(sprintf('Content-Range: bytes %d-%d/%d',
+                (int) $range['start'], (int) $range['end'], (int) $range['total']));
+        } else {
+            http_response_code(200);
+        }
+
+        header('Content-Type: ' . $contentType);
+        header('Content-Length: ' . $size);
+        header('Content-Disposition: ' . $disposition);
+        header('Accept-Ranges: bytes');
+        header('Cache-Control: private, no-store');
+
+        fpassthru($stream);
+
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
+    }
 }

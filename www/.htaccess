@@ -12,4 +12,14 @@
     <FilesMatch "\.(css|js)$">
         Header set Cache-Control "public, no-cache, must-revalidate"
     </FilesMatch>
+
+    # X-Frame-Options: SAMEORIGIN — same-origin framing is required for
+    # Chrome's built-in PDF viewer (the inline /v1/attachments/{id}/preview
+    # PDF embed renders in an internal same-origin frame; a hard DENY makes
+    # Chrome throw "Incorrect positioning of vector elements"). Third-party
+    # framing stays blocked by this value AND by the CSP
+    # `frame-ancestors 'self'` (spec section 6.4/6.9). The Apache vhost may
+    # also set this header - keep both on SAMEORIGIN, otherwise Chrome sees
+    # a conflicting pair and falls back to deny.
+    Header always set X-Frame-Options "SAMEORIGIN"
 </IfModule>

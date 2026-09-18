@@ -39,7 +39,8 @@
                     || ($card['checklist_progress']['total'] ?? 0) > 0
                     || ($card['attachment_count'] ?? 0) > 0
                     || !empty($card['assigned_users'])
-                    || (!empty($card['labels']) && count($card['labels']) > 0);
+                    || (!empty($card['labels']) && count($card['labels']) > 0)
+                    || isset($card['preview_attachment']);
                 $cardArchived = !empty($card['is_archived']);
                 $cardMetaId = $hasMeta ? 'card-meta-' . (int) $card['id'] : null;
                 ?>
@@ -51,6 +52,19 @@
                         <span class="card-title"><?= htmlspecialchars($card['title'], ENT_QUOTES, 'UTF-8') ?></span>
                         <?php if ($hasMeta): ?>
                         <div class="card-meta" id="<?= $cardMetaId ?>">
+                            <?php if (isset($card['preview_attachment'])): ?>
+                            <?php
+                            // Board tile thumbnail (FILE-06, §5.23): the card's
+                            // first previewable attachment — a decorative icon
+                            // for the file, not its content. `loading=lazy`
+                            // defers the fetch until the tile nears the
+                            // viewport; fixed width/height keep the flex row
+                            // from reflowing when the bytes arrive (no CLS).
+                            // A failed load leaves an empty transparent slot
+                            // (no visible artifact — same as any broken img).
+                            ?>
+                            <img class="card-thumb" loading="lazy" src="<?= htmlspecialchars('/v1/attachments/' . (int) $card['preview_attachment']['id'] . '/preview', ENT_QUOTES, 'UTF-8') ?>" alt="" width="28" height="28" aria-hidden="true">
+                            <?php endif; ?>
                             <?php if (!empty($card['labels']) && count($card['labels']) > 0): ?>
                             <?php
                             // Label dots (LABEL-01): one colored dot per attached label.
