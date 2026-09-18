@@ -223,11 +223,21 @@ function drop(int $id, string $why): void
 function handleAccept($sock, PDO $pdo): void
 {
     global $clients;
+    // The handshake read may block on the very first bytes of the request —
+    // cap it at 5 s so a half-open connection can't stall the event loop for
+    // long; after the handshake reads are MSG_DONTWAIT (non-blocking).
+    socket_set_option($sock, SOL_SOCKET, SO_RCVTIMEO, ['sec' => 5, 'usec' => 0]);
+    socket_set_option($sock, SOL_SOCKET, SO_SNDTIMEO, ['sec' => 5, 'usec' => 0]);
     $hs = WebSocketServer::handshake($sock);
     if (!$hs['ok']) {
         @socket_close($sock);
         return;
     }
+    // After the handshake the event loop must never block on a client socket.
+    // The 5 s receive-timeout on the handshake path is cleared (drain() uses
+    // MSG_DONTWAIT for every subsequent read, readiness via socket_select).
+    socket_set_option($sock, SOL_SOCKET, SO_RCVTIMEO, ['sec' => 0, 'usec' => 0]);
+    socket_set_option($sock, SOL_SOCKET, SO_SNDTIMEO, ['sec' => 2, 'usec' => 0]);
 
     $headers = $hs['headers'] ?? [];
     $query   = $hs['query'] ?? '';

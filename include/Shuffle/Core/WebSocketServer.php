@@ -22,6 +22,12 @@ namespace Shuffle\Core;
 
 class WebSocketServer
 {
+    /** Stable per-socket key for the rx buffer map (string, object-lifetime). */
+    private static function k($sock): string
+    {
+        return spl_object_hash($sock);
+    }
+
     /** WebSocket magic GUID (RFC 6455 §1.3) */
     private const MAGIC = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
@@ -49,7 +55,7 @@ class WebSocketServer
         $rawHead = substr($head, 0, $end);
         $leftover = substr($head, $end + 4);
         if ($leftover !== '') {
-            self::$rx[$sock] = $leftover;
+            self::$rx[self::k($sock)] = $leftover;
         }
 
         $lines = explode("\r\n", $rawHead);
@@ -100,14 +106,18 @@ class WebSocketServer
      */
     private static function readUntil($sock, string $stop, int $cap): ?string
     {
+        // Reads until the delimiter (bounded). A blocking recv on this socket
+        // is capped by setsockopt SO_RCVTIMEO (the daemon sets ~5 s before the
+        // handshake) — on timeout a PARTIAL head is returned (the caller
+        // rejects it as an incomplete request) rather than stalling longer.
         $head = '';
         do {
             $n = @socket_recv($sock, $chunk, 4096, 0);
             if ($n === false) {
-                return null;
+                return ($head === '') ? null : $head; // timeout or error: keep what we have
             }
             if ($n === 0) {
-                return null; // EOF before the head fully arrived
+                return ($head === '') ? null : $head; // EOF
             }
             $head .= $chunk;
         } while (strpos($head, $stop) === false && strlen($head) < $cap);
@@ -164,7 +174,7 @@ class WebSocketServer
      */
     public static function recv($sock): array
     {
-        $buf = self::$rx[$sock] ?? '';
+        $buf = self::$rx[self::k($sock)] ?? '';
         $d = self::drain($sock);
         if ($d === null) {
             // Peer went away (EOF). Drop any partial frame — the counterparty
@@ -176,17 +186,17 @@ class WebSocketServer
 
         $frame = self::parseFrame($buf);
         if ($frame === null) {
-            self::$rx[$sock] = $buf;
+            self::$rx[self::k($sock)] = $buf;
             return ['eof' => false];
         }
-        self::$rx[$sock] = substr($buf, $frame['consumed']);
+        self::$rx[self::k($sock)] = substr($buf, $frame['consumed']);
         return ['opcode' => $frame['opcode'], 'payload' => $frame['payload']];
     }
 
     /** Returns bytes currently pending in the socket's receive buffer. */
     public static function bufferedBytes($sock): int
     {
-        return strlen(self::$rx[$sock] ?? '');
+        return strlen(self::$rx[self::k($sock)] ?? '');
     }
 
     /**
@@ -274,6 +284,6 @@ class WebSocketServer
     /** Drops a socket's pending buffer (free memory on close/unsubscribe). */
     public static function cleanup($sock): void
     {
-        unset(self::$rx[$sock]);
+        unset(self::$rx[self::k($sock)]);
     }
 }
