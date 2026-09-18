@@ -76,13 +76,14 @@ $userPrioModel   = new Shuffle\Model\UserPrio($db);
 $boardService    = new Shuffle\Service\BoardService($boardModel, $laneModel, $cardModel, $userPrioModel);
 $attachmentModelBoard = new Shuffle\Model\Attachment($db);
 $boardService->setAttachmentModel($attachmentModelBoard); // board tile thumbnails in the region sync fragment (FILE-06, §5.23)
-$boardController = new Shuffle\Controller\BoardController($auth, $boardService);
+$boardController = new Shuffle\Controller\BoardController($auth, $boardService, $userService); // USER-01 §5.24: org-scope assigned_users in the board API + region fragment
 
 $laneService    = new Shuffle\Service\LaneService($laneModel, $boardModel);
 $laneController = new Shuffle\Controller\LaneController($auth, $laneService);
 
 $cardService    = new Shuffle\Service\CardService($cardModel, $boardModel);
 $cardController = new Shuffle\Controller\CardController($auth, $cardService);
+$cardController->setUserService($userService); // USER-01 §5.24: org-scope assigned_users contact fields on GET /v1/cards/{id}
 
 $commentModel      = new Shuffle\Model\Comment($db);
 $commentService    = new Shuffle\Service\CommentService($commentModel, $cardModel, $boardModel);

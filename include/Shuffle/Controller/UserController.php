@@ -64,7 +64,15 @@ class UserController
     /**
      * GET /v1/users/{id}
      *
-     * Returns a single user. Admin can view any user; others can view themselves.
+     * Returns a single user. Visibility (USER-01, v1.16 §5.24):
+     *   - admin → any user, full row (incl. email)
+     *   - self  → own row, full row (incl. email)
+     *   - same-org non-admin → row with `email = null`
+     *                        (phone/location/bio visible — org-scoped)
+     *   - anything else (cross-org, NULL org, unknown id) → 404
+     * The 404 (never a 403) for cross-org users is the BOARD-04b / no-
+     * enumeration convention: a non-visible user is indistinguishable
+     * from a non-existent one.
      *
      * @param Request  $request  HTTP request
      * @param Response $response HTTP response
@@ -75,17 +83,35 @@ class UserController
         $currentUser = $this->auth->requireAuth();
         $id = (int) ($params['id'] ?? 0);
 
-        // Non-admins can only view themselves
-        if ($currentUser['role'] !== 'admin' && $currentUser['id'] != $id) {
-            $response->error('Access denied', 403);
-            return;
-        }
+        // Admin and self: full visibility (unchanged §5.22 contract).
+        $selfOrAdmin = $currentUser['role'] === 'admin' || $currentUser['id'] == $id;
 
+        // Same-org visibility must compare the TARGET row's org — decide
+        // after the lookup. Cross-org / NULL-org then falls through to the
+        // 404 below (no existence leak: unknown id and cross-org user are
+        // indistinguishable — BOARD-04b convention).
         $user = $this->userService->getUser($id);
 
         if ($user === null) {
             $response->error('User not found', 404);
             return;
+        }
+
+        if (!$selfOrAdmin) {
+            $viewerOrg = $currentUser['organization_id'] ?? null;
+            $targetOrg = $user['organization_id'] ?? null;
+
+            if ($viewerOrg === null || $targetOrg === null || (int) $viewerOrg !== (int) $targetOrg) {
+                // Cross-org (or either org NULL): non-visible → 404, never
+                // a 403 (no user-id enumeration).
+                $response->error('User not found', 404);
+                return;
+            }
+
+            // Same-org non-admin: email is the identity anchor (AUTH-04) —
+            // the §5.22 contract keeps it admin/self-only. Null it (not
+            // unset) so the key stays present in the JSON shape.
+            $user['email'] = null;
         }
 
         $response->json(['user' => $user]);

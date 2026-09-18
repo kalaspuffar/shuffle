@@ -48,6 +48,27 @@ if ($board === null) {
     exit;
 }
 
+// USER-01 / §5.24: org-scope the assigned_users contact fields (phone,
+// location) before the board region renders the avatar chip tooltips.
+// Admins pass through; same-org members see the full row; cross-org
+// viewers get phone/location/bio nulled (the model layer stays raw).
+$userService = new Shuffle\Service\UserService(new Shuffle\Model\User($db));
+foreach ($board['lanes'] as $iL => &$laneRow) {
+    if (!isset($laneRow['cards']) || !is_array($laneRow['cards'])) {
+        continue;
+    }
+    foreach ($laneRow['cards'] as $iC => &$cardRow) {
+        if (isset($cardRow['assigned_users'])) {
+            $laneRow['cards'][$iC]['assigned_users'] = $userService->scrubAssignedUsersFor(
+                $cardRow['assigned_users'],
+                $currentUser
+            );
+        }
+    }
+    unset($cardRow);
+}
+unset($laneRow);
+
 $canEdit = in_array($currentUser['role'], ['admin', 'member'], true);
 $pageTitle = $board['title'];
 $currentPage = 'boards';

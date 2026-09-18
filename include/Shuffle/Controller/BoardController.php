@@ -5,6 +5,7 @@ use Shuffle\Core\Auth;
 use Shuffle\Core\Request;
 use Shuffle\Core\Response;
 use Shuffle\Service\BoardService;
+use Shuffle\Service\UserService;
 
 /**
  * Board management API controller.
@@ -17,15 +18,51 @@ class BoardController
 {
     private Auth $auth;
     private BoardService $boardService;
+    private ?UserService $userService = null;
 
     /**
-     * @param Auth         $auth         Auth service
-     * @param BoardService $boardService Board business logic service
+     * @param Auth            $auth         Auth service
+     * @param BoardService    $boardService Board business logic service
+     * @param UserService|null $userService v1.16/§5.24: USER-01 org-scope
+     *                                     scrub of `assigned_users` contact
+     *                                     fields. Nullable — the board.php
+     *                                     render path constructs its own.
      */
-    public function __construct(Auth $auth, BoardService $boardService)
+    public function __construct(Auth $auth, BoardService $boardService, ?UserService $userService = null)
     {
         $this->auth = $auth;
         $this->boardService = $boardService;
+        $this->userService = $userService;
+    }
+
+    /**
+     * Scrubs the USER-01 contact fields (phone/location/bio) off each
+     * card's `assigned_users` rows (v1.16, §5.24) for the given viewer.
+     *
+     * In-place over the board array's lanes. No-op when `$board` is null,
+     * has no lanes/cards, or the UserService was not injected — raw model
+     * rows pass through for CLI and test consumers.
+     *
+     * @param array|null $board  The board array (with `lanes[*].cards[*]`)
+     * @param array      $viewer The authenticated user row (requireAuth)
+     */
+    private function scrubBoardAssignees(?array &$board, array $viewer): void
+    {
+        if ($this->userService === null || $board === null || empty($board['lanes'])) {
+            return;
+        }
+        foreach ($board['lanes'] as &$lane) {
+            foreach (($lane['cards'] ?? []) as &$card) {
+                if (isset($card['assigned_users'])) {
+                    $card['assigned_users'] = $this->userService->scrubAssignedUsersFor(
+                        $card['assigned_users'],
+                        $viewer
+                    );
+                }
+            }
+            unset($card);
+        }
+        unset($lane);
     }
 
     /**
@@ -79,6 +116,10 @@ class BoardController
             $response->error('Board not found', 404);
             return;
         }
+
+        // USER-01 / §5.24: org-scope the assigned_users contact fields
+        // (phone/location) before the card modal payload leaves the API.
+        $this->scrubBoardAssignees($board, $this->auth->requireAuth());
 
         $response->json(['board' => $board]);
     }
@@ -253,6 +294,10 @@ class BoardController
             header('Cache-Control: no-cache');
             return;
         }
+
+        // USER-01 / §5.24: org-scope the assigned_users contact fields in
+        // the region fragment (same chips as the board page render).
+        $this->scrubBoardAssignees($board, $currentUser);
 
         // Shared renderer scope (www/board.php contract): $board, $canEdit, $lang,
         // $boardId. ($lang is a bootstrapped global from include/bootstrap.php.)
