@@ -13,15 +13,13 @@
         Header set Cache-Control "public, no-cache, must-revalidate"
     </FilesMatch>
 
-    # X-Frame-Options: the app itself sends `X-Frame-Options: DENY` from
-    # every PHP entry point (spec section 6.9: no frames anywhere). Some
-    # deployments ALSO set X-Frame-Options in the Apache vhost (e.g.
-    # "SAMEORIGIN"), which produces a response with two conflicting values —
-    # Chrome then refuses to display the site in a frame at all ("Falling
-    # back to 'deny'"). `Header always set` at the server level replaces the
-    # per-response headers instead of appending, which collapses the pair
-    # into a single `DENY` and also documents the app's actual intent
-    # (no framing; the CSP already carries `frame-ancestors 'none'`).
-    # If you change the vhost's value, keep it consistent with this one.
-    Header always set X-Frame-Options "DENY"
+    # X-Frame-Options: SAMEORIGIN — same-origin framing is required for
+    # Chrome's built-in PDF viewer (the inline /v1/attachments/{id}/preview
+    # PDF embed renders in an internal same-origin frame; a hard DENY makes
+    # Chrome throw "Incorrect positioning of vector elements"). Third-party
+    # framing stays blocked by this value AND by the CSP
+    # `frame-ancestors 'self'` (spec section 6.4/6.9). The Apache vhost may
+    # also set this header - keep both on SAMEORIGIN, otherwise Chrome sees
+    # a conflicting pair and falls back to deny.
+    Header always set X-Frame-Options "SAMEORIGIN"
 </IfModule>

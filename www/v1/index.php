@@ -12,7 +12,7 @@ require_once dirname(__DIR__, 2) . '/include/bootstrap.php';
 
 // Security headers for API responses
 header('X-Content-Type-Options: nosniff');
-header('X-Frame-Options: DENY');
+header('X-Frame-Options: SAMEORIGIN');
 header('X-XSS-Protection: 0');
 header('Referrer-Policy: strict-origin-when-cross-origin');
 header('Cache-Control: no-store');
