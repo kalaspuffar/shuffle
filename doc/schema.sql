@@ -336,4 +336,22 @@ CREATE TABLE IF NOT EXISTS `card_activity` (
         REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------------
+-- board_events (RT-03 WebSocket push, v1.17 §5.25): change feed of
+-- board version bumps. Board::incrementVersion() appends one row per
+-- bump; bin/ws-daemon.php tails it to push board_version frames.
+-- The UNIQUE KEY dedups a concurrent double-bump (INSERT IGNORE), so
+-- a version can never feed the daemon twice. The daemon prunes old
+-- rows (keeps the tail needed by live sockets, capped at ~5k).
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `board_events` (
+    `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `board_id`    INT UNSIGNED NOT NULL,
+    `version`     BIGINT UNSIGNED NOT NULL,
+    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_board_events_board_version` (`board_id`, `version`),
+    KEY `idx_board_events_board_id` (`board_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
