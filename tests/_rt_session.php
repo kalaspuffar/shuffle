@@ -52,6 +52,27 @@ switch ($cmd) {
         _rt_do_request($argv, 'POST', $argv[5] ?? '{}', null);
         break;
 
+    case 'put':
+        // put <url> <sid> <bodyOut> <filePath> <mimeType> <originalName>
+        //
+        // Raw-binary POST matching the attachment upload contract
+        // (POST /v1/cards/{cardId}/attachments, §5.10): the file bytes are
+        // the body, metadata rides the X-File-Name / X-File-Size /
+        // Content-Type headers, the session's CSRF token is attached.
+        // Response body (the 201 JSON with the created attachment) goes to
+        // bodyOut so a caller can extract the new id; status to stdout.
+        _rt_put_file_upload($argv);
+        break;
+
+    case 'hdrs':
+        // hdrs <url> <sid> <hdrsOut> [extraHeader]
+        // GET request; writes RESPONSE HEADERS (one "Name: value" per line)
+        // to hdrsOut and prints the HTTP status to stdout — assertion
+        // helper for Content-Disposition / Content-Range / Content-Type
+        // (the preview endpoint contract, FILE-06/07 §5.23).
+        _rt_get_headers($argv);
+        break;
+
     default:
         fwrite(STDERR, "unknown cmd: $cmd\n"); exit(2);
 }
@@ -108,5 +129,116 @@ function _rt_do_request(array $argv, string $method, ?string $jsonBody, ?string 
     $hsize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
     curl_close($ch);
     file_put_contents($out, is_string($resp) ? substr($resp, $hsize) : '');
-    echo $code . "\n";            // stdout = status only
+    echo $code . "\n";
+}
+
+/**
+ * GET driver that returns RESPONSE HEADERS (not the body).
+ *
+ *   hdrs <url> <sid> <hdrsOut> [extraHeader]
+ *
+ * Writes "Name: value" lines to hdrsOut, prints the status (int) to
+ * stdout. Uses the same session/CSRF rules as the http driver (sid ""
+ * = unauth probe).
+ */
+function _rt_get_headers(array $argv): void
+{
+    $url = $argv[2] ?? '';
+    $sid = $argv[3] !== '' ? $argv[3] : null;
+    $out = $argv[4] ?? 'php://output';
+
+    $csrf = '';
+    if ($sid !== null) {
+        $row = $GLOBALS['db']->fetch('SELECT data FROM sessions WHERE id = ?', [$sid]);
+        if ($row && isset($row['data'])
+                && preg_match('/csrf_token\|s:64:"([a-f0-9]{64})"/', $row['data'], $m)) {
+            $csrf = $m[1];
+        }
+    }
+
+    $ch = curl_init($url);
+    $opts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER         => true,
+        CURLOPT_TIMEOUT        => 60,
+    ];
+    $hdrs = [];
+    if ($csrf !== '') $hdrs[] = 'X-CSRF-Token: ' . $csrf;
+    if (isset($argv[5]) && $argv[5] !== '') $hdrs[] = $argv[5];
+    if ($hdrs) $opts[CURLOPT_HTTPHEADER] = $hdrs;
+    if ($sid !== null) $opts[CURLOPT_COOKIE] = 'shuffle_session=' . $sid;
+    else               $opts[CURLOPT_COOKIE] = 'shuffle_session=__unauth_probe__';
+    curl_setopt_array($ch, $opts);
+    $resp  = curl_exec($ch);
+    $code  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $hsize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
+    $headerBlock = is_string($resp) ? substr($resp, 0, $hsize) : '';
+    // Drop the status line itself; keep the raw header lines — the test
+    // asserts on exact names/values (case-insensitive grep from its side).
+    $lines = array_filter(explode("\r\n", $headerBlock), function ($l) {
+        $l = trim($l);
+        return $l !== '' && !preg_match('/^HTTP\//', $l);
+    });
+    file_put_contents($out, implode("\n", $lines) . "\n");
+    echo $code . "\n";
+}
+
+/**
+ * Raw-binary upload driver for the attachment endpoint (§5.10 contract).
+ *
+ *   put <url> <sid> <bodyOut> <filePath> <mimeType> <originalName>
+ *
+ * Reads the local file, posts the bytes as the request body with the
+ * server's attachment contract — Content-Type (the MIME), X-File-Name
+ * (URL-encoded original name), X-File-Size (byte count) plus the session
+ * CSRF token. Sid "" = no session (unauth probe). Response body →
+ * bodyOut; status (int) → stdout.
+ */
+function _rt_put_file_upload(array $argv): void
+{
+    $url      = $argv[2] ?? '';
+    $sid      = $argv[3] !== '' ? $argv[3] : null;
+    $out      = $argv[4] ?? 'php://output';
+    $filePath = $argv[5] ?? '';
+    $mimeType = $argv[6] ?? 'application/octet-stream';
+    $name     = $argv[7] ?? 'upload';
+
+    if (!is_file($filePath)) { fwrite(STDERR, "put: no such file: $filePath\n"); exit(3); }
+    $bytes = file_get_contents($filePath);
+    if ($bytes === false) { fwrite(STDERR, "put: cannot read $filePath\n"); exit(3); }
+    $size = strlen($bytes);
+
+    $csrf = '';
+    if ($sid !== null) {
+        $row = $GLOBALS['db']->fetch('SELECT data FROM sessions WHERE id = ?', [$sid]);
+        if ($row && isset($row['data'])
+                && preg_match('/csrf_token\|s:64:"([a-f0-9]{64})"/', $row['data'], $m)) {
+            $csrf = $m[1];
+        }
+    }
+
+    $ch = curl_init($url);
+    $opts = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HEADER         => true,
+        CURLOPT_TIMEOUT        => 120,
+        CURLOPT_POSTFIELDS     => $bytes,
+    ];
+    $hdrs = [
+        'Content-Type: ' . $mimeType,
+        'X-File-Name: ' . rawurlencode($name),
+        'X-File-Size: ' . $size,
+    ];
+    if ($csrf !== '') $hdrs[] = 'X-CSRF-Token: ' . $csrf;
+    $opts[CURLOPT_HTTPHEADER] = $hdrs;
+    if ($sid !== null) $opts[CURLOPT_COOKIE] = 'shuffle_session=' . $sid;
+    else               $opts[CURLOPT_COOKIE] = 'shuffle_session=__unauth_probe__';
+    curl_setopt_array($ch, $opts);
+    $resp  = curl_exec($ch);
+    $code  = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $hsize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+    curl_close($ch);
+    file_put_contents($out, is_string($resp) ? substr($resp, $hsize) : '');
+    echo $code . "\n";
 }

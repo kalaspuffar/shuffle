@@ -1,6 +1,6 @@
 # Project Specification: Shuffle
 
-**Version:** 1.14
+**Version:** 1.15
 **Date:** 2026-09-17
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-17 | **v1.15** — **File previews (FILE-06/07)** (§5.23 + §3.20): inline preview of image + PDF attachments. **New endpoint `GET /v1/attachments/{id}/preview`** (SPECIFICATION §5.23): same board-access contract as `/download`; serves the S3 object with `Content-Disposition: inline` + correct MIME for the **Previewable set** — `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `application/pdf` (SVG is **out** of the set: `image/svg+xml` → **415** — see SVG policy note). Other types (doc, zip, audio, …) → **415** *This file type is not previewable* (download contract §5.10 unchanged). **Range support (PDF `<embed>` lazy-loading):** `S3Client::getObjectRange(key, start, end)` — a new method (the existing `getObject()` signature/contract is untouched); sends a signed `Range: bytes=start-end` header. The parser accepts `bytes=S-E` both-ended only (that's all the client sends); invalid Range → **416** + `Accept-Ranges: bytes` + `Content-Range: bytes */{size}` (the unsatisfiable form); an in-bounds range returns **206** + `Content-Range: bytes S-E/{size}`. **Response helper:** `Response::stream()` gains an optional inline-disposition overload via `Response::streamInline()` (filename RFC-5987 encoded); `Content-Length` exact for full + ranged responses; `Cache-Control: private, no-store` (preview is an auth-gated proxy, never a static asset). **Service:** `AttachmentService::preview($id, ?int $start, ?int $end)` (see §5.23 for the canonical signature/semantics) **Client (card modal, `www/js/card-modal.js`):** `buildAttachmentEl()` for a previewable attachment adds a **Preview** action (icon + link, `aria-label`) beside the file name; clicking opens a **full-screen preview overlay** (a `role="dialog"` modal above the card modal): images as `<img>` (max 100vw/100vh, object-fit contain), PDFs as `<embed src="/v1/attachments/{id}/preview">` (the browser's PDF viewer uses Range; on a server without Range the full object streams — acceptable fallback, no client error). Overlay: header with file name + **Download** button (→ existing `/download` contract, `Content-Disposition: attachment` unchanged) + close (× / Escape — Escape closes the preview first, then the card modal, matching the existing ESCAPE_STACK pattern); backdrop click closes preview. Viewer role: Preview action visible (read-side convenience — the attachment list is already world-visible to board members). **Board tile thumbnail (FILE-06 "on cards"):** `board-region.php` renders, per card with ≥1 previewable attachment, ONE lazy thumbnail (`<img loading="lazy" src="/v1/attachments/{firstId}/preview"` — the first by upload order) in the meta row beside the attachment count; click navigates to the card (existing `card-link`); image load failure → thumbnail silently hidden (tile contract unchanged by `onerror` removal). Batch load: `BoardService::boardWithLanes()` attaches `$card['preview_attachment'] = {id, file_name}` (first previewable per card, one extra GROUPed query via new `Attachment::firstPreviewableByCards(?array cardIds)` — no N+1, null-safe when the model is unwired). **CSP note:** the preview endpoint is same-origin (`img-src 'self'` / no `frame-src` restriction) — no header change. **i18n:** `attachment.preview` (button/aria "Preview"), `attachment.preview_close` ("Close preview"). **Test suites (all fixture-based, self-cleaning, never user id 1):** `php tests/e2e-file-preview.php` (service contract: type gate 415 matrix incl. svg+xml, range boundary math both-ends, 416 math, foreign-board 404, missing-object 404, previewable-pick ordering) + `bash tests/http-file-preview.sh` (live Apache: unauth GET 401, image 200 inline + content-type + content-length, 415 for zip, 206 + Content-Range for range, 416 malformed/overshoot, download endpoint STILL `attachment` disposition (regression), board region fragment renders the tile thumbnail for a card with an image and NOT for a zip-only card). **Regression:** existing e2e/http attachment + board suites stay green (no contract change on `/download`, upload, delete). |
 | 2026-09-17 | **v1.14** — **User profiles & contact info (USER-01..04)** (§5.22 + §4.1 + §3.16 + §3.17): `users` gains **`phone VARCHAR(32) NULL`, `location VARCHAR(120) NULL`, `bio TEXT NULL`** (display data, not identity — USER-01). **Self-service (USER-02 + AUTH-04):** new **`PUT /v1/me`** updates the actor's own `name`, `phone`, `location`, `bio` (only provided fields; blank string clears a nullable field); **email is read-only on every surface** (identity anchor — set at invite, changed only by an admin flow out of v1). **Password change** (`PUT /v1/me/password`): requires `current_password` (min 8 chars); wrong current → **403** *Identity not confirmed*; `current_password` accepted-but-wrong vs missing → 400 (shape) vs 403 (verification) — different diagnostics. **Admin (USER-03):** `PUT /v1/admin/users/{id}` manages **role, status** (existing §5.3 `PUT /v1/users/{id}` admin path, unchanged) *plus the new* `name/phone/location/bio` — admin may not change `email` in v1 (send 400 `email_immutable`); `POST /v1/admin/users/{id}/reset-password` sets the password (admin does not need the current one) → 200 `{message}`. **Profile surface (new §3.16):** `www/profile.php` + `www/js/profile.js` — Profile section (name/phone/location/bio, email shown read-only with the `user.email_readonly` hint) and Password section (new + confirm, current) as separate forms/save-points; flash on success/failure; i18n `profile.*`. **Admin surface (new §3.17):** `www/admin/users.php` gains a per-user **Edit modal** (name/phone/location/bio/role — status stays an inline badge action; email field shown read-only) and a **Reset password** dialog (new + confirm, busy-guarded); viewer/placeholder self-row invariants unchanged. **Contact surfacing (USER-04, v1 = minimal):** assignee avatar stacks (`include/templates/assignee-avatar-stack.php`) gain a name tooltip; **phone/location chips are deferred** to a follow-up behind the tooltip contract (the `assigned_users` payload already carries id/name/avatar and the endpoint contract for a `/v1/users/{id}` contact payload remains `GET /v1/users/{id}` — extend, don't add). **Migration:** `bin/add-user-profile-fields.php` — idempotent `ALTER TABLE users ADD COLUMN` ×3 (`phone`, `location`, `bio`), safe re-run (checks information_schema first); `doc/schema.sql` synced (three NULL-able columns after `email`, before `role`). **Tests:** `php tests/e2e-user-profile.php` (service contract: field validation lengths, email rejection, phone/location/bio set+clear via blank, password current-wrong 403 vs missing 400, admin fields, admin email_immutable 400, reset-password path, fixtures on mya id 4 or dedicated test users — never id 1) + `php tests/http-profile.php` (PUT /v1/me + /me/password over HTTP against the auth-gate, `PUT /v1/admin/users/{id}` role/status/fields/email_immutable/reset) + `php tests/http-admin-user-edit.php` (page-render contract: modal markup, i18n keys present, self-row invariants). **i18n:** `profile.*` (title, sections, fields, hints: `profile.email_readonly`, `profile.password_current`, `profile.password_new`, `profile.password_confirm`, `profile.saved`, `profile.current_password_wrong`, `profile.password_too_short`, `profile.password_mismatch`, `profile.name_required`) + `admin.users.edit_title`, `admin.users.edit_save`, `admin.users.reset_password_title`, `admin.users.reset_password_btn`, `admin.users.email_immutable`, `admin.users.password_reset` — all `--color-*` tokens in CSS. |
 | 2026-09-17 | **v1.13** — CARD-14 **Stages C + D** (§5.21): the card modal becomes fully read-first. **Stage C** — the modal footer's Save + Cancel are gone: the card is closed by the header ×, Escape, or backdrop (all already bound via `.modal-close`), and every remaining mutation is an explicit action in the in-body action row (Archive/Restore, Merge into…, Move to board…, Delete) or the description-local Save of Stage B. The `<form>` wrapper stays (inputs can't submit into a default navigation without a submit button — none remain). **Stage D** — title and due date autosave inline: `input` handlers mark the field dirty and debounce (≈800 ms) a **field-only** `PUT /v1/cards/{id}` (title-only or `due_date`-only — the service already diffs per-field, so the other fields are untouched and *not sent*; clearing the due date sends `due_date: null`, which the server stores as a clear, distinct from an omitted field). Blur flushes a pending save; `Escape` reverts the field to the stored value and discards the schedule; a real-change test against `state.card` is the no-op contract (blur-without-change never round-trips — the zero-bump guarantee the server does not provide). Save failures keep the field's unsaved text (flash surfaces the error) and resync only the affected inputs + header title on success (no `applyCard` re-render, no close). An empty title is rejected client-side (the server 422s it) — the field reverts and flashes `card.title_required`. **Tests**: server contract pin `tests/e2e-autosave.php` (22 checks: title-only / due-only / clear-due / empty-title-rejected / no-op) + client logic suite `tests/card-modal-autosave.test.js` (24 checks: single-PUT + field-scoped body, debounce collapse, no-op short-circuit, stale-timer cancellation on re-open, Escape revert, close-after-save region sync) ; Stage B suites + CSS sanity + rendered-page verification (no footer remnants) stay green. **Board-tile reconciliation** (Daniel report 2026-09-17: the tile title / due stayed stale after an autosave until a reload): the old behavior relied on the 15 s poll tick setting `pendingSync` while the modal was open — true only if a tick landed AFTER the save. A save in the last ~15 s of the interval (the common case) set no flag and the board tile showed the old title/due until reload. Now `close()`: (1) first the existing `pendingSync` path (full reload) if a tick already saw a bump; (2) else if the modal itself made ≥1 successful card mutation this open, it calls `ShuffleBoardSync.syncNow()` — the board.js in-place region swap (server-rendered fragment, scroll positions preserved, no full reload) — BEFORE focus returns to the card tile (focusing first would trip the "focus on an editable in the region" guard); (3) then the usual focus-return + state reset. Zero-mutation closes sync nothing (no-op close = no region fetch). |
 | 2026-09-16 | **v1.12** — CARD-14 description **Markdown preview toggle** (Daniel, "next up" on the v1.11 board-sync card): the card modal's Description edit gains an in-pane **Preview / Edit** toggle. Preview is **server-rendered**: a new `POST /v1/markdown/render` endpoint (body `{markdown}` → `{html}`) runs the description string through the **same Parsedown safe-mode pipeline** as the card/comment APIs (`Shuffle\Core\Markdown::render`), so the client still never parses Markdown itself (SEC-04 trust chain intact — the XHR body is the user's own draft text, response is safe-mode HTML injected into a known-safe container). Toggle is plain-JS pane switching (textarea ↔ rendered `.markdown-body`), debounced live re-render while typing (250 ms), and resets to Edit on every `applyCard()` (new card open) and for viewers (`applyReadonly`). Access: any authenticated user (renders a client-supplied string, not a stored card). Empty string → `200 {"html":""}`; non-string markdown → `422`; wrong verb → `405`. HTTP E2E `tests/http-markdown-preview.sh` (+ a shared `post` driver added to `tests/_rt_session.php`). |
@@ -2784,6 +2785,165 @@ Migration: `bin/add-user-profile-fields.php` (idempotent — checks `information
 
 ---
 
+### 5.23 File Previews (FILE-06/07, v1.15)
+
+**Motivation:** FILE-06 ("Image thumbnail previews on cards") and FILE-07 ("PDF preview inline") are *Nice-to-have* in REQUIREMENTS.md §7.9. Today an attachment is name + size only (`buildAttachmentEl()` in `www/js/card-modal.js`) — to see an image or read a PDF the user must download it. The preview is a **read-only convenience surface** over an attachment the user already has board access to.
+
+**Design principles (decisions locked):**
+- **No new S3 objects, no thumbnails generated server-side.** The PHP host has no GD dependency (see §7 Infrastructure); generating + storing thumbnails adds a data path (cache invalidation on delete, orphans on failed cleanup) for a *Nice-to-have* feature. The browser is a better thumbnailer: it downscales natively, and `loading="lazy"` defers the fetch until the tile is near the viewport. The preview URL streams the **same S3 object** the download endpoint already proxies — zero duplication, zero sync burden.
+- **One endpoint, `inline` disposition, type-gated.** The same URL contract serves both the tile thumbnail and the preview overlay (`<img>` and `<embed>`); the only difference from `/download` is `Content-Disposition: inline` (and Range support, below). Types outside the preview set are rejected with **415** — `/download` keeps working for them (415, not 404: the attachment exists, its *type* is ineligible).
+- **SVG is out of the preview set (decision).** Browsers sanitize `<img>`-rendered SVG scripts, but one shared URL contract must assume the worst consumer (an embed/iframe surface); an inline SVG with `<script>` is an XSS vector the SEC-04 trust chain does not cover. SVG attachments still download via §5.10.
+- **Download contract is unchanged.** `GET /v1/attachments/{id}/download` keeps `Content-Disposition: attachment` for every type. Regression-pinned in the test suites.
+
+**Previewable set (MIME allowlist — server-enforced, case-insensitive):**
+
+| MIME | Consumer in the overlay |
+|---|---|
+| `image/png`, `image/jpeg`, `image/webp`, `image/gif` | `<img src="…/preview">` |
+| `application/pdf` | `<embed src="…/preview">` (browser PDF viewer) |
+
+Everything else → `415` *This file type is not previewable*.
+
+**Endpoint contract:**
+
+`GET /v1/attachments/{id}/preview`
+
+- **Required role:** any authenticated user with board access (identical to `/download` — `auth->requireAuth()` then `canAccessBoard($boardId)`; foreign board → **404**, not 403).
+- **Response headers:** `Content-Type: {stored mime}`, `Content-Disposition: inline; filename="{name}"` (RFC 5987-encoded for non-ASCII), `Content-Length`, `Accept-Ranges: bytes`, `Cache-Control: private, no-store`.
+- **Body:** the object, streamed from S3 (full, or a range — next paragraph).
+- **Errors:** `404` (unknown id / no board access / S3 object missing), `415` (type gate), `416` (unsatisfiable Range).
+
+**Range support (`206 Partial Content`):**
+
+The browser PDF viewer issues `Range: bytes=S-E` requests to lazy-load a PDF. Contract:
+
+- Request `Range: bytes=100-199` → `200`-class success → **`206 Partial Content`**, `Content-Range: bytes 100-199/{total}`, `Content-Length: 100` (range length). S3 receives the `Range` header (signed), so only the requested bytes traverse the network twice.
+- `Range: bytes=abc` (malformed) or `Range: bytes=5-9` when the object is 4 bytes → **`416 Range Not Satisfiable`** with `Accept-Ranges: bytes` and a `Content-Range: bytes */{total}` (unsatisfiable form).
+- No `Range` header → full object with `200` (identical to a full GET — the no-Range path must remain byte-correct since it is the fallback when the S3 endpoint ignores `Range`).
+- Only **closed** `bytes={start}-{end}` ranges are supported (both bounds present, `0 ≤ start ≤ end < total`). Open-ended forms (`bytes=5-`) are out of v1 — the PDF viewer we target sends closed ranges — and any `Range` we don't understand is treated as no-Range (`200` full object). This keeps the S3 client signature small: `getObjectRange(string $key, int $start, int $end)`.
+
+**`S3Client::getObjectRange()` (new method, §3.9 Core):**
+```php
+public function getObjectRange(string $key, int $start, int $end): array
+// returns ['stream' => resource, 'size' => int]
+// size = served range length (end - start + 1); stream is the BYTES of that range only
+```
+Sends `Range: bytes={start}-{end}` as a signed header (SigV4 over the header it sends — the same `signRequest()` mechanism that signs `Content-Type` today; `Range` is a normal signable header, no new crypto). On a S3 **416** response S3 sends an XML error body in the stream — the client surfaces this to the service as `\RuntimeException('S3 range not satisfiable')`, the service maps it to HTTP **416** (not 500 — the caller's range math was the problem).
+
+**`Response::streamInline()` (new helper, §3.8 Core):**
+Same streaming behavior as `stream()` (`fpassthru` + close) but:
+- `Content-Disposition: inline; filename="{name}"` (RFC 5987 percent-encoding for non-ASCII names via rawurlencode)
+- Accepts an optional `[start, end]` pair: when present, the helper emits `206`, `Content-Range: bytes start-end/{total}`, `Content-Length: (end-start+1)`, `Accept-Ranges: bytes`. When absent: `200`, `Content-Length: total`, `Accept-Ranges: bytes`.
+- `Cache-Control: private, no-store` (an auth-gated proxy must not be shared-cached across identities — unlike the download endpoint which is `no-cache`).
+- `stream()` (existing, `attachment` disposition for download §5.10) is **unchanged** — a byte-for-byte read of the existing code confirms it uses `Content-Disposition: attachment` and its tests pin the behavior.
+
+**`AttachmentService::preview(int $id, ?int $start, ?int $end): array` (new, §3.13):**
+```php
+// returns ['stream' => resource, 'attachment' => array, 'range' => ?array{start,end,total}]
+```
+1. `attachmentModel->findById($id)` — null → `RuntimeException` (controller → 404).
+2. Resolve board id (`getBoardIdForAttachment`) — null → `RuntimeException` (404).
+3. **Type gate:** `in_array($attachment['mime_type'], self::PREVIEWABLE_MIME, true)` — fail → `\Shuffle\Core\PreviewTypeException` (a new narrow exception class; the controller catches it *before* the generic `RuntimeException` catch and maps it to **415**). This matters: `415` and `404` must be distinguishable at the controller, and a shared base exception type would collapse both to 404.
+4. **Range validation:** if `$start !== null` (v1 always sends both bounds when it sends any) — require `$end !== null`, `$start <= $end`, `$start >= 0`. Any failure → the service throws `\Shuffle\Core\RangeException` → controller **416** (the *client's* range was malformed; the attachment itself is fine, so it must not be indistinguishable from a *not-found* 404).
+5. S3 fetch: ranged → `s3->getObjectRange($s3Key, $start, $end)`; if S3 says 416 (object too small for the range) → the client rethrows the narrow `\Shuffle\Core\RangeException`, the controller maps it to **416**. Non-ranged → `s3->getObject($s3Key)` (existing path, unchanged contract; S3 404 → service rethrows `RuntimeException` → controller 404).
+6. Return the `['stream', 'attachment', 'range']` shape.
+
+**`Attachment::firstPreviewableByCards(array $cardIds): array` (new batch helper §3.13):**
+```sql
+SELECT card_id, MIN(a.id) AS id, a.file_name
+FROM attachments a
+WHERE a.card_id IN ( …cardIds… )
+  AND a.mime_type IN ( 'image/png','image/jpeg','image/webp','image/gif','application/pdf' )
+GROUP BY card_id
+```
+Returns `cardId => {id, file_name, mime_type}` — the first (by upload order, MIN(id) since ids are monotonic) previewable attachment per card. Empty `$cardIds` → empty array (short-circuit, no SQL). Used by `BoardService::getBoardWithLanesAndCards()` exactly like the existing `batchLoadAttachmentCounts()` — a single grouped query over all visible card ids (no N+1). The card modal needs no per-card server call for this: its attachment list already carries each attachment's `mime_type`, and the client's `PREVIEWABLE_MIME` constant (mirroring the server allowlist) decides which rows get the Preview button.
+
+**`BoardService::getBoardWithLanesAndCards()` (changed, §3.13):**
+Each card gains a new optional key (null absent, present = previewable attachment found):
+```json
+"preview_attachment": { "id": 123, "file_name": "diagram.png" }
+```
+Same single-query/no-N+1 pattern as the existing counts/labels maps; null-safe when the Attachment model is not injected (unit tests that never attach it keep working).
+
+**`board-region.php` (changed template, §3.20):**
+On every card with `$card['preview_attachment']` set:
+
+```html
+<img class="card-thumb"
+     loading="lazy"
+     src="/v1/attachments/{id}/preview"
+     alt=""
+     width="28" height="28">
+```
+
+- Rendered inside the existing `.card-meta` row (the same row that already holds labels, due date, counts, avatars) — not a new row (no height change when absent; when present the tile gains one 28×28 thumbnail on the left of the meta row).
+- `alt=""` + `aria-hidden="true"` — the thumbnail is decorative; the file name lives in the card modal's attachment list (which already has a Preview button) — no duplicated screen-reader content.
+- `width`/`height` fixed: the layout does not reflow as the image lazily loads (no CLS).
+- `src=` goes through `htmlspecialchars` like every other URL in the template (the id is already `(int)`-cast before the array build, so the path is numeric — htmlspecialchars is belt-and-suspenders for the filename we don't put in `src` anyway).
+- The **click** navigates to the card via the existing `.card-link` wrapping the whole tile (the thumbnail is inside `article` inside `.card-link` — a plain `<img>` inside a link is fine, same as the label dots today).
+- **Failure handling:** if the preview request 404s/415s (shouldn't happen given the gate, but: e.g. object deleted between fetch and render race), the `<img>` shows the browser's broken-image glyph **only if it had loaded** — for a failed lazy-load the browser replaces the 28×28 box with nothing visible (and `onerror` is the standard silent-fallback the label-dot pattern already uses: the label dot doesn't have to handle failure because it's inline-styled, but the thumbnail does because it's a network fetch). The template therefore does **not** attach an `onerror` handler — an erroring `<img>` simply remains invisible in the 28×28 slot (the meta row is flex, the empty slot is 28px wide but transparent, no visible artifact). This is the same failure surface as a normal broken `<img>` and is acceptable for a Nice-to-have.
+
+**`www/js/card-modal.js` (changed, §3.21):**
+`buildAttachmentEl(att)` — for an attachment whose `mime_type` is in the client-side previewable set (the same MIME list as the server allowlist, maintained in one JS constant `PREVIEWABLE_MIME`):
+
+1. **Preview button** — a `btn btn-ghost btn-sm attachment-preview-btn` button with an eye icon + the i18n string `attachment.preview` (a screen-reader-only text fallback: the button is already inside the card modal so the aria-label comes from the visible label — no duplication). The button sits to the right of the name link, left of the existing delete button. **Role parity:** visible for both members and viewers (it's a read action, the list is already visible to both roles — `applyReadonly()` keeps it visible; only the delete button is member-gated today).
+2. **Click** → `openPreview(att)`:
+   - Sets `state._previewOpen = true` (a guard: while it's open, a card-modal `close()` triggered by Escape/backdrop must *not* close *through* the preview — see below).
+   - Inserts a `<div class="attachment-preview-overlay" role="dialog" aria-modal="true" aria-label="{att.file_name}">` into `document.body` (outside the card modal so it isn't clipped by any overflow container), containing:
+     - `<div class="attachment-preview-header">` with the file name, a **Download** `<a class="btn btn-ghost btn-sm" href="/v1/attachments/{id}/download">` (existing contract, `attachment` disposition) and a **×** close button.
+     - `<div class="attachment-preview-body">` — for images: `<img src="/v1/attachments/{id}/preview" alt="{att.file_name}" class="attachment-preview-image">` (max 100vw/100vh, object-fit: contain, centered on a neutral dark background). For PDF: `<embed src="/v1/attachments/{id}/preview" type="application/pdf" class="attachment-preview-embed">` (width/height 100%; the browser's viewer takes Range requests automatically for progressive loading).
+     - The overlay's **backdrop click** (`.attachment-preview-overlay` itself, when `e.target === overlay`) closes just the preview.
+   - Returns focus to the Preview button (WCAG 2.4.3 focus return).
+3. **Escape (layered):** the existing card-modal Escape handler currently closes the modal on Escape. The preview overlay registers **its own** `document` keydown listener with `capture: true` so it fires before the modal's while the overlay is open. Escape **closes the preview first**; a second Escape (preview already gone, listener unregistered) reaches the modal's existing handler and closes the modal. The listener is added in `openPreview()` and removed in `closePreview()` so the invariant is exact: while the preview is open, Escape can never close the card modal underneath it.
+4. **`closePreview()`** — removes the overlay, sets `_previewOpen = false`, re-focuses the Preview button. No S3 request is cancelled (the browser aborts the `<img>`/`<embed>` fetch when the element is removed from the DOM — the network side tears down for free).
+
+**`www/js/card-modal.js` constants:**
+```js
+var PREVIEWABLE_MIME = ['image/png','image/jpeg','image/webp','image/gif','application/pdf'];
+function isPreviewable(mime) { return PREVIEWABLE_MIME.indexOf(mime) !== -1; }
+```
+
+**`www/css/app.css` additions (all `--color-*` tokens — not `--bg-*`/`--border-color`/`--color-danger`):**
+- `.card-thumb` — 28×28, border-radius 4px, object-fit cover, border `1px solid var(--color-border)`, `flex-shrink: 0`.
+- `.attachment-preview-overlay` — `position: fixed; inset: 0; z-index: 1000` (above the card modal which is z‑900); background `rgba(0,0,0,.85)`; flex column.
+- `.attachment-preview-header` — `display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--color-raised); border-bottom: 1px solid var(--color-border)`.
+- `.attachment-preview-body` — `flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto`.
+- `.attachment-preview-image` — `max-width: 100%; max-height: 100%; object-fit: contain; background: transparent`.
+- `.attachment-preview-embed` — `width: 100%; height: 100%; border: none; background: var(--color-base)`.
+
+**i18n keys (additions to `include/lang/en.json`):**
+- `attachment.preview` — "Preview"
+- `attachment.preview_close` — "Close preview"
+(All other strings reuse existing keys: the Download button label reuses `attachment.download`.)
+
+**Route (`www/v1/index.php` added):**
+```php
+$router->get('/attachments/{id}/preview', [$attachmentController, 'preview']);
+```
+**Wiring (`www/v1/index.php`):** no new model injection — `AttachmentController` already has `attachmentService` which has `attachmentModel` and `s3`. The new `preview()` controller method + `AttachmentService::preview()` are the only additions.
+
+**Controller — `AttachmentController::preview()` (new, §5.23):**
+```
+GET /v1/attachments/{id}/preview
+  requireAuth()
+  → resolve board id (attachmentService->getBoardIdForAttachment) → null: 404
+  → canAccessBoard ? : 404
+  try {
+      AttachmentService::preview($id, $rangeStart, $rangeEnd)  // Range from $_SERVER['HTTP_RANGE']
+      → Response::streamInline(stream, mime, size, name[, start, end, total])
+  } catch (PreviewTypeException)   → 415
+    catch (RangeException)         → 416 (+ Accept-Ranges: bytes, + Content-Range: bytes */total)
+    catch (RuntimeException)       → 404  (missing attachment OR missing S3 object OR bad board)
+```
+
+**Out of scope (v1.15):**
+- Server-side thumbnail generation (GD not available on the app host; would require a new runtime dependency — see §7 Infrastructure notes).
+- Open-ended Range (`bytes=N-`) — out of v1 contract (§5.23 Range spec above).
+- Video/audio inline preview (outside the FILE-06/07 scope).
+- Board tile thumbnail animation / zoom interactions (a future UX improvement, not FILE-06 scope).
+
+---
+
 ## 6. Security Architecture
 
 ### 6.1 Password Hashing
@@ -3383,7 +3543,8 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | LABEL-01 / LABEL-02 / LABEL-03 | 3.14 (Label, CardLabel model access), 3.15 (LabelService::PALETTE, BoardService::setLabelModel + batch card_labels load, CardService::mergeInto label union), 4.1 (labels, card_labels), 5.15 (API + board-view card dots + card-modal picker + board-manage UI), www/board.php (card dots + board header manage-labels button + modal), www/js/board.js (manage-labels modal logic), www/js/card-modal.js (card-tab label chips + add dropdown), include/lang/en.json (label.* keys) |
 | COMMENT-01 through COMMENT-05 | 3.14, 4.1 (comments), 5.8 |
 | CHECK-01 through CHECK-06 | 3.14, 4.1 (checklists, checklist_items), 5.9 |
-| FILE-01 through FILE-07 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
+| FILE-01 through FILE-05 | 3.9, 3.15, 4.1 (attachments), 5.10, 8.1 |
+| FILE-06 / FILE-07 | 5.23 (GET /v1/attachments/{id}/preview + Range 206/416 + type gate 415; board tile thumbnail in `include/templates/board-region.php`; card-modal preview overlay in `www/js/card-modal.js`), 3.9 (S3Client::getObjectRange, Response::streamInline, Core PreviewTypeException/RangeException), 3.15 (AttachmentService::preview, Attachment::firstPreviewableByCards, BoardService::getBoardWithLanesAndCards preview_attachment) |
 | NOTIF-01 through NOTIF-06 | 3.15, 4.1 (notifications), 5.11 |
 | NOTIF-07 / NOTIF-08 | 3.15 (NotificationService::notifyCreator + notifyComment creator branch), 4.1 (notifications.enum `creator` + `comment_id`), 5.11 (board_id + comment_id in response), www/js/notifications.js routing |
 | NOTIF-09 | 5.11 (routing contract), www/js/notifications.js, www/js/board.js (Comments-tab `#comment-{id}` anchor + highlight) |

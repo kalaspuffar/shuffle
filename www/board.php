@@ -64,6 +64,7 @@ $commentService   = new Shuffle\Service\CommentService($commentModel, $cardModel
 $checklistService = new Shuffle\Service\ChecklistService($checklistModel, $checklistItemModel, $cardModel, $boardModel);
 
 $attachmentModel = new Shuffle\Model\Attachment($db);
+$boardService->setAttachmentModel($attachmentModel); // board tile thumbnails (FILE-06, §5.23)
 $s3Client        = new Shuffle\Core\S3Client($config['s3'] ?? []);
 $attachmentService = new Shuffle\Service\AttachmentService(
     $attachmentModel,
@@ -519,6 +520,9 @@ $boardLang = json_encode([
     'attachment_delete_confirm'  => $lang->get('attachment.delete_confirm'),
     'attachment_upload_error'    => $lang->get('attachment.upload_error'),
     'attachment_empty'           => $lang->get('attachment.empty'),
+    'attachment_download'        => $lang->get('attachment.download'),
+    'attachment_preview'         => $lang->get('attachment.preview'),
+    'attachment_preview_close'   => $lang->get('attachment.preview_close'),
     'comment_update_success'     => $lang->get('comment.update_success'),
     'comment_delete_success'     => $lang->get('comment.delete_success'),
     'comment_delete_confirm'     => $lang->get('comment.delete_confirm'),

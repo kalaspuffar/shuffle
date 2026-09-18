@@ -112,6 +112,63 @@ class S3Client
     }
 
     /**
+     * Downloads a byte range of an object and returns a readable stream.
+     *
+     * Sends a signed `Range: bytes={start}-{end}` header (SigV4 signs the
+     * header like any other — `start`/`end` are validated by the service
+     * before this is called). The returned stream carries ONLY the
+     * requested bytes on a 206 response.
+     *
+     * Contract (§5.23, FILE-06/07):
+     *   - S3 206        → stream over the range, size = end - start + 1
+     *   - S3 416        → \Shuffle\Core\RangeException (the stored object is
+     *                     shorter than the requested range)
+     *   - S3 other ≥400 → \RuntimeException (same as getObject())
+     *
+     * @param string $key   S3 object key
+     * @param int    $start Inclusive first byte (0-based)
+     * @param int    $end   Inclusive last byte
+     * @return array ['stream' => resource, 'size' => int] (size = range length)
+     * @throws \Shuffle\Core\RangeException On a S3 416 unsatisfiable range
+     * @throws \RuntimeException On other download failure
+     */
+    public function getObjectRange(string $key, int $start, int $end): array
+    {
+        $url = $this->buildUrl($key);
+        $headers = ['Range' => 'bytes=' . $start . '-' . $end];
+        $signedHeaders = $this->signRequest('GET', $key, $headers, '');
+
+        $context = stream_context_create([
+            'http' => [
+                'method'  => 'GET',
+                'header'  => $this->formatHeaders($signedHeaders),
+                'timeout' => 300,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        $stream = @fopen($url, 'rb', false, $context);
+        if ($stream === false) {
+            throw new \RuntimeException('S3 getObjectRange failed: could not open stream for key ' . $key);
+        }
+
+        $meta = stream_get_meta_data($stream);
+        $statusLine = $meta['wrapper_data'][0] ?? '';
+        if (preg_match('/HTTP\/\d+\.\d+\s+(\d+)/', $statusLine, $matches)) {
+            $statusCode = (int) $matches[1];
+            if ($statusCode >= 400) {
+                fclose($stream);
+                if ($statusCode === 416) {
+                    throw new RangeException('S3 reported the byte range as unsatisfiable');
+                }
+                throw new \RuntimeException('S3 getObjectRange failed with status ' . $statusCode);
+            }
+        }
+
+        return ['stream' => $stream, 'size' => $end - $start + 1];
+    }
+
+    /**
      * Deletes an object from S3.
      *
      * @param string $key S3 object key

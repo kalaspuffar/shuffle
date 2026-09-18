@@ -165,6 +165,103 @@ class AttachmentController
     }
 
     /**
+     * GET /v1/attachments/{id}/preview (FILE-06/07, §5.23)
+     *
+     * Serves a PREVIEWABLE attachment inline (browser viewable), with
+     * optional byte-range support (206) for the PDF viewer. Types outside
+     * the preview set (Attachment::PREVIEWABLE_MIME, spec §5.23) → 415;
+     * `/download` keeps working unchanged for all types.
+     *
+     * Range contract (spec §5.23):
+     * - No Range header          → 200 full object
+     * - Range: bytes=S-E in-bounds → 206 Partial Content, Content-Range S-E/total
+     * - Malformed / out-of-bounds → 416 + Accept-Ranges: bytes + a
+     *                               Content-Range header in the unsatisfiable
+     *                               form (bytes with a star-total value)
+     * - Only closed `bytes=S-E` is supported; open-ended forms (bytes=N- or
+     *   bytes=-N) and `*` are rejected as 416 (v1 contract).
+     *
+     * Error semantics (spec §5.23):
+     * - unknown id / inaccessible board → 404
+     * - type not in the preview set    → 415 (PreviewTypeException)
+     * - unsatisfiable range            → 416 (RangeException)
+     *
+     * @param Request  $request  HTTP request
+     * @param Response $response HTTP response
+     * @param array    $params   Route parameters
+     */
+    public function preview(Request $request, Response $response, array $params): void
+    {
+        $this->auth->requireAuth();
+        $id = (int) ($params['id'] ?? 0);
+
+        $boardId = $this->attachmentService->getBoardIdForAttachment($id);
+        if ($boardId === null || !$this->auth->canAccessBoard($boardId)) {
+            $response->error('Attachment not found', 404);
+            return;
+        }
+
+        // -- Parse Range (only closed ranges v1) ---------------------------
+        $rangeHeader = $request->getHeader('Range');
+        $start = null;
+        $end   = null;
+        if ($rangeHeader !== null && $rangeHeader !== '') {
+            // Accept only: bytes={start}-{end}  (closed, both-numeric).
+            // Anything else (open ranges, suffix, `*`, malformed) is NOT
+            // in the v1 contract and maps to 416 (client math or shape
+            // doesn't fit what we serve — same semantics as a valid
+            // range the object is too small for).
+            if (!preg_match('/^bytes=(\d+)-(\d+)$/', trim($rangeHeader), $m)) {
+                http_response_code(416);
+                header('Accept-Ranges: bytes');
+                header('Content-Range: bytes */0');
+                header('Cache-Control: private, no-store');
+                echo json_encode(['error' => 'Range not satisfiable']) . "\n";
+                return;
+            }
+            $start = (int) $m[1];
+            $end   = (int) $m[2];
+        }
+
+        try {
+            $result = $this->attachmentService->preview($id, $start, $end);
+            $attachment = $result['attachment'];
+
+            $size = $result['range'] !== null
+                ? ((int) $result['range']['end'] - (int) $result['range']['start'] + 1)
+                : (int) $attachment['file_size'];
+
+            $response->streamInline(
+                $result['stream'],
+                (string) $attachment['mime_type'],
+                $size,
+                (string) $attachment['file_name'],
+                $result['range'] !== null
+                    ? [
+                        'start' => (int) $result['range']['start'],
+                        'end'   => (int) $result['range']['end'],
+                        'total' => (int) $result['range']['total'],
+                    ]
+                    : null
+            );
+        } catch (\Shuffle\Core\PreviewTypeException $e) {
+            http_response_code(415);
+            header('Content-Type: application/json');
+            header('Cache-Control: no-cache');
+            echo json_encode(['error' => 'This file type is not previewable']) . "\n";
+        } catch (\Shuffle\Core\RangeException $e) {
+            http_response_code(416);
+            header('Accept-Ranges: bytes');
+            header('Content-Range: bytes */0');
+            header('Content-Type: application/json');
+            header('Cache-Control: private, no-store');
+            echo json_encode(['error' => 'Range not satisfiable']) . "\n";
+        } catch (\RuntimeException $e) {
+            $response->error('Preview not available', 404);
+        }
+    }
+
+    /**
      * DELETE /v1/attachments/{id}
      *
      * Deletes an attachment. Only the uploader or admin may delete.

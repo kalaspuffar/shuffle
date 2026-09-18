@@ -68,6 +68,8 @@
   "attachment.delete_success": "Attachment deleted successfully.",
   "attachment.download": "Download",
   "attachment.empty": "No attachments yet.",
+  "attachment.preview": "Preview",
+  "attachment.preview_close": "Close preview",
   "attachment.upload_error": "File upload failed. Please try again.",
   "attachment.upload_success": "File uploaded successfully.",
   "attachment.uploading": "Uploading...",

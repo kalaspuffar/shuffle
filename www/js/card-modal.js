@@ -227,6 +227,15 @@
     function close() {
         if (isMergeVisible()) closeMerge();
         if (isMoveVisible()) closeMoveBoard();
+        // FILE-07 (§5.23): any path that closes the card modal (Escape /
+        // backdrop / header × / footer Cancel) also dismisses the in-modal
+        // attachment preview overlay + its capture-Escape listener, so the
+        // overlay can't outlive the modal. closePreview() is a no-op when
+        // no preview is open (guards its own state), so this is safe on
+        // every close path. closePreview is hoisted (function declaration)
+        // into this IIFE scope, so it resolves here even though defined
+        // below in Chunk 06.
+        if (typeof closePreview === 'function') closePreview();
         if (!isCardModalVisible()) return;
         overlay.hidden = true;
         overlay.setAttribute('aria-hidden', 'true');
@@ -1071,10 +1080,23 @@
         });
     }
 
+    // FILE-06/07 (v1.15, spec §5.23): previewable types — the mirror of the
+    // server allowlist Attachment::PREVIEWABLE_MIME (the single source of
+    // truth on the server). The attachment rows the server returns carry
+    // mime_type, so the client decides per-row which get a Preview button;
+    // the type gate is re-verified server-side (415 for any mismatch — keep
+    // these lists in lockstep, spec §5.23).
+    var PREVIEWABLE_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+    function isPreviewable(mime) {
+        return PREVIEWABLE_MIME.indexOf(mime) !== -1;
+    }
+    function previewUrl(id) { return '/v1/attachments/' + id + '/preview'; }
+
     function buildAttachmentEl(attachment) {
         var div = document.createElement('div');
         div.className = 'attachment';
         div.dataset.attachmentId = attachment.id;
+        div.dataset.mime = attachment.mime_type || '';
 
         var html =
             '<div class="attachment-info">' +
@@ -1086,6 +1108,21 @@
                 '</a>' +
                 '<span class="attachment-size">' + escapeHtml(formatFileSize(attachment.file_size)) + '</span>' +
             '</div>';
+
+        // Preview (FILE-07): visible for EVERY role — a read action on a
+        // file the caller already has board access to (applyReadonly
+        // deliberately leaves it in place, like the list itself).
+        if (isPreviewable(attachment.mime_type)) {
+            html +=
+                '<button type="button" class="attachment-preview-btn" ' +
+                    'aria-label="' + escapeHtml(t('attachment_preview') || 'Preview') + ' — ' + escapeHtml(attachment.file_name) + '">' +
+                    '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+                        '<path d="M2 8s2.2-4.5 6-4.5S14 8 14 8s-2.2 4.5-6 4.5S2 8 2 8z" stroke="currentColor" stroke-width="1.2"/>' +
+                        '<circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.2"/>' +
+                    '</svg>' +
+                    escapeHtml(t('attachment_preview') || 'Preview') +
+                '</button>';
+        }
 
         if (CAN_EDIT) {
             html +=
@@ -1180,6 +1217,102 @@
                     flashErr(result);
                 }
             });
+        });
+    }
+
+    // ---- Preview overlay (FILE-06/07, §5.23) ------------------------------
+    // One full-screen viewable surface for images (<img>) and PDFs
+    // (<embed> — the browser's viewer drives the ranged GETs). The overlay
+    // is appended to document.body so it isn't clipped by the card modal's
+    // scroll container. Escape layering: while the overlay is open its own
+    // capture-phase listener claims the event (closes the preview and stops
+    // propagation, so the card-modal Escape handler beneath never fires);
+    // the NEXT Escape reaches the modal's handler and closes it (spec §5.23).
+    var previewOverlay = null;
+    var previewButton = null;   // the Preview button to re-focus on close
+    var previewEscapeHandler = null;
+
+    function closePreview() {
+        if (previewEscapeHandler) {
+            document.removeEventListener('keydown', previewEscapeHandler, true);
+            previewEscapeHandler = null;
+        }
+        if (previewOverlay && previewOverlay.parentNode) {
+            previewOverlay.parentNode.removeChild(previewOverlay);
+        }
+        previewOverlay = null;
+        if (previewButton && previewButton.focus) previewButton.focus();
+        previewButton = null;
+    }
+
+    function openPreview(att, btn) {
+        var overlay = document.createElement('div');
+        overlay.className = 'attachment-preview-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        overlay.setAttribute('aria-label', att.file_name || '');
+
+        var previewSrc = previewUrl(att.id);
+        var body;
+        if (att.mime_type === 'application/pdf') {
+            body = '<embed src="' + escapeHtml(previewSrc) + '" type="application/pdf" class="attachment-preview-embed">';
+        } else {
+            body = '<img src="' + escapeHtml(previewSrc) + '" alt="' + escapeHtml(att.file_name || '') + '" class="attachment-preview-image">';
+        }
+
+        overlay.innerHTML =
+            '<div class="attachment-preview-header">' +
+                '<span class="attachment-preview-filename">' + escapeHtml(att.file_name || '') + '</span>' +
+                '<a class="attachment-preview-btn" href="/v1/attachments/' + att.id + '/download">' +
+                    escapeHtml(t('attachment_download') || 'Download') +
+                '</a>' +
+                '<button type="button" class="attachment-preview-btn attachment-preview-close" ' +
+                    'aria-label="' + escapeHtml(t('attachment_preview_close') || 'Close preview') + '">' +
+                    '<svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">' +
+                        '<path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>' +
+                    '</svg>' +
+                '</button>' +
+            '</div>' +
+            '<div class="attachment-preview-body">' + body + '</div>';
+
+        document.body.appendChild(overlay);
+        previewOverlay = overlay;
+        previewButton = btn || null;
+
+        // Backdrop click (the overlay itself, not its children) closes.
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) closePreview();
+        });
+        Array.prototype.slice.call(overlay.querySelectorAll('.attachment-preview-close'))
+            .forEach(function (b) { b.addEventListener('click', closePreview); });
+
+        // Escape: capture phase fires BEFORE the card-modal's bubble-phase
+        // handler; claim it while the preview is open (close + stopProp).
+        previewEscapeHandler = function (e) {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            closePreview();
+        };
+        document.addEventListener('keydown', previewEscapeHandler, true);
+
+        // WCAG 2.4.3 — first focusable control in the dialog.
+        if (overlay.querySelector) overlay.querySelector('.attachment-preview-btn').focus();
+    }
+
+    if (attachmentsList) {
+        attachmentsList.addEventListener('click', function (e) {
+            var btn = e.target.closest ? e.target.closest('.attachment-preview-btn') : null;
+            if (!btn) return;
+            var attEl = btn.closest('.attachment');
+            if (!attEl) return;
+            var att = {
+                id: attEl.dataset.attachmentId,
+                mime_type: attEl.dataset.mime || '',
+                file_name: (attEl.querySelector('.attachment-name') || {}).textContent || ''
+            };
+            if (!isPreviewable(att.mime_type)) return;
+            openPreview(att, btn);
         });
     }
 

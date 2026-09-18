@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Shuffle\Service;
 
+use Shuffle\Core\PreviewTypeException;
+use Shuffle\Core\RangeException;
 use Shuffle\Core\S3Client;
 use Shuffle\Model\Attachment;
 use Shuffle\Model\Board;
@@ -250,6 +252,81 @@ class AttachmentService
         return [
             'stream'     => $stream,
             'attachment' => $attachment,
+        ];
+    }
+
+    /**
+     * Serves an attachment for INLINE preview (FILE-06/07, §5.23).
+     *
+     * Returns a stream the controller hands to Response::streamInline():
+     * - full object:  ['stream' => resource, 'attachment' => array, 'range' => null]
+     * - ranged (S-E): ['stream' => resource, 'attachment' => array, 'range' =>
+     *                 {start, end, total}] where total = attachment.file_size
+     *
+     * Error mapping (spec §5.23):
+     * - unknown attachment → \RuntimeException (controller 404)
+     * - type not previewable → PreviewTypeException (controller 415) — a
+     *   standalone exception class so it is not caught by the 404 path
+     * - malformed range ($start > $end or negative or missing end)
+     *   → RangeException (controller 416)
+     * - S3 416 (object too small) → RangeException (controller 416,
+     *   rethrown by S3Client::getObjectRange)
+     * - S3 404 (object missing) → \RuntimeException (controller 404)
+     *
+     * @param int         $attachmentId
+     * @param int|null    $start  Inclusive start byte (with $end set) or null
+     * @param int|null    $end    Inclusive end byte (with $start set) or null
+     * @return array
+     * @throws \RuntimeException
+     * @throws PreviewTypeException
+     * @throws RangeException
+     */
+    public function preview(int $attachmentId, ?int $start = null, ?int $end = null): array
+    {
+        $attachment = $this->attachmentModel->findById($attachmentId);
+        if ($attachment === null) {
+            throw new \RuntimeException('Attachment not found');
+        }
+
+        $mime = (string) ($attachment['mime_type'] ?? '');
+        if (!in_array($mime, Attachment::PREVIEWABLE_MIME, true)) {
+            throw new PreviewTypeException($mime !== '' ? $mime : '<unknown>');
+        }
+
+        $total = (int) $attachment['file_size'];
+
+        // Range handling (spec §5.23): the contract is closed ranges only.
+        // - start null  → full object
+        // - start+end   → validate: 0 <= start <= end < total, else RangeException
+        $range = null;
+        if ($start !== null) {
+            if ($end === null) {
+                // Open range (bytes=N- or bytes=-N) — not in v1 contract → unsatisfiable
+                throw new RangeException('Only closed byte ranges (bytes=S-E) are supported');
+            }
+            $end = (int) $end;
+            $start = (int) $start;
+            if ($start < 0 || $end < $start || $end >= $total) {
+                throw new RangeException('Range not satisfiable');
+            }
+            $result = $this->s3->getObjectRange((string) $attachment['s3_key'], $start, $end);
+            $range = [
+                'start' => $start,
+                'end'   => $end,
+                'total' => $total,
+            ];
+            return [
+                'stream'     => $result['stream'],
+                'attachment' => $attachment,
+                'range'      => $range,
+            ];
+        }
+
+        $stream = $this->s3->getObject((string) $attachment['s3_key']);
+        return [
+            'stream'     => $stream,
+            'attachment' => $attachment,
+            'range'      => $range,
         ];
     }
 
