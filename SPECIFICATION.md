@@ -1,10 +1,10 @@
 # Project Specification: Shuffle
 
-**Version:** 1.15
-**Date:** 2026-09-17
+**Version:** 1.16
+**Date:** 2026-09-18
 **Author:** Solution Architect (maintained with the implementation stream)
 **Status:** Draft
-**Based on:** REQUIREMENTS.md v2.1 (USER-01..04)
+**Based on:** REQUIREMENTS.md v2.3 (USER-01..04 incl. org-scoped visibility)
 **License:** MIT
 
 ## Changes since the 1.0 draft
@@ -13,6 +13,7 @@ The spec header stayed at v1.0 during implementation; each feature branch append
 
 | Date | Change |
 |---|---|
+| 2026-09-18 | **v1.16** — **Assignee chip contact tooltip (USER-01 / USER-04)** (§5.24): personal-data-visibility decision locked (Daniel, 2026-09-18): `phone`/`location` (and `bio`) are visible to all users in the **same organization** (+ admins). Three contract changes: (1) `Card::getAssignedUsers()` + `batchLoadAssignments()` payload widens — `u.id, u.name, u.phone, u.location, u.organization_id` (email removed from the payload, grep-verified no client consumer; `organization_id` rides along so the org check costs no extra query); scrub = `UserService::scrubAssignedUsersFor($users, ?array $viewer)` applied at the 4 viewer boundaries (CardController::show, BoardController::show + region, www/board.php) — admin pass-through, same-org pass-through, everything else (cross-org / NULL-org / null viewer) → `phone = location = bio = null`; model layer stays raw + org-agnostic. (2) `include/templates/assignee-avatar-stack.php` tooltip = `name · phone · location` (each field appended only when non-empty; zero change for users without contact info; native `title` attribute — no JS, no CSS, no chip geometry change; separator + field labels i18n'd via `user.contact_*` keys). (3) `GET /v1/users/{id}` gate widens: admin/self unchanged (full row incl. email, §5.22 byte-identical); **same-org non-admin → 200 with `email: null`**; different org / NULL target org → **404** (not 403 — no user-ID enumeration, matches the BOARD-04b foreign-board convention). **Not in v1.16:** hover-popover contact card, bio in the tooltip, card-modal picker contact fields. **Tests:** `tests/e2e-contact-chip.php` (service contract: scrub helper same-org/cross-org/admin/NULL-org matrix; user endpoint 404/200 matrix) + `tests/http-contact-chip.sh` (live Apache: unauth 401, same-org 200 incl. `"email":null` JSON, cross-org 404, admin 200 w/ email, card + board + region fragment payloads scrub both ways) — both fixture-based self-cleaning, never user id 1. **Regression:** `e2e-user-profile.php` 38/0 + `http-user-profile.sh` 38/0 (admin/self paths untouched), `e2e-card-merge.php` (merge union is by user ID — email removal from `assigned_users` must not touch it). |
 | 2026-09-17 | **v1.15** — **File previews (FILE-06/07)** (§5.23 + §3.20): inline preview of image + PDF attachments. **New endpoint `GET /v1/attachments/{id}/preview`** (SPECIFICATION §5.23): same board-access contract as `/download`; serves the S3 object with `Content-Disposition: inline` + correct MIME for the **Previewable set** — `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `application/pdf` (SVG is **out** of the set: `image/svg+xml` → **415** — see SVG policy note). Other types (doc, zip, audio, …) → **415** *This file type is not previewable* (download contract §5.10 unchanged). **Range support (PDF `<embed>` lazy-loading):** `S3Client::getObjectRange(key, start, end)` — a new method (the existing `getObject()` signature/contract is untouched); sends a signed `Range: bytes=start-end` header. The parser accepts `bytes=S-E` both-ended only (that's all the client sends); invalid Range → **416** + `Accept-Ranges: bytes` + `Content-Range: bytes */{size}` (the unsatisfiable form); an in-bounds range returns **206** + `Content-Range: bytes S-E/{size}`. **Response helper:** `Response::stream()` gains an optional inline-disposition overload via `Response::streamInline()` (filename RFC-5987 encoded); `Content-Length` exact for full + ranged responses; `Cache-Control: private, no-store` (preview is an auth-gated proxy, never a static asset). **Service:** `AttachmentService::preview($id, ?int $start, ?int $end)` (see §5.23 for the canonical signature/semantics) **Client (card modal, `www/js/card-modal.js`):** `buildAttachmentEl()` for a previewable attachment adds a **Preview** action (icon + link, `aria-label`) beside the file name; clicking opens a **full-screen preview overlay** (a `role="dialog"` modal above the card modal): images as `<img>` (max 100vw/100vh, object-fit contain), PDFs as `<embed src="/v1/attachments/{id}/preview">` (the browser's PDF viewer uses Range; on a server without Range the full object streams — acceptable fallback, no client error). Overlay: header with file name + **Download** button (→ existing `/download` contract, `Content-Disposition: attachment` unchanged) + close (× / Escape — Escape closes the preview first, then the card modal, matching the existing ESCAPE_STACK pattern); backdrop click closes preview. Viewer role: Preview action visible (read-side convenience — the attachment list is already world-visible to board members). **Board tile thumbnail (FILE-06 "on cards"):** `board-region.php` renders, per card with ≥1 previewable attachment, ONE lazy thumbnail (`<img loading="lazy" src="/v1/attachments/{firstId}/preview"` — the first by upload order) in the meta row beside the attachment count; click navigates to the card (existing `card-link`); image load failure → thumbnail silently hidden (tile contract unchanged by `onerror` removal). Batch load: `BoardService::boardWithLanes()` attaches `$card['preview_attachment'] = {id, file_name}` (first previewable per card, one extra GROUPed query via new `Attachment::firstPreviewableByCards(?array cardIds)` — no N+1, null-safe when the model is unwired). **CSP note:** the preview endpoint is same-origin (`img-src 'self'` / no `frame-src` restriction). **i18n:** `attachment.preview` (button/aria "Preview"), `attachment.preview_close` ("Close preview"). **Test suites (all fixture-based, self-cleaning, never user id 1):** `php tests/e2e-file-preview.php` (service contract: type gate 415 matrix incl. svg+xml, range boundary math both-ends, 416 math, foreign-board 404, missing-object 404, previewable-pick ordering) + `bash tests/http-file-preview.sh` (live Apache: unauth GET 401, image 200 inline + content-type + content-length, 415 for zip, 206 + Content-Range for range, 416 malformed/overshoot, download endpoint STILL `attachment` disposition (regression), board region fragment renders the tile thumbnail for a card with an image and NOT for a zip-only card). **Regression:** existing e2e/http attachment + board suites stay green (no contract change on `/download`, upload, delete). **Framing headers (§6.9):** `X-Frame-Options` and `frame-ancestors` move from `DENY`/`'none'` to `SAMEORIGIN`/`'self'` — the inline PDF preview (§5.23) needs the browser's built-in viewer, which runs in an internal same-origin frame that a hard deny kills ("Incorrect positioning of vector elements"); third-party framing stays blocked. |
 | 2026-09-17 | **v1.14** — **User profiles & contact info (USER-01..04)** (§5.22 + §4.1 + §3.16 + §3.17): `users` gains **`phone VARCHAR(32) NULL`, `location VARCHAR(120) NULL`, `bio TEXT NULL`** (display data, not identity — USER-01). **Self-service (USER-02 + AUTH-04):** new **`PUT /v1/me`** updates the actor's own `name`, `phone`, `location`, `bio` (only provided fields; blank string clears a nullable field); **email is read-only on every surface** (identity anchor — set at invite, changed only by an admin flow out of v1). **Password change** (`PUT /v1/me/password`): requires `current_password` (min 8 chars); wrong current → **403** *Identity not confirmed*; `current_password` accepted-but-wrong vs missing → 400 (shape) vs 403 (verification) — different diagnostics. **Admin (USER-03):** `PUT /v1/admin/users/{id}` manages **role, status** (existing §5.3 `PUT /v1/users/{id}` admin path, unchanged) *plus the new* `name/phone/location/bio` — admin may not change `email` in v1 (send 400 `email_immutable`); `POST /v1/admin/users/{id}/reset-password` sets the password (admin does not need the current one) → 200 `{message}`. **Profile surface (new §3.16):** `www/profile.php` + `www/js/profile.js` — Profile section (name/phone/location/bio, email shown read-only with the `user.email_readonly` hint) and Password section (new + confirm, current) as separate forms/save-points; flash on success/failure; i18n `profile.*`. **Admin surface (new §3.17):** `www/admin/users.php` gains a per-user **Edit modal** (name/phone/location/bio/role — status stays an inline badge action; email field shown read-only) and a **Reset password** dialog (new + confirm, busy-guarded); viewer/placeholder self-row invariants unchanged. **Contact surfacing (USER-04, v1 = minimal):** assignee avatar stacks (`include/templates/assignee-avatar-stack.php`) gain a name tooltip; **phone/location chips are deferred** to a follow-up behind the tooltip contract (the `assigned_users` payload already carries id/name/avatar and the endpoint contract for a `/v1/users/{id}` contact payload remains `GET /v1/users/{id}` — extend, don't add). **Migration:** `bin/add-user-profile-fields.php` — idempotent `ALTER TABLE users ADD COLUMN` ×3 (`phone`, `location`, `bio`), safe re-run (checks information_schema first); `doc/schema.sql` synced (three NULL-able columns after `email`, before `role`). **Tests:** `php tests/e2e-user-profile.php` (service contract: field validation lengths, email rejection, phone/location/bio set+clear via blank, password current-wrong 403 vs missing 400, admin fields, admin email_immutable 400, reset-password path, fixtures on mya id 4 or dedicated test users — never id 1) + `php tests/http-profile.php` (PUT /v1/me + /me/password over HTTP against the auth-gate, `PUT /v1/admin/users/{id}` role/status/fields/email_immutable/reset) + `php tests/http-admin-user-edit.php` (page-render contract: modal markup, i18n keys present, self-row invariants). **i18n:** `profile.*` (title, sections, fields, hints: `profile.email_readonly`, `profile.password_current`, `profile.password_new`, `profile.password_confirm`, `profile.saved`, `profile.current_password_wrong`, `profile.password_too_short`, `profile.password_mismatch`, `profile.name_required`) + `admin.users.edit_title`, `admin.users.edit_save`, `admin.users.reset_password_title`, `admin.users.reset_password_btn`, `admin.users.email_immutable`, `admin.users.password_reset` — all `--color-*` tokens in CSS. |
 | 2026-09-17 | **v1.13** — CARD-14 **Stages C + D** (§5.21): the card modal becomes fully read-first. **Stage C** — the modal footer's Save + Cancel are gone: the card is closed by the header ×, Escape, or backdrop (all already bound via `.modal-close`), and every remaining mutation is an explicit action in the in-body action row (Archive/Restore, Merge into…, Move to board…, Delete) or the description-local Save of Stage B. The `<form>` wrapper stays (inputs can't submit into a default navigation without a submit button — none remain). **Stage D** — title and due date autosave inline: `input` handlers mark the field dirty and debounce (≈800 ms) a **field-only** `PUT /v1/cards/{id}` (title-only or `due_date`-only — the service already diffs per-field, so the other fields are untouched and *not sent*; clearing the due date sends `due_date: null`, which the server stores as a clear, distinct from an omitted field). Blur flushes a pending save; `Escape` reverts the field to the stored value and discards the schedule; a real-change test against `state.card` is the no-op contract (blur-without-change never round-trips — the zero-bump guarantee the server does not provide). Save failures keep the field's unsaved text (flash surfaces the error) and resync only the affected inputs + header title on success (no `applyCard` re-render, no close). An empty title is rejected client-side (the server 422s it) — the field reverts and flashes `card.title_required`. **Tests**: server contract pin `tests/e2e-autosave.php` (22 checks: title-only / due-only / clear-due / empty-title-rejected / no-op) + client logic suite `tests/card-modal-autosave.test.js` (24 checks: single-PUT + field-scoped body, debounce collapse, no-op short-circuit, stale-timer cancellation on re-open, Escape revert, close-after-save region sync) ; Stage B suites + CSS sanity + rendered-page verification (no footer remnants) stay green. **Board-tile reconciliation** (Daniel report 2026-09-17: the tile title / due stayed stale after an autosave until a reload): the old behavior relied on the 15 s poll tick setting `pendingSync` while the modal was open — true only if a tick landed AFTER the save. A save in the last ~15 s of the interval (the common case) set no flag and the board tile showed the old title/due until reload. Now `close()`: (1) first the existing `pendingSync` path (full reload) if a tick already saw a bump; (2) else if the modal itself made ≥1 successful card mutation this open, it calls `ShuffleBoardSync.syncNow()` — the board.js in-place region swap (server-rendered fragment, scroll positions preserved, no full reload) — BEFORE focus returns to the card tile (focusing first would trip the "focus on an editable in the region" guard); (3) then the usual focus-return + state reset. Zero-mutation closes sync nothing (no-op close = no region fetch). |
@@ -2944,6 +2945,128 @@ GET /v1/attachments/{id}/preview
 
 ---
 
+### 5.24 Assignee Chip Contact Tooltip (USER-01 / USER-04, v1.16)
+
+**Motivation (Daniel, 2026-09-18):** the profile fields exist and are self-service-editable, but no one *else* can see a teammate's phone or location at the point of need (a card's assignee chip). v1.14 deferred USER-04 explicitly behind "a personal-data-visibility decision Daniel should make." That decision is now locked: **`phone` + `location` are visible to all users in the same organization** (and to admins). `bio` follows the same org scope. `name` was already visible wherever a user is surfaced.
+
+**v1.16 delivers the deferred UI slice — not the full "contact card on the board" surface.** Scope is deliberately narrow so Daniel can reject it and we lose nothing:
+
+**What changes, contract by contract:**
+
+**(1) `Card::getAssignedUsers()` — payload widens.**
+
+Current SELECT: `u.id, u.name, u.email`.
+New SELECT: `u.id, u.name, u.phone, u.location, u.organization_id`.
+
+`email` is **removed** from the payload (it was only there for the old chip `title`; it stays in `GET /v1/users/{id}` for the admin/self path per §5.22). Both call sites — `Card::findById()` (card modal) and `BoardService::boardWithLanes()` (board tile) — get the wider row. No new model method; no new endpoint.
+
+**Placement (locked at design):** the scrub is `UserService::scrubAssignedUsersFor(array $users, ?array $viewer): array` (USER-01 visibility rule, one helper). `?array` viewer: every real call site passes `requireAuth()`, the nullable default future-proofs CLI paths — a `null` viewer is treated as "no visibility" (all contact fields scrubbed):
+
+- Viewer `role === 'admin'` → all rows pass through unchanged.
+- Row `org === viewer org` (both non-null, `===`) → row passes through unchanged (`phone`/`location`/`bio` visible).
+- Everything else — different org, either org NULL, or no viewer context (CLI/test without a viewer; `viewer` is `null` for `getCard()` called from inside services after merge/move where the controller re-applies the rule) — → `phone = location = bio = null` in the returned row. `id`, `name`, `organization_id` always survive (name + id are the chip contract; org rides along for the check itself).
+
+Called at the four viewer-facing boundaries (one call site each — no service-internal call needs it because CLI consumers of the raw model are admin tools):
+
+| Call site | Viewer arg |
+|---|---|
+| `CardController::show()` after `getCard()` | `requireAuth()` |
+| `BoardController::show()` after `getBoardWithLanesAndCards()` | `requireAuth()` |
+| `BoardController::region()` — **inside** the method, before the `renderBoardRegion` require (the region fragment is `board.php`'s shared renderer — same chips, same scrub, one code path) | `requireAuth()` (already fetched) |
+| `www/board.php` page render — after `getBoardWithLanesAndCards()` | `requireAuth()` (already fetched) |
+
+The model layer (`Card::getAssignedUsers()`, `Card::batchLoadAssignments()`) returns the **raw** row (org-agnostic): model stays reusable (Trello import, CLI tools, tests) without leaking the rule.
+
+**Note on `organization_id` being in the payload:** it is added only so the *service layer* can do the org check without a second lookup (the `assigned_users` array is already a batch — a per-user `User::findById` here would be N+1). It is **not** a field the client renders; the client sees `phone`/`location` as either a value or `null`.
+
+**(2) `include/templates/assignee-avatar-stack.php` — tooltip content.**
+
+Tooltip string is built from the *already-scrubbed* row (the service has already applied the org filter before the template runs):
+
+- `name` always present (existing behavior, unchanged).
+- If `phone !== null && phone !== ''`: append `· {phone}`.
+- If `location !== null && location !== ''`: append `· {location}`.
+- If both are null/empty: tooltip is just the name (exactly today's behavior — zero change for users who haven't filled in contact info).
+- `bio` is NOT rendered in the tooltip (out of v1.16 — explicit "Not in v1.16" below); it remains in the API + profile + admin surfaces.
+
+No new CSS class. The `title` attribute is a native browser tooltip (no JS, no new element, no geometry change to the chip). `aria-label` is unchanged (the accessible name is still the user's name; the contact detail is supplementary and screen-reader users get it via the card modal's assignee picker where it is already exposed as form labels).
+
+**(3) `GET /v1/users/{id}` — access widened + email scrub for non-admins.**
+
+Current gate: admin or self → 200; anyone else → **403**.
+New gate (all three cases → **200** with the row):
+
+| Viewer | Condition | Response |
+|---|---|---|
+| admin | any target | full row (all fields including `email`) |
+| self | `viewer.id === target.id` | full row including `email` |
+| same-org | `viewer.organization_id === target.organization_id` (both non-null) | `email: null` in response; `phone`/`location`/`bio` present (bio visible in the data payload, NOT surfaced in the chip tooltip) |
+| different org / target org is NULL | — | **404** *User not found* (not 403 — no enumeration) |
+
+The 404 (not 403) for non-visible users is the SEC-04/BOARD-04b convention: a non-accessible resource is treated as absent, not as "denied." This is the same pattern `canAccessBoard()` uses for foreign boards.
+
+The admin and self paths are byte-identical to what they are today (the §5.22 contract is unchanged — `tests/http-user-profile.sh` still passes). The new same-org path is an additive branch.
+
+**404 vs 403 rationale (explicit):** a 403 in the non-visible case would let an attacker enumerate valid user IDs by distinguishing "exists but not mine" (403) from "does not exist" (404). 404 for both cases matches the existing board-isolation contract and keeps the API surface consistent.
+
+**(4) i18n keys added to `include/lang/en.json`:**
+- `user.contact_phone` — phone (used in tooltip, no longer needed as a separate key since the tooltip is built server-side; reserved for i18n-completeness)
+- `user.contact_location` — location
+- `user.contact_separator` — `·` (the separator between name and contact fields); the separator is i18n-safe so a locale that wants ` | ` can override it
+
+No new `title` attribute key beyond these three; the tooltip string is built in the template with `htmlspecialchars` on each field before concatenation.
+
+**(5) Test suite (all fixture-based, self-cleaning, no user id 1):**
+
+**CLI contract — `tests/e2e-contact-chip.php`:**
+- Create org A (id X) with two users: alice (org A) + bob (org A). Create a fixture board owned by org A, with one card assigned to alice.
+- Set `alice.phone = '555-alice'`, `alice.location = 'Stockholm'`, `bob.phone = NULL`.
+- Assert **as bob** (same org, member role): `CardService::getCard` → `assigned_users[0].phone === '555-alice'`, `assigned_users[0].location === 'Stockholm'`.
+- Create org B, user charlie (org B). Assert **as charlie**: `assigned_users[0].phone === null`, `location === null` (org filter applied server-side; the payload is present but scrubbed).
+- Assert **as admin (id 4, org A)**: all fields visible.
+- Assert `GET /v1/users/{alice_id}` as charlie (org B) → **404**; as bob → **200** with `email: null`; as admin → **200** with `email` present.
+- Cleanup: delete all fixture users (delete boards/cards first — `created_by` FK has no cascade), delete orgs.
+
+**HTTP E2E — `tests/http-contact-chip.sh` (live Apache):**
+- Unauth GET `/v1/users/{alice}` (org A user, bob is fixture) → **401**.
+- Auth as bob (org A, fixture): GET `/v1/users/{alice}` → **200**, body contains `phone:555-alice`, `location:Stockholm`, and `"email":null` (JSON null, not the absent key).
+- Auth as charlie (org B, fixture): GET `/v1/users/{alice}` → **404**.
+- Auth as mya (id 4, admin): GET `/v1/users/{alice}` → **200**, `email` non-null.
+- GET `/v1/boards/{boardId}` as bob: response `cards[0].assigned_users[0]` has `phone` + `location` present. As charlie: both `null`.
+- Regression: `tests/http-user-profile.sh` (38 checks) still green — the §5.22 PUT/GET contract paths are unchanged.
+- All fixtures self-cleaned in EXIT trap (board → cards → lanes → card_assignments → users → orgs; sessions cleaned via `_rt_session.php cleanup`).
+
+**Regression guard (no new failures expected):**
+- Existing `e2e-user-profile.php` 38/0 — unchanged (does not read `assigned_users` payloads).
+- `http-user-profile.sh` 38/0 — unchanged (admin path is byte-identical to v1.14).
+- `e2e-card-merge.php` — the merge service's union path reads `getAssignedUsers()` output; confirm it does not depend on the `email` field being present (add a check in the test if it does — the merge union is by user ID, not email, so this should pass as-is).
+- JS: no changes to `card-modal.js`, `board.js`, or `assignee-avatar-stack.php` JS logic (the change is PHP template + model SELECT + service filter only). `node --check` on all touched JS (none expected to be touched).
+
+**Files touched (v1.16):**
+
+| File | Change |
+|---|---|
+| `include/Shuffle/Model/Card.php` | `getAssignedUsers()` + `batchLoadAssignments()` — add `u.phone, u.location, u.organization_id` to SELECT; drop `u.email` (no client consumes it; grep-verified) |
+| `include/Shuffle/Service/UserService.php` | NEW `scrubAssignedUsersFor(array $users, ?array $viewer): array` (the USER-01 org rule, one helper) |
+| `CardController.php` | `show()`: inject UserService, scrub before the JSON response (viewer = `requireAuth()`) |
+| `BoardController.php` | `show()` + `region()`: scrub the board's card `assigned_users` before render/response (viewer = `requireAuth()`) |
+| `www/board.php` | page render: scrub after `getBoardWithLanesAndCards()` — local `new UserService($userModel)` (same local-construction pattern as the `$labelModel` injection on line 40) |
+| `include/Shuffle/Controller/UserController.php` | `show()`: 403 branch → same-org 200 w/ `email: null`; different org / NULL org → 404 (never 403) |
+| `include/templates/assignee-avatar-stack.php` | Tooltip: `name · phone · location` from the scrubbed row (skip empty fields; name-only fallback unchanged) |
+| `include/lang/en.json` | +3 keys: `user.contact_phone`, `user.contact_location`, `user.contact_separator` |
+| `tests/e2e-contact-chip.php` | New — service contract (5 scenarios) |
+| `tests/http-contact-chip.sh` | New — HTTP contract (6 scenarios) |
+| `REQUIREMENTS.md` | USER-01 + USER-04 updated (v2.3) |
+| `SPECIFICATION.md` | + §5.24 (this section), changelog row, traceability row updated |
+
+**Not in v1.16 (explicit):**
+- A visible "contact card" panel on the board (e.g. hover popover with click-to-copy) — the tooltip is the v1.16 surface; JS-powered popovers are a UX follow-up.
+- `bio` rendered in the tooltip — v1.16 surfaces phone + location only; bio remains in API + admin UI.
+- Card-modal assignee section (the picker list) — it does not show phone/location today and this change does not add it; the picker's scope is "who to assign," not "contact info."
+- Organization-leave / organization-scoped user deletion — out of v1 entirely.
+
+---
+
 ## 6. Security Architecture
 
 ### 6.1 Password Hashing
@@ -3567,7 +3690,7 @@ See Section 3.3 for the complete `etc/config.php` structure with all keys, types
 | PRIO-01 through PRIO-11 | 3.14 (user_prio), 3.15 (PriorityService), 3.18 (js/priority.js), 4.1 (user_prio), 5.13 |
 | PRIO-12 through PRIO-14 | 3.15 (PriorityService::digest), 5.16 (digest API), 5.16 (priority-page UI) |
 | ACTIVITY-01 through ACTIVITY-03 | 3.14 (card_activity), 3.15 (CardActivityService), 3.18 (js/card.js History tab), 4.1 (card_activity), 5.14 |
-| USER-01 through USER-04 | 4.1 (users: phone/location/bio), 5.3 (PUT /v1/users/{id} extended + email immutable), 5.22 (PUT /v1/me, PUT /v1/me/password, POST /v1/admin/users/{id}/reset-password), www/profile.php + www/js/profile.js (self-service), www/admin/users.php + www/js/users.js (admin edit + reset), include/templates/header.php (nav link), bin/add-user-profile-fields.php (migration) |
+| USER-01 through USER-04 | 4.1 (users: phone/location/bio), 5.3 (PUT /v1/users/{id} extended + email immutable), 5.22 (PUT /v1/me, PUT /v1/me/password, POST /v1/admin/users/{id}/reset-password), www/profile.php + www/js/profile.js (self-service), www/admin/users.php + www/js/users.js (admin edit + reset), include/templates/header.php (nav link), bin/add-user-profile-fields.php (migration), **5.24 (assignee chip contact tooltip: Card::getAssignedUsers payload + org-scope scrub, avatar stack tooltip, GET /v1/users/{id} same-org gate w/ email-null + 404 cross-org)** |
 | ONBOARD-01 through ONBOARD-11 | Future (Nice-to-have) |
 | PERF-01 through PERF-04 | 9.4, 10 (Phase 7) |
 | SEC-01 through SEC-08 | 6.1 through 6.8 |

@@ -1,11 +1,11 @@
 # Requirements Document: Shuffle
 
-**Version:** 2.2
-**Date:** 2026-09-17
+**Version:** 2.3
+**Date:** 2026-09-18
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
-**Changelog (v2.2):** FILE-06 / FILE-07 (Nice-to-have image thumbnails + inline PDF preview) become the next implementation target (v1.15) — no requirement text changes in this release.
+**Changelog (v2.3):** USER-04 visibility resolved (Daniel, 2026-09-18): `phone`/`location`/`bio` are visible to all users in the **same organization** (and to admins). USER-04 re-scoped to the concrete v1.16 surface: the assignee chip tooltip (name + phone + location when present).
 
 ---
 
@@ -214,10 +214,10 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | AUTH-04 | Users can update their own **name** and **password**; their **email is read-only** (set by the admin on invite, changeable only via an admin flow — the email is the identity anchor) | Must-have |
 | AUTH-05 | System admin can deactivate or remove users | Must-have |
 | AUTH-06 | OAuth/SSO authentication (Google, GitHub, SAML) | Future |
-| USER-01 | **User profile fields**: each user record carries a **name** (existing), plus **contact fields** an operator needs to reach them — `phone` (nullable), `location` (nullable), and a short `bio` (nullable). These are display data, not identity; they are shown to users the actor can see (member+ on any shared board) | Must-have |
+| USER-01 | **User profile fields**: each user record carries a **name** (existing), plus **contact fields** an operator needs to reach them — `phone` (nullable), `location` (nullable), and a short `bio` (nullable). These are display data, not identity. **Visibility (Daniel, 2026-09-18):** `phone` and `location` are visible to any user in the **same organization** (and to admins); users outside the organization never receive them. `bio` has the same organization-scoped visibility (it is display data too). `name` is visible wherever a user is already surfaced (assignee chip, picker) — unchanged | Must-have |
 | USER-02 | **Self-service profile**: a user can view and edit their own **name, phone, location, bio** and **password** from a Profile surface + `PUT /v1/me`. The **email is read-only** in every self-service surface — it is the identity anchor set at invite and changed only through an admin flow. A password change requires the current password to confirm identity | Must-have |
 | USER-03 | **Administrator user management**: an admin can manage any user's **name, phone, location, bio, role, and active status** from a user-management surface + `PUT /v1/admin/users/{id}`, and can **reset a user's password** (admin does NOT need the user's current password). The **email remains read-only** for admins in the v1 UI — changing it is an out-of-scope admin flow | Must-have |
-| USER-04 | **Contact surfacing**: the "who is working on what" surfaces expose a user's **name + contact info** on demand (e.g. a tooltip on an assignee chip in the card modal/board showing name, phone, location) | Nice-to-have |
+| USER-04 | **Contact surfacing (v1.16 — the assigned chip)**: every **assignee avatar chip** ("who is working on what" surfaces: board cards, lane cards) shows the user's **name** at a glance and exposes **phone + location** on demand (visible tooltip) when the user has filled them in and the viewer is in the same organization (USER-01 visibility rule). No per-card clutter: the chip itself is unchanged in size/geometry — the contact data rides on the existing hover/tooltip affordance, not on extra UI elements. Users without contact fields render exactly as today (name tooltip only) | Nice-to-have |
 
 ### 7.2 Organizations
 
