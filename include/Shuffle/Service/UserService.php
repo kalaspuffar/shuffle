@@ -262,6 +262,66 @@ TEXT;
     }
 
     /**
+     * USER-01 visibility rule (v1.16, §5.24): scrub the contact fields
+     * (`phone`, `location`, `bio`) off a batch of assigned-user rows when
+     * the viewer may not see them.
+     *
+     * Visibility is org-scoped (Daniel, 2026-09-18): `phone`/`location`
+     * are visible to everyone in the same organization — and to admins.
+     * `name` (and `id`) are always visible — they are the chip contract.
+     *
+     * This is the single helper every viewer-facing surface calls before
+     * returning or rendering an `assigned_users` array:
+     *   - CardController::show()   (card modal payload)
+     *   - BoardController::show()  (board API payload)
+     *   - BoardController::region() (board region fragment)
+     *   - www/board.php            (board page render)
+     *
+     * The model layer (Card::getAssignedUsers / batchLoadAssignments)
+     * returns the raw row — org-agnostic — so CLI consumers (Trello
+     * import, tests) see the full row.
+     *
+     * @param array[] $users  Rows from Card::getAssignedUsers / batchLoadAssignments
+     * @param array   $viewer The authenticated user row (requireAuth() shape)
+     *                        — `id` + `role` + `organization_id` minimum
+     * @return array[] The rows, with contact fields nulled for non-visible rows.
+     *                 `id`, `name`, `organization_id` survive on every row.
+     */
+    public function scrubAssignedUsersFor(array $users, array $viewer): array
+    {
+        // Admin: full visibility, no scrub.
+        if (($viewer['role'] ?? '') === 'admin') {
+            return $users;
+        }
+
+        $viewerOrg = $viewer['organization_id'] ?? null;
+
+        $scrubbed = [];
+        foreach ($users as $row) {
+            $rowOrg = $row['organization_id'] ?? null;
+
+            // Same-org (both non-null, loose compare — DB returns strings):
+            // visible, pass through unchanged.
+            if ($viewerOrg !== null && $rowOrg !== null
+                && (int) $viewerOrg === (int) $rowOrg) {
+                $scrubbed[] = $row;
+                continue;
+            }
+
+            // Not visible: scrub the contact fields (phone, location, bio).
+            // bio is not in the assigned_users payload today, but the scrub
+            // is complete in case the payload widens — keep it null-safe.
+            $scrubbed[] = array_merge($row, [
+                'phone'    => null,
+                'location' => null,
+                'bio'      => null,
+            ]);
+        }
+
+        return $scrubbed;
+    }
+
+    /**
      * Lists users with optional filters.
      *
      * @param array $filters Optional filters: status, organization_id

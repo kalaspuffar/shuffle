@@ -2960,7 +2960,7 @@ New SELECT: `u.id, u.name, u.phone, u.location, u.organization_id`.
 
 `email` is **removed** from the payload (it was only there for the old chip `title`; it stays in `GET /v1/users/{id}` for the admin/self path per §5.22). Both call sites — `Card::findById()` (card modal) and `BoardService::boardWithLanes()` (board tile) — get the wider row. No new model method; no new endpoint.
 
-**Placement (locked at design):** the scrub is `UserService::scrubAssignedUsersFor(array $users, ?array $viewer): array` (USER-01 visibility rule, one helper). `?array` viewer: every real call site passes `requireAuth()`, the nullable default future-proofs CLI paths — a `null` viewer is treated as "no visibility" (all contact fields scrubbed):
+**Placement (locked at design):** the scrub is `UserService::scrubAssignedUsersFor(array $users, array $viewer): array` (USER-01 visibility rule, one helper). Note the **effective data boundary is board access** — a user's assignee rows only appear on boards the viewer can access (BOARD-04b / `canAccessBoard`), so the org rule layered on top is defense-in-depth (e.g. for future org-less users or admin-granted cross-org board shares):
 
 - Viewer `role === 'admin'` → all rows pass through unchanged.
 - Row `org === viewer org` (both non-null, `===`) → row passes through unchanged (`phone`/`location`/`bio` visible).
@@ -3009,12 +3009,8 @@ The admin and self paths are byte-identical to what they are today (the §5.22 c
 
 **404 vs 403 rationale (explicit):** a 403 in the non-visible case would let an attacker enumerate valid user IDs by distinguishing "exists but not mine" (403) from "does not exist" (404). 404 for both cases matches the existing board-isolation contract and keeps the API surface consistent.
 
-**(4) i18n keys added to `include/lang/en.json`:**
-- `user.contact_phone` — phone (used in tooltip, no longer needed as a separate key since the tooltip is built server-side; reserved for i18n-completeness)
-- `user.contact_location` — location
-- `user.contact_separator` — `·` (the separator between name and contact fields); the separator is i18n-safe so a locale that wants ` | ` can override it
-
-No new `title` attribute key beyond these three; the tooltip string is built in the template with `htmlspecialchars` on each field before concatenation.
+**i18n keys added to `include/lang/en.json`:**
+- `user.contact_separator` — `·` (the separator between name and contact fields in the tooltip); i18n-safe, a locale can override for ` | ` etc. Field *values* are user data, not UI labels — no phone/location label keys (a phone number reads as a phone number; the profile page already has the labeled fields).
 
 **(5) Test suite (all fixture-based, self-cleaning, no user id 1):**
 
@@ -3053,7 +3049,7 @@ No new `title` attribute key beyond these three; the tooltip string is built in 
 | `www/board.php` | page render: scrub after `getBoardWithLanesAndCards()` — local `new UserService($userModel)` (same local-construction pattern as the `$labelModel` injection on line 40) |
 | `include/Shuffle/Controller/UserController.php` | `show()`: 403 branch → same-org 200 w/ `email: null`; different org / NULL org → 404 (never 403) |
 | `include/templates/assignee-avatar-stack.php` | Tooltip: `name · phone · location` from the scrubbed row (skip empty fields; name-only fallback unchanged) |
-| `include/lang/en.json` | +3 keys: `user.contact_phone`, `user.contact_location`, `user.contact_separator` |
+| `include/lang/en.json` | +1 key: `user.contact_separator` (`·`, i18n-override-able) |
 | `tests/e2e-contact-chip.php` | New — service contract (5 scenarios) |
 | `tests/http-contact-chip.sh` | New — HTTP contract (6 scenarios) |
 | `REQUIREMENTS.md` | USER-01 + USER-04 updated (v2.3) |

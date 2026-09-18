@@ -40,7 +40,7 @@ class Card
 
         $placeholders = implode(',', array_fill(0, count($cardIds), '?'));
         $rows = $this->db->fetchAll(
-            'SELECT ca.card_id, u.id, u.name, u.email
+            'SELECT ca.card_id, u.id, u.name, u.phone, u.location, u.organization_id
              FROM card_assignments ca
              JOIN users u ON ca.user_id = u.id
              WHERE ca.card_id IN (' . $placeholders . ')
@@ -51,9 +51,11 @@ class Card
         $map = [];
         foreach ($rows as $row) {
             $map[(int) $row['card_id']][] = [
-                'id'    => (int) $row['id'],
-                'name'  => $row['name'],
-                'email' => $row['email'],
+                'id'              => (int) $row['id'],
+                'name'            => $row['name'],
+                'phone'           => $row['phone'],
+                'location'        => $row['location'],
+                'organization_id' => $row['organization_id'] !== null ? (int) $row['organization_id'] : null,
             ];
         }
 
@@ -517,14 +519,27 @@ class Card
      */
     public function getAssignedUsers(int $cardId): array
     {
-        return $this->db->fetchAll(
-            'SELECT u.id, u.name, u.email
+        $rows = $this->db->fetchAll(
+            'SELECT u.id, u.name, u.phone, u.location, u.organization_id
              FROM card_assignments ca
              JOIN users u ON ca.user_id = u.id
              WHERE ca.card_id = ?
              ORDER BY u.name ASC',
             [$cardId]
         );
+
+        $users = [];
+        foreach ($rows as $row) {
+            $users[] = [
+                'id'              => (int) $row['id'],
+                'name'            => $row['name'],
+                'phone'           => $row['phone'],
+                'location'        => $row['location'],
+                'organization_id' => $row['organization_id'] !== null ? (int) $row['organization_id'] : null,
+            ];
+        }
+
+        return $users;
     }
 
     /**

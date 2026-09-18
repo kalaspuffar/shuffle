@@ -526,6 +526,7 @@
   "user.activate": "Activate",
   "user.activate_confirm": "Reactivate this user account?",
   "user.activate_success": "User account activated.",
+  "user.contact_separator": "·",
   "user.deactivate": "Deactivate",
   "user.deactivate_confirm": "Deactivate this user account?",
   "user.deactivate_success": "User account deactivated.",

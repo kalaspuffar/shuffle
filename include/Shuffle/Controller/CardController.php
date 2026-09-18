@@ -5,6 +5,7 @@ use Shuffle\Core\Auth;
 use Shuffle\Core\Request;
 use Shuffle\Core\Response;
 use Shuffle\Service\CardService;
+use Shuffle\Service\UserService;
 
 /**
  * Card management API controller.
@@ -16,6 +17,7 @@ class CardController
 {
     private Auth $auth;
     private CardService $cardService;
+    private ?UserService $userService = null;
 
     /**
      * @param Auth        $auth        Auth service
@@ -25,6 +27,17 @@ class CardController
     {
         $this->auth = $auth;
         $this->cardService = $cardService;
+    }
+
+    /**
+     * Injects the UserService (v1.16, §5.24) for the USER-01 org-scope
+     * scrub of the card's `assigned_users` contact fields. Null-safe:
+     * when not injected (CLI / tests), the raw model row passes through —
+     * the scrub never runs in a non-browser path.
+     */
+    public function setUserService(UserService $userService): void
+    {
+        $this->userService = $userService;
     }
 
     /**
@@ -51,6 +64,16 @@ class CardController
         if ($card === null) {
             $response->error('Card not found', 404);
             return;
+        }
+
+        // USER-01 / §5.24: the card's assigned_users contact fields (phone,
+        // location) are org-scoped — scrub to null for any assignee the
+        // viewer cannot see (different org / NULL org). Admins pass through.
+        if ($this->userService !== null && isset($card['assigned_users'])) {
+            $card['assigned_users'] = $this->userService->scrubAssignedUsersFor(
+                $card['assigned_users'],
+                $this->auth->requireAuth()
+            );
         }
 
         $response->json(['card' => $card]);
