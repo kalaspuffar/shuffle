@@ -1,0 +1,53 @@
+# shuffle-ws.service — RT-03 real-time push daemon (SPECIFICATION v1.17 §5.25)
+#
+# Template — DO NOT install directly. It contains __USER__ / __SHUFFLE_ROOT__
+# placeholders. `scripts/install-ws.sh` substitutes the real values, installs
+# to /etc/systemd/system, enables + starts. Requires:
+#     a2enmod proxy proxy_wstunnel   (one-time, for the /ws tunnel)
+#
+# Why a dedicated service (and not a cron job): the daemon holds long-lived
+# sockets; the whole point is sub-second push. Restart=always makes it self-
+# healing; ExecStartPre keeps the board_events table in sync on upgrades
+# (the migration script is idempotent).
+#
+# Logs:   journalctl -u shuffle-ws
+# Status: systemctl status shuffle-ws
+# The daemon binds 127.0.0.1 only — nothing outside the host can reach it;
+# the only path in is Apache (mod_proxy_wstunnel), which authenticates
+# requests through the app's session cookie exactly like the REST API.
+
+[Unit]
+Description=Shuffle real-time push daemon (WebSocket, RT-03)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__SHUFFLE_ROOT__
+# Idempotent migration — safe to run on every boot/upgrades.
+ExecStartPre=/usr/bin/php __SHUFFLE_ROOT__/bin/add-board-events.php
+ExecStart=/usr/bin/php __SHUFFLE_ROOT__/bin/ws-daemon.php
+# SIGTERM/SIGINT are both handled (orderly socket close, 5 s cap).
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=2
+
+# The daemon is PHP + MariaDB-only: read the app tree, bind 127.0.0.1:8701,
+# reach the DB. No writes. (ProtectHome is deliberately NOT set — the app
+# tree lives under the user's home directory.)
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Sockets are the daemon's whole existence — do NOT sandbox the network
+# (it must bind 8701 and reach the DB).
+
+[Install]
+WantedBy=multi-user.target
