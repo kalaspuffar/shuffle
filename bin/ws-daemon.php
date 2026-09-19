@@ -56,6 +56,7 @@ define('ROOT', dirname(__DIR__));
 require ROOT . '/include/Shuffle/Core/Autoloader.php';
 (new \Shuffle\Core\Autoloader(ROOT . '/include/Shuffle'))->register();
 require ROOT . '/include/Shuffle/Core/WebSocketServer.php';
+require ROOT . '/include/Shuffle/Core/BoardEvents.php';
 
 $cfgFile = ROOT . '/etc/config.php';
 if (!is_file($cfgFile)) {
@@ -362,58 +363,39 @@ function tick(PDO $pdo): void
         }
     }
 
-    // Feed poll — new rows since this loop's cursor.
-    $stmt = $pdo->prepare(
-        'SELECT board_id, version FROM board_events
-         WHERE id > :cursor ORDER BY id ASC LIMIT 2000'
-    );
-    $stmt->execute([':cursor' => (int) $curMaxId]);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    if ($rows) {
-        $latest = []; // board_id → most recent version in this window
-        foreach ($rows as $r) {
-            $latest[(int) $r['board_id']] = (int) $r['version'];
-        }
-        // Advance the cursor to the max id in the window (rows ASC).
-        // The last row we SELECTed carries the max id at this moment —
-        // but the cursor must reflect every row we processed. Since we
-        // read rows in a single transaction-less SELECT, re-derive via MAX.
-        $stmt2 = $pdo->prepare('SELECT MAX(id) FROM board_events WHERE id > :cursor');
-        $stmt2->execute([':cursor' => (int) $curMaxId]);
-        $newId = $stmt2->fetchColumn();
-        if ($newId !== false) {
-            $curMaxId = (int) $newId;
-        }
+    // Feed poll — new rows since this loop's cursor, via the shared
+    // BoardEvents helper (same code the e2e contract pins).
+    try {
+        $latest = \Shuffle\Core\BoardEvents::latestPerBoardSince($pdo, $curMaxId);
+        $newCursor = \Shuffle\Core\BoardEvents::advanceCursor($pdo);
 
-        // Fan out: a subscription on a touched board syncs if it is behind.
-        foreach (array_keys($clients) as $id) {
-            $b = $clients[$id]['board'];
-            if (isset($latest[$b]) && ($latest[$b] > $clients[$id]['lastSent'])) {
-                $sock = $sockets[$id];
-                sendText($sock, ['type' => 'board_version', 'board' => $b, 'version' => $latest[$b]]);
-                $clients[$id]['lastSent'] = $latest[$b];
+        if ($latest && $newCursor > $curMaxId) {
+            $curMaxId = $newCursor;
+            // Fan out: a subscription on a touched board syncs if it is behind.
+            foreach (array_keys($clients) as $id) {
+                $b = $clients[$id]['board'];
+                if (isset($latest[$b]) && ($latest[$b] > $clients[$id]['lastSent'])) {
+                    $sock = $sockets[$id];
+                    sendText($sock, ['type' => 'board_version', 'board' => $b, 'version' => $latest[$b]]);
+                    $clients[$id]['lastSent'] = $latest[$b];
+                }
             }
         }
+    } catch (\PDOException $e) {
+        // board_events absent (pre-migration): the poll path is the fallback.
+        LOG('W', 'feed poll skipped: ' . $e->getMessage());
     }
 
-    // Prune.
+    // Prune — keep the feed bounded (same helper the e2e suite pins).
     if (($nextPrune === 0.0) || (time() >= $nextPrune)) {
         $nextPrune = time() + 60;
         try {
-            $total = (int) $pdo->query('SELECT COUNT(*) FROM board_events')->fetchColumn();
-            if ($total > FEED_KEEP) {
-                $delN = $total - FEED_KEEP;
-                $pdo->prepare(
-                    'DELETE FROM board_events WHERE `id` IN ('
-                    . "SELECT `sub_id` FROM (SELECT `id` AS `sub_id` FROM board_events ORDER BY `id` ASC LIMIT {$delN}) AS sub)"
-                )->execute();
-                LOG('I', "prune: removed $delN rows (cap $FEED_KEEP)");
+            $done = \Shuffle\Core\BoardEvents::prune($pdo, FEED_KEEP, FEED_AGE_S);
+            if ($done['byCap'] > 0) {
+                LOG('I', "prune: removed {$done['byCap']} rows (cap " . FEED_KEEP . ")");
             }
-            $stmt3 = $pdo->prepare('DELETE FROM board_events WHERE created_at < (NOW() - INTERVAL ? SECOND)');
-            $stmt3->execute([FEED_AGE_S]);
-            $n = $stmt3->rowCount();
-            if ($n > 0) {
-                LOG('I', "prune: removed $n rows older than " . (int) (FEED_AGE_S / 3600) . " h");
+            if ($done['byAge'] > 0) {
+                LOG('I', "prune: removed {$done['byAge']} rows older than " . (int) (FEED_AGE_S / 3600) . " h");
             }
         } catch (\Throwable $t) {
             LOG('W', 'prune skipped: ' . $t->getMessage() . ' (table may be absent)');

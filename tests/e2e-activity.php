@@ -309,7 +309,7 @@ try {
     $outAuth = null;
     $outUserRow = $db->fetch(
         'SELECT u.id, u.name, u.role, u.status, u.organization_id FROM users u
-         WHERE u.id != ? AND u.status = "active"
+         WHERE u.id != ? AND u.status = "active" AND u.role != "admin"
            AND NOT EXISTS (
              SELECT 1 FROM board_organizations bo
              WHERE bo.board_id = ? AND bo.organization_id = u.organization_id
