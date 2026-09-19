@@ -14,6 +14,7 @@
 #   [3] GET /v1/boards/{id}/region If-None-Match=<version> -> 304 (RT-05 ETag contract)
 #   [4] GET /v1/boards/0/region (no such board)            -> 404
 #   [5] board page render includes the shared region       -> same renderer as [2]
+#   [6] client at version N<server -> If-None-Match: N     -> 200 + fresh fragment (RT-07)
 #
 set -u
 SH=~/shuffle
@@ -107,6 +108,39 @@ A=1; grep -q 'board-lanes-container' "$BODYF" && A=0
 B2=1; grep -q 'RT SYNC CARD'         "$BODYF" && B2=0
 OK=1; { [ "$CODE" = "200" ] && [ "$A" -eq 0 ] && [ "$B2" -eq 0 ]; } && OK=0
 CK "[5] board page renders shared region (status=$CODE)" "$OK"
+
+# ---------------------------------------------------------------- [6] client BEHIND server -> 200 (RT-07)
+# Pins the inverted-ETag contract. The RT-06 bug in the v1.16 client sent
+# the TARGET (new) version as If-None-Match, so every sync after an edit
+# 304'd "already current" and the tile never refreshed. The honest server-side
+# invariant:
+#   client at version N, server at N+1
+#   → GET /region with If-None-Match: "$N" MUST return 200 + the fresh HTML
+#   (NOT the 304 that the client-side inversion would have "predicted").
+#
+# Steps:
+#   a. read the current board version          (call it N)
+#   b. bump the version by one card mutation   (server becomes N+1)
+#   c. fetch the region with If-None-Match: N
+#   d. assert 200 + fresh body (the lanes/card markup is present)
+BOARD_VER=$(php -r 'require "include/bootstrap.php"; $b=(int)$argv[1]; echo (new \Shuffle\Model\Board($db))->getVersion($b);' "$BID" 2>&1)
+# Bump: rename the fixture card (visible in the fragment, so we can also
+# assert we got the FRESH body, not a stale cached one). Board's version IS
+# the region's ETag — bump only the board, the card row has no ETag.
+php -r '
+  require "include/bootstrap.php";
+  $b = (int) $argv[1];
+  $laneId = (int) $db->fetch("SELECT id FROM lanes WHERE board_id = ?", [$b])["id"];
+  $cardId = (int) $db->fetch("SELECT id FROM cards WHERE lane_id = ?", [$laneId])["id"];
+  $db->execute("UPDATE cards SET title = \"RT SYNC CARD (bumped)\" WHERE id = ?", [$cardId]);
+  (new \Shuffle\Model\Board($db))->incrementVersion($b);
+' "$BID" 2>&1 || true
+echo "client-etag=$BOARD_VER (server is now $((BOARD_VER + 1)))"
+get "$B/v1/boards/$BID/region" "$SID" "If-None-Match: \"$BOARD_VER\""
+A=1;  grep -q 'class="lane"'      "$BODYF" && A=0
+B2=1; grep -q 'RT SYNC CARD (bumped)' "$BODYF" && B2=0   # proves FRESH body, not 304 / cached
+OK=1; { [ "$CODE" = "200" ] && [ "$A" -eq 0 ] && [ "$B2" -eq 0 ]; } && OK=0
+CK "[6] client at old version (If-None-Match=\"$BOARD_VER\") with server bumped -> 200 + fresh HTML (got $CODE) — inverted-ETag contract" "$OK"
 
 echo "----------------------------------------"
 echo "PASS=$PASS FAIL=$FAIL"
