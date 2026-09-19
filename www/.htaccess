@@ -38,6 +38,14 @@
 # No PHP involvement: the daemon authenticates via the app's session cookie,
 # exactly like the REST API.
 #
+# Multi-node / load-balanced deployments: the tunnel stays LOCAL on every
+# web node (each node runs its own shuffle-ws daemon + its own board_events
+# feed — the DB is the single coordination point, and a subscription is
+# owned wholly by the node that accepted the handshake, so no cross-node
+# fan-out is needed). Only point the LB at your web nodes' /ws (with WS
+# sticky sessions per node, e.g. by IP hash) if you prefer a central
+# daemon — in that case change the target below.
+#
 # NOTE: ProxyPass is NOT allowed in .htaccess (server config only), so we use
 # the mod_rewrite [P] proxy form — the documented way to tunnel WebSockets
 # from per-directory context. mod_proxy_wstunnel takes over once the
