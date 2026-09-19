@@ -1359,6 +1359,35 @@
     }
 
     /**
+     * One real-time sync tick — SHARED handler for both trigger sources
+     * (RT-03 WebSocket push and RT-01/02 poll; SPECIFICATION §5.25 + §5.19).
+     * Runs the guard/defer contract first: while the card modal is open,
+     * drag is in flight, or focus is on a region editable, the sync is
+     * deferred (modal → applied by the modal's close(); drag/focus → the
+     * next poll tick retries). Only then does it fetch + swap the region.
+     *
+     * @param {number} targetVersion  board version this sync reconciles to.
+     */
+    function handleVersionBump(targetVersion) {
+        targetVersion = parseInt(targetVersion, 10);
+        if (!targetVersion || targetVersion === boardVersion) {
+            return; // equal/older — the region already reflects it
+        }
+        var guard = syncGuardActive();
+        if (guard) {
+            // Defer (RT-04/RT-06). Do NOT advance boardVersion: the next
+            // poll tick returns 200 again (ETag still old) and retries once
+            // the guard clears. For the modal guard, the deferred update is
+            // applied by card-modal.js close() via the pending_sync flag.
+            if (guard === 'modal') {
+                pendingSync = true;
+            }
+            return;
+        }
+        performRegionSync(targetVersion);
+    }
+
+    /**
      * Applies one real-time sync tick: fetch the region fragment (same origin,
      * same renderer) and swap it in place. Only called when no guard is active
      * (the deferred paths — modal/drag/focus — are handled by their owners:
@@ -1391,10 +1420,10 @@
     /**
      * Polls the board version endpoint with If-None-Match header.
      * Server responds 304 if version unchanged (no body), or 200 with the new
-     * version. On 200 we perform an IN-PLACE region sync (RT-04) instead of a
-     * full page reload — unless a guard is active, in which case the sync is
-     * deferred (modal → resolved by a reload on modal close; drag/focus →
-     * retried on the next tick).
+     * version. On 200 we run the SHARED sync handler (handleVersionBump) —
+     * the same path the RT-03 WebSocket trigger uses (SPECIFICATION §5.25).
+     * This poll is the FALLBACK: it stays running regardless of socket state
+     * (RT-01/02) and heals any push that did not arrive.
      */
     function pollBoardVersion() {
         var etag = '"' + boardVersion + '"';
@@ -1404,30 +1433,98 @@
             if (result.status !== 200 || !result.data || !result.data.version) {
                 return; // 304 / error → no change (retry happens naturally)
             }
-            var targetVersion = parseInt(result.data.version, 10);
-            if (targetVersion === boardVersion) {
-                return;
-            }
-
-            var guard = syncGuardActive();
-            if (guard) {
-                // Defer (RT-04/RT-06). Do NOT advance boardVersion: the next
-                // poll returns 200 again (ETag still old) and retries once the
-                // guard clears. For the modal guard, the deferred update is
-                // applied by card-modal.js close() via the pending_sync flag.
-                if (guard === 'modal') {
-                    pendingSync = true;
-                }
-                return;
-            }
-
-            // Safe to swap in place. (boardVersion advances only on success
-            // so a failed fetch is retried on the next tick.)
-            performRegionSync(targetVersion);
+            handleVersionBump(result.data.version);
         });
     }
 
     setInterval(pollBoardVersion, POLL_INTERVAL);
+
+    /* =============================================
+       Real-Time Push (RT-03, SPECIFICATION §5.25)
+       ============================================= */
+
+    var ws = null;
+    var wsRetry = null;
+    var wsAttempts = 0;
+    var WS_BACKOFF_BASE = 1000; // 1 s
+    var WS_BACKOFF_CAP = 30000; // 30 s
+
+    /** Exponential backoff with ±20 % jitter (reset on a clean connect). */
+    function wsBackoffDelay() {
+        var exp = Math.min(WS_BACKOFF_BASE * Math.pow(2, wsAttempts), WS_BACKOFF_CAP);
+        var jitter = 0.8 + Math.random() * 0.4; // [0.8, 1.2]
+        return Math.round(exp * jitter);
+    }
+
+    function wsConnect() {
+        if (wsRetry) {
+            clearTimeout(wsRetry);
+            wsRetry = null;
+        }
+        if (document.hidden) {
+            // Hidden tabs pause the channel too (polls do as well) — resume
+            // on visibilitychange below.
+            return;
+        }
+        try {
+            var proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(proto + '//' + window.location.host + '/ws?board=' + BOARD_ID);
+        } catch (err) {
+            ws = null;
+            wsScheduleRetry();
+            return;
+        }
+        ws.onopen = function () {
+            wsAttempts = 0;
+        };
+        ws.onmessage = function (evt) {
+            var msg;
+            try {
+                msg = JSON.parse(evt.data);
+            } catch (err) {
+                return; // ignore non-JSON frames
+            }
+            if (msg && msg.type === 'board_version' && msg.board === BOARD_ID && msg.version) {
+                // Same contract as the poll path — guards included (modal →
+                // pendingSync, resolved by the modal's close(); the poll is
+                // still running and retries on the next tick if needed).
+                handleVersionBump(msg.version);
+            }
+        };
+        ws.onclose = function () {
+            ws = null;
+            wsScheduleRetry();
+        };
+        ws.onerror = function () {
+            // onclose follows; the backoff is driven there.
+        };
+    }
+
+    function wsScheduleRetry() {
+        if (document.hidden) {
+            return; // visibilitychange will start it
+        }
+        wsAttempts++;
+        wsRetry = setTimeout(wsConnect, wsBackoffDelay());
+    }
+
+    document.addEventListener('visibilitychange', function () {
+        if (document.hidden) {
+            // Pause the push channel while hidden.
+            if (wsRetry) {
+                clearTimeout(wsRetry);
+                wsRetry = null;
+            }
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        } else {
+            wsConnect();
+        }
+    });
+
+    wsConnect();
 
     /**
      * Public accessor for the deferred-sync flag. card-modal.js `close()`

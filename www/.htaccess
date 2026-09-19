@@ -21,5 +21,35 @@
     # `frame-ancestors 'self'` (spec section 6.4/6.9). The Apache vhost may
     # also set this header - keep both on SAMEORIGIN, otherwise Chrome sees
     # a conflicting pair and falls back to deny.
-    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set X-Frame-Options SAMEORIGIN
 </IfModule>
+
+# ---------------------------------------------------------------------------
+# Real-time push channel (RT-03, SPECIFICATION §5.25)
+#
+# /ws tunnels WebSocket upgrades to the ws-daemon on 127.0.0.1:8701
+# (shuffle-ws.service). mod_proxy_wstunnel ONLY intervenes when the request
+# carries `Upgrade: websocket` — plain HTTP requests to /ws fall through to
+# normal DocumentRoot handling (404 — that IS the "channel unavailable"
+# signal for old clients hitting the URL without an Upgrade header).
+#
+# Requirements (host-side, one-time):
+#     a2enmod proxy proxy_wstunnel
+# No PHP involvement: the daemon authenticates via the app's session cookie,
+# exactly like the REST API.
+#
+# Multi-node / load-balanced deployments: the tunnel stays LOCAL on every
+# web node (each node runs its own shuffle-ws daemon + its own board_events
+# feed — the DB is the single coordination point, and a subscription is
+# owned wholly by the node that accepted the handshake, so no cross-node
+# fan-out is needed). Only point the LB at your web nodes' /ws (with WS
+# sticky sessions per node, e.g. by IP hash) if you prefer a central
+# daemon — in that case change the target below.
+#
+# NOTE: ProxyPass is NOT allowed in .htaccess (server config only), so we use
+# the mod_rewrite [P] proxy form — the documented way to tunnel WebSockets
+# from per-directory context. mod_proxy_wstunnel takes over once the
+# Upgrade header is present.
+RewriteEngine On
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule ^ws$ ws://127.0.0.1:8701/ws [P]

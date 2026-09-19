@@ -263,7 +263,15 @@ class Board
     }
 
     /**
-     * Increments the board version counter.
+     * Increments the board version counter and appends one row to the
+     * board_events change feed (RT-03, v1.17 §5.25), which the WebSocket
+     * push daemon tails to send `board_version` frames to subscribers.
+     *
+     * The UNIQUE KEY (board_id, version) + INSERT IGNORE makes a concurrent
+     * double-bump a no-op on the feed — the same version can never feed the
+     * daemon twice. The feed INSERT is non-fatal: on a fresh install where
+     * the table is absent (migration not applied) the bump itself still
+     * succeeds and the RT-01/02 poll path is unaffected.
      *
      * @param int $id Board ID
      */
@@ -273,6 +281,18 @@ class Board
             'UPDATE boards SET version = version + 1, updated_at = NOW() WHERE id = ?',
             [$id]
         );
+
+        $row = $this->db->fetch('SELECT version FROM boards WHERE id = ?', [$id]);
+        if ($row !== null) {
+            try {
+                $this->db->execute(
+                    'INSERT IGNORE INTO board_events (board_id, version) VALUES (?, ?)',
+                    [$id, (int) $row['version']]
+                );
+            } catch (\PDOException $e) {
+                // board_events not present (pre-migration) — poll path still works.
+            }
+        }
     }
 
     /**
