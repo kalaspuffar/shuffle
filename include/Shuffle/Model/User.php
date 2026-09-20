@@ -14,7 +14,7 @@ class User
     private Database $db;
 
     /** Columns returned in standard user queries (excludes password_hash) */
-    private const SELECT_COLUMNS = 'id, username, name, email, phone, location, bio, role, organization_id, is_placeholder, status, created_at, updated_at';
+    private const SELECT_COLUMNS = 'id, username, name, email, phone, location, bio, email_notifications, role, organization_id, is_placeholder, status, created_at, updated_at';
 
     /**
      * @param Database $db Database instance
@@ -36,6 +36,41 @@ class User
             'SELECT ' . self::SELECT_COLUMNS . ' FROM users WHERE id = ?',
             [$id]
         );
+    }
+
+    /**
+     * Batch email + opt-in lookup (NOTIF-06, spec v1.18 §5.26).
+     *
+     * Returns `id => ['email' => string, 'email_notifications' => int(0|1)]`
+     * for the subset of $userIds that exist. ONE indexed IN-query — the
+     * notification fan-out must not N+1-resolve recipients.
+     *
+     * @param array<int> $userIds Raw (possibly uncast/duplicated) user ids
+     * @return array<int, array{email: string, email_notifications: int}>
+     */
+    public function emailPrefsByIds(array $userIds): array
+    {
+        $userIds = array_values(array_unique(array_filter(array_map('intval', $userIds), fn (int $v): bool => $v > 0)));
+
+        if ($userIds === []) {
+            return [];
+        }
+
+        $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+        $rows = $this->db->fetchAll(
+            "SELECT id, email, email_notifications FROM users WHERE id IN ($placeholders)",
+            $userIds
+        );
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row['id']] = [
+                'email'               => (string) $row['email'],
+                'email_notifications' => (int) $row['email_notifications'],
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -167,7 +202,7 @@ class User
      */
     public function update(int $id, array $data): void
     {
-        $allowedFields = ['name', 'email', 'phone', 'location', 'bio', 'role', 'organization_id', 'status', 'username', 'password_hash'];
+        $allowedFields = ['name', 'email', 'phone', 'location', 'bio', 'email_notifications', 'role', 'organization_id', 'status', 'username', 'password_hash'];
         $setClauses = [];
         $params = [];
 

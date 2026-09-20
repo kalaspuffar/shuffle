@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `password_hash`           VARCHAR(255)                          NOT NULL,
     `name`                    VARCHAR(128)                          NOT NULL,
     `email`                   VARCHAR(255)                          NOT NULL,
+    `email_notifications`     TINYINT(1)     NOT NULL DEFAULT 0,    -- NOTIF-06 (v1.18): per-user email opt-in, OFF by default
     `phone`                   VARCHAR(32)                           NULL,          -- USER-01 (v1.14)
     `location`                VARCHAR(120)                          NULL,          -- USER-01 (v1.14)
     `bio`                     TEXT                                  NULL,          -- USER-01 (v1.14)

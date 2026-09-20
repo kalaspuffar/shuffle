@@ -483,6 +483,15 @@ TEXT;
             $out[$field] = $trimmed;
         }
 
+        // v1.18 NOTIF-06: the email opt-in flag (boolean, NOT a string field).
+        if (array_key_exists('email_notifications', $data)) {
+            $flag = $data['email_notifications'];
+            if (!is_bool($flag)) {
+                throw new \InvalidArgumentException('email_notifications must be a boolean');
+            }
+            $out['email_notifications'] = $flag ? 1 : 0;
+        }
+
         return $out;
     }
     /**

@@ -119,4 +119,30 @@ class NotificationController
             $response->error($e->getMessage(), 404);
         }
     }
+
+    /**
+     * POST /v1/me/test-email
+     *
+     * NOTIF-06 (v1.18): sends a one-off confirmation email to the actor's
+     * OWN address. Bypasses the `email_notifications` opt-in flag by design
+     * (the recipient IS the actor — this is the verification tool).
+     *
+     * 202 on success (SMTP accepted the message);
+     * 502 {error:"smtp_unavailable"} on failure (logged, non-fatal to anything else).
+     */
+    public function sendTestEmail(Request $request, Response $response, array $params = []): void
+    {
+        $currentUser = $this->auth->requireAuth();
+        $userId = (int) $currentUser['id'];
+
+        try {
+            $this->notificationService->sendTestEmail($userId);
+            $response->json(['status' => 'queued'], 202);
+        } catch (\Throwable $e) {
+            // Logged by the service layer (NOTIF-06 contract) and here for the
+            // operator-facing "user clicked test email and it failed" signal.
+            error_log('NOTIF-06 test-email for user ' . $userId . ' failed: ' . $e->getMessage());
+            $response->error('smtp_unavailable', 502);
+        }
+    }
 }

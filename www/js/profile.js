@@ -81,6 +81,69 @@
         });
     });
 
+    /* -------------------------------------- email notifications (v1.18) */
+    var emailNotifSave = document.getElementById('email-notif-save');
+    var testEmailBtn   = document.getElementById('test-email-btn');
+    var emailNotifCheck = document.getElementById('email-notif-check');
+
+    if (emailNotifSave && emailNotifCheck) {
+        emailNotifSave.addEventListener('click', function () {
+            if (!isApiReady()) {
+                flash(LANG.err_server || 'Shuffle API unavailable', false);
+                return;
+            }
+            emailNotifSave.disabled = true;
+            var state = emailNotifCheck.checked ? 1 : 0;
+            Shuffle.api('/v1/me', {
+                method: 'PUT',
+                body: { email_notifications: emailNotifCheck.checked }
+            }).then(function (result) {
+                emailNotifSave.disabled = false;
+                if (result.status === 200) {
+                    flash(LANG.saved_ok || 'Saved', true);
+                } else {
+                    flash((result && result.data && result.data.error)
+                        || (LANG.err_server || 'Save failed'), false);
+                    emailNotifCheck.checked = state === 1;
+                }
+            }).catch(function () {
+                emailNotifSave.disabled = false;
+                emailNotifCheck.checked = state === 1;
+                flash(LANG.err_server || 'Save failed', false);
+            });
+        });
+    }
+
+    if (testEmailBtn) {
+        testEmailBtn.addEventListener('click', function () {
+            if (!isApiReady()) {
+                flash(LANG.err_server || 'Shuffle API unavailable', false);
+                return;
+            }
+            var oldLabel = testEmailBtn.textContent;
+            testEmailBtn.disabled = true;
+            testEmailBtn.textContent = LANG.test_email_busy || 'Sending…';
+            Shuffle.api('/v1/me/test-email', {
+                method: 'POST',
+                body: {}
+            }).then(function (result) {
+                testEmailBtn.disabled = false;
+                testEmailBtn.textContent = oldLabel;
+                if (result.status === 202) {
+                    flash(LANG.test_email_sent || 'Test email sent', true);
+                } else {
+                    flash(LANG.test_email_failed
+                        || (result && result.data && result.data.error)
+                        || 'Could not send the test email', false);
+                }
+            }).catch(function () {
+                testEmailBtn.disabled = false;
+                testEmailBtn.textContent = oldLabel;
+                flash(LANG.test_email_failed || 'Could not send the test email', false);
+            });
+        });
+    }
+
     /* -------------------------------------------------------- password */
     passwordForm.addEventListener('submit', function (e) {
         e.preventDefault();
