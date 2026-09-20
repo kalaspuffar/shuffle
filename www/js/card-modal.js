@@ -128,6 +128,43 @@
 
     // ---- runtime state ------------------------------------------------
 
+    /* ---- RT-07: in-flight board-mutation tracking + settle ----------------
+     * Every modal mutation that bumps boards.version (title/due autosave,
+     * description Save, assignee toggle, checklist create/add/toggle/delete)
+     * registers in-flight here: `_boardMutInFlight++` before the api() call,
+     * `_boardMutInFlight-- ; settle()` on both success and error settle.
+     * When close() runs while one or more of these are still in flight
+     * (the common case: user types → hits Escape → autosave's 800 ms
+     * debounce fires AFTER close), settle() re-checks and fires the sync
+     * exactly once. board.js's 300 ms + in-flight dedupe window makes the
+     * "both close() AND the WS echo of the same save fire syncNow" path
+     * a no-op on the second trigger, so this is mutually safe with the
+     * WS push. ---------------------------------------------------------------- */
+    var _boardMutInFlight = 0;
+    function _boardMutBegin() { _boardMutInFlight++; }
+    function _boardMutEnd() {
+        _boardMutInFlight--;
+        if (_boardMutInFlight <= 0) _boardMutInFlight = 0;
+        settle();
+    }
+    /**
+     * Called by save()/saveDesc()/toggleUser()/checklist mutations at the
+     * END of their api() .then() chain. If close() set `reconcileOnClose`
+     * while this save was still in flight, and the save SUCCEEDED so
+     * state.boardMutations > 0, fire the one-and-only in-place reconciliation.
+     */
+    function settle() {
+        if (_boardMutInFlight > 0) return;   // more saves in flight; the last one flushes
+        if (!state.reconcileOnClose) return;
+        state.reconcileOnClose = false;
+        if (state.boardMutations > 0) {
+            state.boardMutations = 0;
+            if (window.ShuffleBoardSync && window.ShuffleBoardSync.syncNow) {
+                window.ShuffleBoardSync.syncNow();
+            }
+        }
+    }
+
     var state = {
         card: null,          // last-fetched card record (source of truth for this open)
         cardId: 0,           // active card id
@@ -138,9 +175,14 @@
         mergeBusy: false,
         moveBusy: false,    // double-mutation guard on the move-to-board dialog
         labelsBusy: false,   // double-mutation guard on chip attach/detach
-        boardMutations: 0,   // Stage D: count of successful autosave PUTs this open
-                             // (set by save() success; reset by applyCard; used
-                             // by close() to trigger an immediate region sync)
+        boardMutations: 0,   // STAGE D → RT-07: count of successful board-bumping
+                             // modal mutations this open (set on each save() /
+                             // description-save / checklist-mutation / assignee
+                             // success; consumed — reset to 0 — by close() to
+                             // trigger ONE in-place region reconciliation).
+                             // Per-OPEN, not per-card: a fresh card opened within
+                             // the same modal session still needs to reconcile
+                             // on its close.
         highlightCommentId: null  // NOTIF-09 deep-link target (auto-cleared)
     };
 
@@ -241,37 +283,82 @@
         overlay.setAttribute('aria-hidden', 'true');
         // ---- board reconciliation (BEFORE focus returns to the card tile —
         //      returning focus first would trip board.js's syncGuardActive()
-        //      "focus on an editable inside the region" guard and defer it)
-        // RT-06 (SPECIFICATION §5.19): if a board version bump arrived while the
-        // modal was open, the real-time sync was deferred. Now that the modal is
-        // gone a full reload is safe — and it also refreshes board-header data
-        // a region swap doesn't touch (board title, label set, etc.). Only the
-        // modal-guard path sets this flag, so archive/merge/move's own reload
-        // flows aren't doubled up here.
+        //      "focus on an editable inside the region" guard and defer it).
+        // RT-07 (v1.17, SPECIFICATION §5.19 close() contract): when the modal
+        // guard deferred a sync (a board_version bump or the WS echo of the
+        // modal's OWN save arrived while the modal was open), it now
+        // reconciles IN PLACE instead of the old window.location.reload():
+        // a close-time reload tore down scroll / lane-scroll / focus /
+        // card-selection right after the user finished — the "the board
+        // page randomly reloads during a session" symptom. The guard is
+        // gone by close time, so the RT-04 in-place region swap is the
+        // honest render; board.js's 300 ms + in-flight dedupe window
+        // coalesces this with the concurrent WS-echo syncNow into ONE
+        // fragment fetch. (A reload still happens for structural changes
+        // — archive / restore / move-to-board / merge — see their success
+        // handlers; those reloads are correct: the card itself changed
+        // board, so the board view is not just a stale tile.)
         if (window.ShuffleBoardSync && window.ShuffleBoardSync.hasPendingSync()) {
             window.ShuffleBoardSync.clearPendingSync();
-            window.location.reload();
-            return;
+            if (window.ShuffleBoardSync.syncNow) window.ShuffleBoardSync.syncNow();
+            // RT-07 (v1.17): a deferred bump means a board-level change
+            // landed via ANOTHER client while the modal was open — that
+            // change includes the header (board title + label set) — so
+            // push the fresh server-rendered header values in place.
+            // Region swap covers lanes + cards; this covers the header.
+            if (window.ShuffleBoardSync.refreshHeader) window.ShuffleBoardSync.refreshHeader();
         }
-        // v1.13 Stage D (RT-04 companion): the modal's OWN mutations (title /
-        // due autosave, description Save, assignee changes) bumped the board
-        // version, but the deferred-sync flag above is only set when a 15 s
-        // POLL tick observed a bump — a save in the last second of the interval
-        // (the common case) sets no flag, leaving the board tile stale until
-        // the next poll. Now that the overlay is hidden the board.js guard is
-        // clear: do an immediate in-place region sync (no reload — the modal
-        // is card-centric, and the server-rendered fragment is the board's
-        // source of truth for the tile title / due date / avatars it shows).
-        if (state.boardMutations > 0) {
+        // v1.13 Stage D (RT-04 companion) + RT-07: the modal's OWN mutations
+        // (title/due autosave, description Save, assignee changes, checklist
+        // create/toggle/delete) bump the board version server-side when they
+        // settle. Two cases at close time:
+        //   (a) A save already settled (state.boardMutations > 0) → fire the
+        //       reconciliation immediately; it's idempotent with the 300 ms
+        //       + in-flight dedupe window in board.js so a concurrent WS-echo
+        //       does not double-fetch.
+        //   (b) A save is still in flight (_boardMutInFlight > 0 — the user
+        //       typed → hit Escape in the last 800 ms of a debounce window;
+        //       the PUT is in the network but .then() has not yet run) →
+        //       queue the reconciliation via reconcileOnClose; each
+        //       _boardMutEnd() calls settle() which fires syncNow once the
+        //       in-flight counter hits 0 AND the last save succeeded (i.e.
+        //       noteBoardMutation bumped boardMutations). If every pending
+        //       save fails, boardMutations stays 0 and settle() is a no-op —
+        //       there is nothing to reconcile, correct.
+        // This is the fix for the "close before autosave lands" race that
+        // left the tile stale.
+        state.reconcileOnClose = (state.boardMutations > 0) || (_boardMutInFlight > 0);
+        if (state.reconcileOnClose && _boardMutInFlight === 0) {
+            state.reconcileOnClose = false;
             state.boardMutations = 0;
             if (window.ShuffleBoardSync && window.ShuffleBoardSync.syncNow) {
                 window.ShuffleBoardSync.syncNow();
             }
         }
         // ---- focus return + state reset -------------------------------------
-        // Focus returns to the opener (the card on the board), not the body.
-        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
+        // RT-08: a region swap may have run while the modal was open (or just
+        // now) — the <article> state.lastOpener points at was detached by
+        // swapRegion(). Re-resolve by data-card-id so focus lands on the
+        // FRESH tile; fall back to the pre-swap reference if the card is
+        // gone (archived/moved → the structural paths own that case).
+        var focusCardId = state.cardId;
+        var focusEl = null;
+        var lanesRoot = document.querySelector('.board-lanes-container');
+        if (focusCardId && lanesRoot) {
+            focusEl = lanesRoot.querySelector('.card[data-card-id="' + focusCardId + '"]');
+        }
+        if (focusEl && focusEl.focus) {
+            focusEl.focus();
+        } else if (state.lastOpener && state.lastOpener.focus) {
+            state.lastOpener.focus();
+        }
         state.lastOpener = null;
+        // RT-08 bookkeeping: drop any queued deferred refresh — close() is the
+        // terminal path and the NEXT open always issues a fresh loadCard(),
+        // which is exactly the refresh the queue was standing in for. Keeping
+        // the flag alive past close() would let a stale queue (from a closed
+        // modal) leak into the next open.
+        _refreshPending = false;
         // Reset comment-input + any in-flight edit state (the next open re-fetches).
         if (commentInput) commentInput.value = '';
         Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
@@ -335,20 +422,39 @@
 
     // ---- load + render ------------------------------------------------
 
+    /** RT-08: a load started before the modal's most recent open/flush can
+        resolve LATER and paint stale state over a fresh one (classic
+        out-of-order race — e.g. a deferred-while-dirty refresh GET
+        resolving AFTER a close+open on a different card). The `state.cardId`
+        equality check is the guard: any GET whose card id no longer matches
+        what the modal is displaying is dropped. Note this is why
+        openByCardId() must set state.cardId BEFORE issuing its fetch. */
+
     function loadCard(cardId, done) {
         api('/v1/cards/' + cardId, { method: 'GET' }).then(function (result) {
+            if (state.cardId !== cardId && isCardModalVisible()) {
+                // Re-opened on a different card while this was in flight.
+                flash((result.data && result.data.error) || t('error_bad_request') || 'Error', 'error');
+                return false;
+            }
             if ((result.status === 404 || result.status === 403) && result.data) {
                 flash((result.data && result.data.error) || 'Not found', 'error');
-                return;
+                return false;
             }
             if (result.status !== 200 || !result.data || !result.data.card) {
                 flash(t('error_bad_request') || 'Error', 'error');
-                return;
+                return false;
             }
             applyCard(result.data.card);
+            // RT-08: an authoritative successful load settles any queued
+            // deferred refresh — it IS the refresh; drop the flag so the
+            // next bump starts clean.
+            _refreshPending = false;
             done && done(result.data.card);
+            return true;
         }, function () {
             flash(t('error_bad_request') || 'Error', 'error');
+            return false;
         });
     }
 
@@ -906,6 +1012,7 @@
                 e.preventDefault();
                 var title = newChecklistTitle.value.trim();
                 if (!title) return;
+                _boardMutBegin();   // RT-07
                 api('/v1/cards/' + state.cardId + '/checklists', {
                     method: 'POST', body: { title: title }
                 }).then(function (result) {
@@ -915,10 +1022,12 @@
                         checklistsList.appendChild(buildChecklistEl(result.data.checklist));
                         newChecklistTitle.value = '';
                         newChecklistTitle.focus();
+                        noteBoardMutation();   // RT-07: bump is real; close()/settle() reconciles the tile (progress badge)
                     } else {
                         flashErr(result);
                     }
-                });
+                    _boardMutEnd();   // RT-07
+                }, function () { _boardMutEnd(); });
             });
         }
 
@@ -934,6 +1043,7 @@
                 var clEl = e.target.closest('.checklist');
                 var clId = clEl ? parseInt(clEl.dataset.checklistId, 10) : 0;
                 if (!clId) return;
+                _boardMutBegin();   // RT-07
                 api('/v1/checklists/' + clId + '/items', {
                     method: 'POST', body: { title: title }
                 }).then(function (result) {
@@ -945,10 +1055,12 @@
                         }
                         input.value = '';
                         input.focus();
+                        noteBoardMutation();   // RT-07: item add bumps the board → tile progress badge updates on close/settle
                     } else {
                         flashErr(result);
                     }
-                });
+                    _boardMutEnd();   // RT-07
+                }, function () { _boardMutEnd(); });
             });
         }
 
@@ -959,6 +1071,7 @@
             if (!itemEl) return;
             var itemId = parseInt(itemEl.dataset.itemId, 10);
             var isChecked = e.target.checked;
+            _boardMutBegin();   // RT-07: toggling bumps the board (progress badge is tile-relevant)
             api('/v1/checklist-items/' + itemId, {
                 method: 'PUT', body: { is_checked: isChecked }
             }).then(function (result) {
@@ -967,11 +1080,13 @@
                     else itemEl.classList.remove('checklist-item--checked');
                     var clEl = e.target.closest ? e.target.closest('.checklist') : null;
                     if (clEl) updateChecklistProgress(clEl);
+                    noteBoardMutation();   // RT-07: close()/settle() refreshes the tile's done/total
                 } else {
                     e.target.checked = !isChecked;
                     flashErr(result);
                 }
-            });
+                _boardMutEnd();   // RT-07
+            }, function () { _boardMutEnd(); });
         });
 
         // Clicks: delete item / delete checklist (author-or-admin is the
@@ -984,16 +1099,19 @@
                 var clEl = btn.closest('.checklist');
                 if (!clEl) return;
                 if (!confirm(t('checklist_delete_confirm') || 'Delete this checklist and all its items?')) return;
+                _boardMutBegin();   // RT-07
                 api('/v1/checklists/' + clEl.dataset.checklistId, { method: 'DELETE' }).then(function (result) {
                     if (result.status === 204) {
                         clEl.remove();
                         if (CAN_EDIT)
                             checklistsList.innerHTML = '<p class="text-secondary" id="cm-checklists-empty">'
                                 + escapeHtml(t('checklist_empty') || 'No checklists yet.') + '</p>';
+                        noteBoardMutation();   // RT-07: board-bumping delete → reconcile the tile
                     } else {
                         flashErr(result);
                     }
-                });
+                    _boardMutEnd();   // RT-07
+                }, function () { _boardMutEnd(); });
                 return;
             }
 
@@ -1002,15 +1120,18 @@
                 if (!itemEl) return;
                 if (!confirm(t('checklist_item_delete_confirm') || 'Delete this item?')) return;
                 var itemId = parseInt(itemEl.dataset.itemId, 10);
+                _boardMutBegin();   // RT-07
                 api('/v1/checklist-items/' + itemId, { method: 'DELETE' }).then(function (result) {
                     if (result.status === 204) {
                         itemEl.remove();
                         var clEl = btn.closest('.checklist');
                         if (clEl) updateChecklistProgress(clEl);
+                        noteBoardMutation();   // RT-07: tile's done/total changes
                     } else {
                         flashErr(result);
                     }
-                });
+                    _boardMutEnd();   // RT-07
+                }, function () { _boardMutEnd(); });
             }
         });
 
@@ -1394,6 +1515,99 @@
         });
     }
 
+    /* ---- Chunk 02b: RT-08 live refresh + isDirty ------------------------
+     * board.js's region swap (swapRegion) fires onRegionSwapped() with the
+     * fresh fragment's DOM. The modal is OUTSIDE the region (separate overlay)
+     * so the swap doesn't break it — but the modal's data (title/desc/comments
+     * /checklists/attachments/assignees) is now frozen at whatever it loaded
+     * at open() time.
+     *
+     * If the modal is CLEAN (nothing unsaved, no in-flight save, no pending
+     * autosave debounce) we re-fetch the card record and re-render in place
+     * immediately — this is the cross-modal / cross-browser live update.
+     *
+     * If the modal is DIRTY (mid-edit, in-flight save, pending debounce) a
+     * re-fetch RIGHT NOW would race the user's own save — the re-fetch would
+     * overwrite their unsaved text OR stomp the save's own in-progress
+     * response (a classic "who wins?" race). Instead we QUEUE the re-fetch
+     * (_refreshPending) and let it settle:
+     *   (a) save() success path  →  flushDeferredCardRefresh() right after
+     *                            the server's card record is applied locally,
+     *                            so the flush sees the authoritative state.
+     *   (b) close()  →  flushDeferredCardRefresh() — the modal is closing,
+     *                            the user's unsaved fields (any unsaved
+     *                            title/due text) lose; the NEW server state
+     *                            (which includes any other client's changes
+     *                            they hadn't seen) is what stays. The
+     *                            user's board tile underneath is already
+     *                            reconciled by close().
+     * ------------------------------------------------------------------- */
+    var _refreshPending = false;
+    function flushDeferredCardRefresh() {
+        if (!_refreshPending) return;
+        _refreshPending = false;
+        if (!isCardModalVisible()) return;   // modal closed — nothing to update
+        if (state.saving) return;             // still mid-save — close/settle re-triggers
+        loadCard(state.cardId);              // full re-render from the server record
+    }
+    function onRegionSwapped() {
+        if (!isCardModalVisible()) return false;
+        if (isDirty()) {
+            // Mid-flight edit (or unsaved text): queue the re-fetch so it
+            // settles cleanly instead of clobbering the user's in-progress
+            // edit or racing the in-flight save's response. Close() and
+            // save()'s success path both call flushDeferredCardRefresh().
+            _refreshPending = true;
+            return false;
+        }
+        // Clean path: the region is already fresh (board.js just swapped it)
+        // and the modal has no pending state — one authoritative re-fetch
+        // re-renders title/desc/comments/checklists/attachments/assignees in
+        // place, and the dirty flags are all zero so nothing is clobbered.
+        loadCard(state.cardId);
+        return true;
+    }
+
+    /** Public: true while the modal has any live, unsaved/unsent state —
+     *  OR an unscheduled autosave debounce is armed (title/due dirty flag
+     *  set but the timer hasn't fired yet). board.js syncGuardActive() calls
+     *  this to decide whether the board region can live-swap-and-refresh
+     *  immediately (clean) or must queue the refresh until the state settles
+     *  (dirty → _refreshPending, flushed on save-success / close). */
+    function isDirty() {
+        if (state.saving) return true;
+        if (state.commentPosting) return true;
+        if (state.mergeBusy) return true;
+        if (state.moveBusy) return true;
+        if (state.labelsBusy) return true;
+        if (_boardMutInFlight > 0) return true;
+        if (_titleDirty || _dueDirty) return true;              // autosave debounced, not yet in flight
+        if (_refreshPending) return true;                        // already queued by a prior bump
+        if (state.card && state.card._descDirty) return true;    // description unsaved
+        // A comment draft in the input (not yet posted) or an in-progress
+        // comment edit (edit form is visible). Both are unsaved state that a
+        // re-render would silently destroy; defer the refresh instead.
+        if (commentInput && commentInput.value.trim() !== '') return true;
+        if (commentList && commentList.querySelector &&
+            commentList.querySelector('.comment-edit-form[hidden="false"]')) return true;
+        // title/due/desc inputs holding text that differs from state.card —
+        // the user is typing but hasn't blurred/triggered the dirty flag yet.
+        // Trim BOTH sides (title/due): save() diffs titleInput.value.trim()
+        // against card.title, so a space-only difference is not an edit and
+        // must not block the live refresh. (Description: saveDesc()/the
+        // server keep the raw body, so compare raw for that one.)
+        var cur = state.card;
+        if (cur) {
+            if (titleInput && (titleInput.value.trim() || '') !== (cur.title || '')) return true;
+            if (dueInput) {
+                var curDue = cur.due_date ? String(cur.due_date).slice(0,10) : '';
+                if ((dueInput.value || '') !== curDue) return true;
+            }
+            if (descInput && !(cur.description === null) && (descInput.value || '') !== (cur.description || '')) return true;
+        }
+        return false;
+    }
+
     function submitComment() {
         if (!CAN_EDIT) return;
         if (state.commentPosting) return;
@@ -1718,6 +1932,7 @@
 
         descSaving = true;
         if (descSaveBtn) descSaveBtn.disabled = true;
+        _boardMutBegin();   // RT-07: register this mutation as in-flight
         api('/v1/cards/' + state.cardId, {
             method: 'PUT',
             body: { description: desc }
@@ -1726,7 +1941,7 @@
             if (descSaveBtn) descSaveBtn.disabled = false;
             if (result.status === 200 && result.data && result.data.card) {
                 state.card = result.data.card;
-                noteBoardMutation();   // tile-relevant (description meta count); close() syncs
+                noteBoardMutation();   // tile-relevant (description meta count); close()/settle() syncs
                 state.card._descDirty = false;
                 // Return to Preview, seeded from the server's rendered HTML
                 // (no extra /markdown/render round-trip).
@@ -1735,14 +1950,17 @@
                     : null;
                 setDescPreview(true, seeded);
                 flash(t('card_update_success') || 'Card saved', 'success');
+                _boardMutEnd();   // RT-07: landed → settle() may flush a pending close-reconcile
             } else {
                 // Keep the Edit pane + the user's text on failure.
                 flashErr(result);
+                _boardMutEnd();   // RT-07: save failed → settle() will no-op (no mutation)
             }
         }, function () {
             descSaving = false;
             if (descSaveBtn) descSaveBtn.disabled = false;
             flash(t('error_bad_request') || 'Error', 'error');
+            _boardMutEnd();   // RT-07: network failure → settle() will no-op (no mutation)
         });
     }
 
@@ -1789,6 +2007,7 @@
         }
 
         state.saving = true;
+        _boardMutBegin();   // RT-07: register this mutation as in-flight
         api('/v1/cards/' + state.cardId, {
             method: 'PUT',
             body: payload
@@ -1797,25 +2016,36 @@
             if (result.status === 200 && result.data && result.data.card) {
                 var saved = result.data.card;
                 state.card = saved;
-                noteBoardMutation();   // close() will refresh the board tile
+                noteBoardMutation();   // close() / settle() will refresh the board tile
                 // The autosaved fields are the ONLY things that just changed —
                 // re-sync just those inputs + the header title (no need to
                 // touch the assignee picker / checklist / label state; the
                 // server's response for a field-only payload doesn't change
                 // those sections). The board version bump flows through the
-                // RT-04 poll, which refreshes the board region (the modal
-                // itself is the card's source of truth here, so no reload).
+                // RT-04 poll or the close-time / settle() reconcile (RT-07),
+                // whichever fires first for this mutation.
                 if (titleInput && 'title' in payload) titleInput.value = saved.title || '';
                 if (dueInput   && 'due_date' in payload) dueInput.value = saved.due_date ? String(saved.due_date).slice(0, 10) : '';
                 if (modalTitle) modalTitle.textContent = saved.title || '';
+                // RT-08: a board bump queued a modal re-fetch while this save
+                // was in flight (isDirty() blocked it then — re-fetching
+                // mid-PUT could race this response or clobber unsaved text).
+                // The PUT is settled now and state.card holds the server's
+                // record, so flush the queued re-fetch: the fresh GET lands
+                // AFTER this response and carries the authoritative state.
+                flushDeferredCardRefresh();
             } else {
                 // Keep the user's text (Stage D: the field retains the
                 // unsaved value so they can retry / fix it).
                 flashErr(result);
+                _boardMutEnd();   // RT-07: save failed → settle() will no-op (no mutation)
+                return;
             }
+            _boardMutEnd();   // RT-07: save landed → settle() may flush a pending close-reconcile
         }, function () {
             state.saving = false;
             flash(t('error_bad_request') || 'Error', 'error');
+            _boardMutEnd();   // RT-07: network failure → settle() will no-op (no mutation)
         });
     }
 
@@ -2219,9 +2449,13 @@
             return;
         }
         // Fallback: fetch + render directly (the modal is card-centric).
+        // state.cardId must be set BEFORE the fetch — loadCard() drops a
+        // resolved record whose id differs from state.cardId (the stale-open
+        // guard), so a load that runs before state.cardId is assigned would
+        // be dropped (or, worse, applied to the previous card).
+        state.cardId = cardId;
         loadCard(cardId, function (card) {
             if (!card) return;
-            state.cardId = cardId;
             // Honor a deep-linked tab (?tab=comments|history), default card.
             var wantTab = 'card';
             try {
@@ -2269,7 +2503,17 @@
         /** Whether the card modal is currently visible (used by board.js real-time-sync guards, SPEC §5.19). */
         isCardModalVisible: function () { return isCardModalVisible(); },
         /** Currently active card id (0 = none). */
-        getCardId: function () { return state.cardId; }
+        getCardId: function () { return state.cardId; },
+        /** RT-08: true while the modal has live unsaved/unsent state.
+            board.js consults this in syncGuardActive() to decide whether the
+            board region can swap live underneath the modal (clean → swap +
+            onRegionSwapped) or must defer until close (dirty → pendingSync). */
+        isDirty: function () { return isDirty(); },
+        /** RT-08: called by board.js after a live region swap. Re-fetches the
+            open card's record and re-renders the modal in place (title,
+            description, comments, checklists, attachments, assignees).
+            No-op when the modal is closed or dirty. */
+        onRegionSwapped: function () { return onRegionSwapped(); }
     };
 
     // ---- deep-link bootstrap (CARD-15) ---------------------------------

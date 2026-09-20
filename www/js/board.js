@@ -1312,11 +1312,23 @@
      *   contenteditable lane title being renamed).
      */
     function syncGuardActive() {
-        // (1) Card modal open → defer; the modal's close() performs the bounded
-        //     full-reload fallback (RT-06). Detected via the public accessor.
+        // (1) Card modal open — the modal is a separate overlay element, NOT
+        //     inside the board region; an in-place swap underneath does not
+        //     touch the modal's own DOM. RT-07 follow-up (RT-08): the old
+        //     "defer until close" guard made the region sit stale for the
+        //     whole time the modal was open AND froze cross-modal edits
+        //     (a title change on card X in browser A never reached the
+        //     region in browser B while B had the modal open on Y). Instead
+        //     we swap the region live under the modal and, via the
+        //     onRegionSwapped hook in card-modal.js, push the fresh server
+        //     state into the open modal — unless the user is mid-something
+        //     in that modal (saving / dirty inputs / mutation in flight),
+        //     in which case we defer (pendingSync) the same as before.
         if (window.ShuffleCardModal && window.ShuffleCardModal.isCardModalVisible &&
             window.ShuffleCardModal.isCardModalVisible()) {
-            return 'modal';
+            if (window.ShuffleCardModal.isDirty && window.ShuffleCardModal.isDirty()) {
+                return 'modal';
+            }
         }
         // (2) Drag in flight — a swap would detach the node being dragged.
         if (dragInFlight) {
@@ -1391,19 +1403,70 @@
      * Applies one real-time sync tick: fetch the region fragment (same origin,
      * same renderer) and swap it in place. Only called when no guard is active
      * (the deferred paths — modal/drag/focus — are handled by their owners:
-     * modal close reloads; drag/focus retry on the next tick).
+     * modal close reconciles in place; drag/focus retry on the next tick).
+     *
+     * RT-07 (v1.17, closes the RT-06 gap — "the board tile stays the original
+     * after a card edit"): the If-None-Match header now carries the CLIENT'S
+     * CURRENT version, not the requested target. (A v1.16 bug: send the new
+     * version and the server always 304s "already current", so swapRegion()
+     * was skipped even when the client was actually behind. The tile kept
+     * showing the pre-mutation state.) Now the client's version is the
+     * honest ETag; the server 304s only if the region really is already at
+     * the client's version, and the client advances to the target in both
+     * cases (200 + 304 — the region is at the target when it 304s).
+     *
+     * RT-07: a small dedupe window (RECONCILE_DEDUPE_MS + in-flight guard)
+     * coalesces the
+     * "save-close-echo" sequence — close() → syncNow() and a concurrent
+     * WS board_version echo for the user's own save both arriving near
+     * simultaneously — into EXACTLY ONE fragment fetch. (The echo used to
+     * double-fire the reconciliation and, with the inverted ETag bug, the
+     * first 304-returned 200 was the one that got skipped. Now the dedupe
+     * is the primary guard, and the ETag is correct as a secondary one.)
      *
      * @param {number} targetVersion  board version this sync is reconciling to.
      */
+    var _lastSyncAt = 0;
+    var _lastSyncTarget = 0;
+    var _syncInFlight = false;
+    // RT-07: coalesce-window for the close-time reconcile. A second syncNow()
+    // call for the SAME target within this window of a performRegionSync
+    // already running or just completed is dropped — the save-close-echo
+    // sequence (close() → syncNow() + the WS board_version echo of the same
+    // save, and a coincidental 15 s poll tick) would otherwise fire two
+    // fragment fetches; the dedupe is the primary guard for that.
+    var RECONCILE_DEDUPE_MS = 300;
     function performRegionSync(targetVersion) {
-        var includeArchived = boardPage.dataset.includeArchived === '1' ? '&include_archived=1' : '';
-        var etag = '"' + targetVersion + '"';
+        // Dedupe window (RT-07): a second sync for the SAME target within
+        // RECONCILE_DEDUPE_MS of the last one — or while one is still
+        // in flight — is dropped instead of firing a second fragment fetch.
+        var now = Date.now();
+        if (_syncInFlight && targetVersion === _lastSyncTarget) {
+            return; // in-flight for the same target — the echo adds nothing
+        }
+        if (targetVersion === _lastSyncTarget && (now - _lastSyncAt) < RECONCILE_DEDUPE_MS) {
+            return; // same target, still in the dedupe window — drop
+        }
+        _lastSyncTarget = targetVersion;
 
+        var includeArchived = boardPage.dataset.includeArchived === '1' ? '&include_archived=1' : '';
+        // RT-07: the client's CURRENT version is the correct ETag.
+        // (v1.16 shipped a bug: `targetVersion` as the ETag, which always
+        // 304s and silently skips the swap — the board stays stale.)
+        var etag = '"' + boardVersion + '"';
+        _syncInFlight = true;
         Shuffle.api('/v1/boards/' + BOARD_ID + '/region' + includeArchived, {
             headers: { 'If-None-Match': etag, 'Accept': 'text/html' }
         }).then(function (result) {
+            _syncInFlight = false;
+            _lastSyncAt = Date.now();
             if (result.status === 304) {
-                return; // already at this version — nothing to do
+                // The server says "already at this version for you" — the
+                // region IS at the target, just as the client already had it.
+                // (Only reachable if boardVersion was already == targetVersion,
+                // i.e. a double-trigger; advance just in case.)
+                boardVersion = targetVersion; // idempotent
+                return;
             }
             if (result.status !== 200 || typeof result.data !== 'string' || !result.data) {
                 // Silent per-tick failure (RT-06): do NOT advance boardVersion,
@@ -1412,8 +1475,23 @@
             }
             swapRegion(result.data);
             boardVersion = targetVersion; // only advance on success
+            // RT-08: push the fresh card state into the open modal (if any).
+            // The modal is a separate overlay — swapRegion didn't touch it —
+            // but its data is now stale. Only call the hook when the modal is
+            // actually visible (the real implementation no-ops when closed,
+            // but a wasted call is unnecessary work + noise on a no-modal
+            // board).
+            if (window.ShuffleCardModal && window.ShuffleCardModal.isCardModalVisible &&
+                window.ShuffleCardModal.onRegionSwapped &&
+                window.ShuffleCardModal.isCardModalVisible()) {
+                window.ShuffleCardModal.onRegionSwapped();
+            }
             // Announce the refresh (the region visibly updates; SR users need the signal).
             announce(tmpl(LANG.board_sync || 'Board updated.', []));
+        }, function () {
+            _syncInFlight = false;
+            _lastSyncAt = Date.now();
+            // Network failure — boardVersion NOT advanced, retry next tick.
         });
     }
 
@@ -1539,9 +1617,72 @@
     function clearPendingSync() {
         pendingSync = false;
     }
+
+    /**
+     * RT-07 (v1.17): refresh the board's HEADER state in place —
+     * `.board-view-page[data-board-version|data-labels]` and the
+     * `<h1 class="board-view-title">` — so a close() after a board-level
+     * mutation that landed via ANOTHER client (title change, label set
+     * change) sees the fresh server-rendered values without a page reload.
+     * The region fragment (lanes + cards) is covered by performRegionSync;
+     * this helper only covers the header that a region swap does NOT touch.
+     *
+     * Two endpoint round-trips (sequential — the board call is cheap and the
+     * labels call is short-circuited by the server on an ETag 304):
+     *   GET /v1/boards/{id}          → board.title, board.version
+     *   GET /v1/boards/{id}/labels   → board-wide label set (for the picker
+     *                                  + the manage-labels list)
+     *
+     * @returns {Promise<void>} resolves when both are applied; never rejects.
+     */
+    function refreshHeader() {
+        if (!boardPage || !BOARD_ID) return Promise.resolve();
+        var titleEl = document.querySelector('.board-view-title');
+
+        return Shuffle.api('/v1/boards/' + BOARD_ID).then(function (r) {
+            if (r && r.status === 200 && r.data && r.data.board) {
+                var b = r.data.board;
+                if (typeof b.version === 'number') {
+                    // Keep the client's view of the board version in sync with
+                    // the server — a region 304 (server == client) is a valid
+                    // outcome but the client's cached boardVersion is what
+                    // drives the next ETag.
+                    boardVersion = parseInt(b.version, 10) || boardVersion;
+                    boardPage.setAttribute('data-board-version', String(boardVersion));
+                }
+                if (typeof b.title === 'string' && typeof titleEl === 'object' && titleEl) {
+                    titleEl.textContent = b.title;
+                }
+            }
+            return Shuffle.api('/v1/boards/' + BOARD_ID + '/labels').then(function (r2) {
+                if (r2 && r2.status === 200 && r2.data && r2.data.labels) {
+                    var labels = r2.data.labels || [];
+                    // The card label picker (card-modal.js) reads this dataset
+                    // attribute at open time — update it for the next open.
+                    boardPage.setAttribute('data-labels', JSON.stringify(labels));
+                    // The manage-labels IIFE caches boardLabelSet at init and
+                    // renders the visible list from it — push the fresh set in
+                    // so a rename/create/delete that landed on another client
+                    // is reflected there too (rename/delete actions intact).
+                    if (window.ShuffleBoardLabels && window.ShuffleBoardLabels.setList) {
+                        window.ShuffleBoardLabels.setList(labels);
+                    }
+                }
+            }).catch(function () { /* label refresh is a best-effort enhancement */ });
+        }).catch(function () { /* title refresh is a best-effort enhancement */ });
+    }
+
     window.ShuffleBoardSync = {
         hasPendingSync: hasPendingSync,
         clearPendingSync: clearPendingSync,
+        refreshHeader: refreshHeader,
+        /** RT-08: test/verification entry point — drive the SHARED bump path
+            (handleVersionBump) exactly as the WS push and 15 s poll frames do,
+            including the guard/defer decision (modal-dirty → pendingSync,
+            clean → live swap + modal refresh). Production code never calls
+            this; the push/poll frames are the real callers. The unit suites
+            use it to exercise the guard without a live WebSocket. */
+        handleVersionBump: function (targetVersion) { handleVersionBump(targetVersion); },
         syncNow: function (targetVersion) {
             if (targetVersion === undefined || targetVersion === null) {
                 // Unknown target: use the server's current version.
@@ -1647,6 +1788,19 @@
             if (palette.indexOf(h) !== -1) return h;
             return h;
         }
+
+        // RT-07 (v1.17): public hook so board.js's refreshHeader() can push a
+        // fresh label set into THIS IIFE's cached state (it is the sole owner
+        // of boardLabelSet + the render path, so the re-render stays correct —
+        // rename/delete buttons and read-only gating intact). The card label
+        // picker (card-modal.js) reads .board-view-page[data-labels] directly,
+        // which refreshHeader() updates itself.
+        window.ShuffleBoardLabels = {
+            setList: function (labels) {
+                boardLabelSet = labels || [];
+                renderList();
+            }
+        };
 
         function escapeHtml(s) {
             var d = document.createElement('div'); d.textContent = (s||''); return d.innerHTML;

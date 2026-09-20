@@ -251,32 +251,50 @@ function makeSandbox() {
     let queueIndex = 0;
     let defaultStatus = 200;
     let defaultData = { status: 200, data: { card: null } };
+    // §12: forced-delay responses keyed by (method+url) → ms — lets a test
+    // hold a specific api() call in-flight (the "close before settle" path).
+    const delayMap = Object.create(null);
     const shuffleObj = {
         api: function (url, options) {
             options = options || {};
-            apiLog.push({ url: String(url), method: options.method || 'GET', body: options.body || null });
+            const urlStr = String(url);
+            const method = (options.method || 'GET').toUpperCase();
+            apiLog.push({ url: urlStr, method: method, body: options.body || null });
+            let result;
             if (queueIndex < queue.length) {
-                const r = queue[queueIndex++];
-                return Promise.resolve(r);
+                result = queue[queueIndex++];
+            } else {
+                result = defaultData;
             }
-            // Default: a successful empty-card (status 200, no card).
-            return Promise.resolve(defaultData);
+            const delay = delayMap[method + ' ' + urlStr];
+            if (delay != null && delay > 0) {
+                return new Promise((resolve) => setTimeout(() => resolve(result), delay));
+            }
+            return Promise.resolve(result);
         },
         showFlash() {},
         getCsrfToken: () => 'test',
     };
+    shuffleObj.__delayMap = delayMap;
 
     // Track clearTimeout/setTimeout calls so §7 (stale-timer cleanup) can
     // assert that the module actually un-scheduled the pending save.
     const timeouts = [];
     const clearLog = [];
     const syncState = { calls: [], log: [] };
+    // Mutable pending sync (RT-07 close() path): the test flips this to true
+    // to exercise "a board_version bump was deferred while the modal was open".
+    let pendingSync = false;
     const boardSyncStub = {
-        hasPendingSync: () => false,
-        clearPendingSync: function () {},
+        hasPendingSync: () => pendingSync,
+        clearPendingSync: function () { pendingSync = false; },
         syncNow: function (targetVersion) {
             syncState.calls.push(targetVersion);
             syncState.log.push(targetVersion);
+            return Promise.resolve();
+        },
+        refreshHeader: function () {
+            syncState.headerRefreshes = (syncState.headerRefreshes || 0) + 1;
             return Promise.resolve();
         },
     };
@@ -301,7 +319,12 @@ function makeSandbox() {
     vm.createContext(sandbox);
     sandbox.Shuffle = shuffleObj;   // card-modal.js calls a bare `Shuffle` global
     sandbox.window.Shuffle = shuffleObj;   // flash() reads `window.Shuffle.showFlash` for the guard path (test [2])
-    return { dom, sandbox, shuffleObj, apiLog, timeouts, clearLog, queue, domObj: documentObj, syncState };
+    return {
+        dom, sandbox, shuffleObj, apiLog, timeouts, clearLog, queue, domObj: documentObj, syncState,
+        // §12/§13: RT-07 close-path controls.
+        setPendingSync(v) { pendingSync = !!v; },
+        setDelay(key, ms) { shuffleObj.__delayMap[key] = ms; },
+    };
 }
 
 function runModule(s, card) {
@@ -553,6 +576,159 @@ const BASE = {
             await settle(20);
             check('close #2 (no save) fires no syncNow', s.syncState.calls.length === beforeB,
                 'calls=' + JSON.stringify(s.syncState.calls));
+        }
+
+        // ================= [12] close while autosave in flight ===============
+        // RT-07: the classic "close before autosave lands" race. user types
+        // → hits Escape in the last 800 ms of the debounce window; the PUT is
+        // still on the wire when close() runs. With the old implementation
+        // close() would read state.boardMutations = 0 (success not yet run) and
+        // skip the reconcile; the save then lands, noteBoardMutation() bumps
+        // the counter, but the modal is already gone — the board tile stays
+        // stale. RT-07 closes this window with the _boardMutInFlight guard +
+        // settle() re-firing once the counter hits 0.
+        console.log('\n[12] close fires during an in-flight autosave → exactly one syncNow()');
+        {
+            const s = makeSandbox();
+            // Hold the PUT in-flight (the response resolves after 120 ms).
+            s.setDelay('PUT /v1/cards/42', 120);
+            runModule(s, BASE);
+            await settle(10);
+
+            s.dom.titleInput.value = 'In-flight title';
+            s.dom.titleInput.dispatch('input', {});
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'In-flight title' } } });
+            await settle(900);   // debounce window; the PUT is now dispatched and delayed
+
+            const before = s.syncState.calls.length;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(20);
+
+            check('no syncNow() fired while the save was still in flight',
+                s.syncState.calls.length === before,
+                'calls=' + JSON.stringify(s.syncState.calls));
+
+            // Let the in-flight PUT resolve → noteBoardMutation() → _boardMutEnd
+            // → settle() → syncNow() exactly once.
+            await settle(200);
+
+            check('exactly one syncNow() after the in-flight save lands',
+                s.syncState.calls.length === before + 1,
+                'calls=' + JSON.stringify(s.syncState.calls));
+        }
+
+        // ================= [13] close with deferred bump = in-place refresh ===
+        // RT-07: a board_version bump arrived while the modal was open, so
+        // board.js deferred it (pendingSync) instead of breaking in. Close()
+        // must NOT fire a full location.reload() — it resolves the deferred
+        // bump in place via syncNow() AND refreshHeader() (the header
+        // surface a region swap does not touch).
+        console.log('\n[13] close with a deferred board_version bump → syncNow + refreshHeader, no reload');
+        {
+            const s = makeSandbox();
+            s.setPendingSync(true);          // a version bump was deferred while the modal was open
+            runModule(s, BASE);
+            await settle(10);
+
+            const beforeSync = s.syncState.calls.length;
+            const beforeHeader = s.syncState.headerRefreshes | 0;
+            s.sandbox.window.ShuffleCardModal.close();
+            await settle(30);
+
+            check('pendingSync is cleared after close()',
+                s.sandbox.window.ShuffleBoardSync.hasPendingSync() === false,
+                'still pending? ' + JSON.stringify(s.sandbox.window.ShuffleBoardSync.hasPendingSync()));
+            check('close fires syncNow() to reconcile the deferred bump in place',
+                s.syncState.calls.length === beforeSync + 1,
+                'calls=' + JSON.stringify(s.syncState.calls));
+            check('close fires refreshHeader() to cover the header surface',
+                (s.syncState.headerRefreshes || 0) === beforeHeader + 1,
+                'headerRefreshes=' + JSON.stringify(s.syncState.headerRefreshes));
+        }
+
+        // ================= [14] RT-08: onRegionSwapped — clean modal =======
+        // board.js swaps the region while the modal is open AND clean →
+        // the modal re-fetches its card and re-renders the inputs in place.
+        console.log('\n[14] modal open + CLEAN + region swap → live re-fetch, inputs updated');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+            check('isCardModalVisible() is true after open', api.isCardModalVisible() === true);
+            check('isDirty() is false for a fresh, unedited modal', api.isDirty() === false);
+
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            // The server-side title changed elsewhere (another browser): the
+            // next GET returns the NEW title.
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Changed elsewhere' } } });
+            const result = api.onRegionSwapped();
+            await settle(20);
+
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            check('onRegionSwapped() returns true (refresh applied)', result === true);
+            check('exactly one card GET (the live refresh)', getsAfter === getsBefore + 1, JSON.stringify(s.apiLog));
+            check('header title re-rendered with the fresh value',
+                s.dom.modalTitle.textContent === 'Changed elsewhere', 'got: ' + JSON.stringify(s.dom.modalTitle.textContent));
+            check('title input re-rendered with the fresh value',
+                s.dom.titleInput.value === 'Changed elsewhere', 'got: ' + JSON.stringify(s.dom.titleInput.value));
+            check('no PUT round-tripped', s.apiLog.filter(x => x.method === 'PUT').length === 0, JSON.stringify(s.apiLog));
+        }
+
+        // ================= [15] RT-08: onRegionSwapped — dirty modal =======
+        // Modal is DIRTY (unsaved title edit) → the refresh is QUEUED, not
+        // applied (applying now would clobber the user's in-progress text or
+        // race the in-flight save). It must NOT re-fetch, and isDirty() must
+        // still report true (board.js then defers the region swap too).
+        console.log('\n[15] modal open + DIRTY + region swap → refresh queued, inputs untouched');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+
+            // An unsaved edit in the title input (the 'dirty' state).
+            s.dom.titleInput.value = 'Unsaved edit';
+            s.dom.titleInput.dispatch('input', {});
+            check('isDirty() is true while an edit is pending', api.isDirty() === true);
+
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Server version' } } });
+            const result = api.onRegionSwapped();
+            await settle(20);
+
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            check('onRegionSwapped() returns false (deferred)', result === false);
+            check('NO re-fetch while dirty (the user\'s text wins for now)', getsAfter === getsBefore,
+                'GETs=' + getsAfter);
+            check('the user\'s unsaved text is still in the input',
+                s.dom.titleInput.value === 'Unsaved edit', 'got: ' + JSON.stringify(s.dom.titleInput.value));
+            // Let the queued autosave land; the deferred refresh settles on
+            // the save-success path (it re-fetches, but AFTER the PUT).
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Unsaved edit' } } });
+            await settle(900);
+            check('autosave still fired after the queued refresh (no lost save)',
+                s.apiLog.filter(x => x.method === 'PUT').length === 1,
+                JSON.stringify(s.apiLog.filter(x => x.method === 'PUT')));
+        }
+
+        // ================= [16] RT-08: onRegionSwapped — closed modal ======
+        // Board fires the hook but the modal is closed → no-op (no fetch).
+        console.log('\n[16] region swap with the modal CLOSED → no-op, no fetch');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+            api.close();
+            await settle(5);
+            check('modal is closed', api.isCardModalVisible() === false);
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET').length;
+            const result = api.onRegionSwapped();
+            await settle(20);
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET').length;
+            check('onRegionSwapped() returns false (not visible)', result === false);
+            check('no fetch issued while the modal is closed', getsAfter === getsBefore, 'GETs=' + getsAfter);
         }
 
         console.log('\n-----------------------------------');
