@@ -1312,11 +1312,23 @@
      *   contenteditable lane title being renamed).
      */
     function syncGuardActive() {
-        // (1) Card modal open → defer; the modal's close() performs the bounded
-        //     full-reload fallback (RT-06). Detected via the public accessor.
+        // (1) Card modal open — the modal is a separate overlay element, NOT
+        //     inside the board region; an in-place swap underneath does not
+        //     touch the modal's own DOM. RT-07 follow-up (RT-08): the old
+        //     "defer until close" guard made the region sit stale for the
+        //     whole time the modal was open AND froze cross-modal edits
+        //     (a title change on card X in browser A never reached the
+        //     region in browser B while B had the modal open on Y). Instead
+        //     we swap the region live under the modal and, via the
+        //     onRegionSwapped hook in card-modal.js, push the fresh server
+        //     state into the open modal — unless the user is mid-something
+        //     in that modal (saving / dirty inputs / mutation in flight),
+        //     in which case we defer (pendingSync) the same as before.
         if (window.ShuffleCardModal && window.ShuffleCardModal.isCardModalVisible &&
             window.ShuffleCardModal.isCardModalVisible()) {
-            return 'modal';
+            if (window.ShuffleCardModal.isDirty && window.ShuffleCardModal.isDirty()) {
+                return 'modal';
+            }
         }
         // (2) Drag in flight — a swap would detach the node being dragged.
         if (dragInFlight) {
@@ -1463,6 +1475,17 @@
             }
             swapRegion(result.data);
             boardVersion = targetVersion; // only advance on success
+            // RT-08: push the fresh card state into the open modal (if any).
+            // The modal is a separate overlay — swapRegion didn't touch it —
+            // but its data is now stale. Only call the hook when the modal is
+            // actually visible (the real implementation no-ops when closed,
+            // but a wasted call is unnecessary work + noise on a no-modal
+            // board).
+            if (window.ShuffleCardModal && window.ShuffleCardModal.isCardModalVisible &&
+                window.ShuffleCardModal.onRegionSwapped &&
+                window.ShuffleCardModal.isCardModalVisible()) {
+                window.ShuffleCardModal.onRegionSwapped();
+            }
             // Announce the refresh (the region visibly updates; SR users need the signal).
             announce(tmpl(LANG.board_sync || 'Board updated.', []));
         }, function () {
@@ -1653,6 +1676,13 @@
         hasPendingSync: hasPendingSync,
         clearPendingSync: clearPendingSync,
         refreshHeader: refreshHeader,
+        /** RT-08: test/verification entry point — drive the SHARED bump path
+            (handleVersionBump) exactly as the WS push and 15 s poll frames do,
+            including the guard/defer decision (modal-dirty → pendingSync,
+            clean → live swap + modal refresh). Production code never calls
+            this; the push/poll frames are the real callers. The unit suites
+            use it to exercise the guard without a live WebSocket. */
+        handleVersionBump: function (targetVersion) { handleVersionBump(targetVersion); },
         syncNow: function (targetVersion) {
             if (targetVersion === undefined || targetVersion === null) {
                 // Unknown target: use the server's current version.

@@ -646,6 +646,91 @@ const BASE = {
                 'headerRefreshes=' + JSON.stringify(s.syncState.headerRefreshes));
         }
 
+        // ================= [14] RT-08: onRegionSwapped — clean modal =======
+        // board.js swaps the region while the modal is open AND clean →
+        // the modal re-fetches its card and re-renders the inputs in place.
+        console.log('\n[14] modal open + CLEAN + region swap → live re-fetch, inputs updated');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+            check('isCardModalVisible() is true after open', api.isCardModalVisible() === true);
+            check('isDirty() is false for a fresh, unedited modal', api.isDirty() === false);
+
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            // The server-side title changed elsewhere (another browser): the
+            // next GET returns the NEW title.
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Changed elsewhere' } } });
+            const result = api.onRegionSwapped();
+            await settle(20);
+
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            check('onRegionSwapped() returns true (refresh applied)', result === true);
+            check('exactly one card GET (the live refresh)', getsAfter === getsBefore + 1, JSON.stringify(s.apiLog));
+            check('header title re-rendered with the fresh value',
+                s.dom.modalTitle.textContent === 'Changed elsewhere', 'got: ' + JSON.stringify(s.dom.modalTitle.textContent));
+            check('title input re-rendered with the fresh value',
+                s.dom.titleInput.value === 'Changed elsewhere', 'got: ' + JSON.stringify(s.dom.titleInput.value));
+            check('no PUT round-tripped', s.apiLog.filter(x => x.method === 'PUT').length === 0, JSON.stringify(s.apiLog));
+        }
+
+        // ================= [15] RT-08: onRegionSwapped — dirty modal =======
+        // Modal is DIRTY (unsaved title edit) → the refresh is QUEUED, not
+        // applied (applying now would clobber the user's in-progress text or
+        // race the in-flight save). It must NOT re-fetch, and isDirty() must
+        // still report true (board.js then defers the region swap too).
+        console.log('\n[15] modal open + DIRTY + region swap → refresh queued, inputs untouched');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+
+            // An unsaved edit in the title input (the 'dirty' state).
+            s.dom.titleInput.value = 'Unsaved edit';
+            s.dom.titleInput.dispatch('input', {});
+            check('isDirty() is true while an edit is pending', api.isDirty() === true);
+
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Server version' } } });
+            const result = api.onRegionSwapped();
+            await settle(20);
+
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET' && /\/v1\/cards\/42$/.test(x.url)).length;
+            check('onRegionSwapped() returns false (deferred)', result === false);
+            check('NO re-fetch while dirty (the user\'s text wins for now)', getsAfter === getsBefore,
+                'GETs=' + getsAfter);
+            check('the user\'s unsaved text is still in the input',
+                s.dom.titleInput.value === 'Unsaved edit', 'got: ' + JSON.stringify(s.dom.titleInput.value));
+            // Let the queued autosave land; the deferred refresh settles on
+            // the save-success path (it re-fetches, but AFTER the PUT).
+            s.queue.push({ status: 200, data: { card: { ...BASE, id: 42, title: 'Unsaved edit' } } });
+            await settle(900);
+            check('autosave still fired after the queued refresh (no lost save)',
+                s.apiLog.filter(x => x.method === 'PUT').length === 1,
+                JSON.stringify(s.apiLog.filter(x => x.method === 'PUT')));
+        }
+
+        // ================= [16] RT-08: onRegionSwapped — closed modal ======
+        // Board fires the hook but the modal is closed → no-op (no fetch).
+        console.log('\n[16] region swap with the modal CLOSED → no-op, no fetch');
+        {
+            const s = makeSandbox();
+            runModule(s, BASE);
+            await settle(10);
+            const api = s.sandbox.window.ShuffleCardModal;
+            api.close();
+            await settle(5);
+            check('modal is closed', api.isCardModalVisible() === false);
+            const getsBefore = s.apiLog.filter(x => x.method === 'GET').length;
+            const result = api.onRegionSwapped();
+            await settle(20);
+            const getsAfter = s.apiLog.filter(x => x.method === 'GET').length;
+            check('onRegionSwapped() returns false (not visible)', result === false);
+            check('no fetch issued while the modal is closed', getsAfter === getsBefore, 'GETs=' + getsAfter);
+        }
+
         console.log('\n-----------------------------------');
         console.log(failures === 0 ? checks + ' PASS, 0 failures' : failures + ' FAILURES');
         process.exit(failures === 0 ? 0 : 1);

@@ -336,9 +336,29 @@
             }
         }
         // ---- focus return + state reset -------------------------------------
-        // Focus returns to the opener (the card on the board), not the body.
-        if (state.lastOpener && state.lastOpener.focus) state.lastOpener.focus();
+        // RT-08: a region swap may have run while the modal was open (or just
+        // now) — the <article> state.lastOpener points at was detached by
+        // swapRegion(). Re-resolve by data-card-id so focus lands on the
+        // FRESH tile; fall back to the pre-swap reference if the card is
+        // gone (archived/moved → the structural paths own that case).
+        var focusCardId = state.cardId;
+        var focusEl = null;
+        var lanesRoot = document.querySelector('.board-lanes-container');
+        if (focusCardId && lanesRoot) {
+            focusEl = lanesRoot.querySelector('.card[data-card-id="' + focusCardId + '"]');
+        }
+        if (focusEl && focusEl.focus) {
+            focusEl.focus();
+        } else if (state.lastOpener && state.lastOpener.focus) {
+            state.lastOpener.focus();
+        }
         state.lastOpener = null;
+        // RT-08 bookkeeping: drop any queued deferred refresh — close() is the
+        // terminal path and the NEXT open always issues a fresh loadCard(),
+        // which is exactly the refresh the queue was standing in for. Keeping
+        // the flag alive past close() would let a stale queue (from a closed
+        // modal) leak into the next open.
+        _refreshPending = false;
         // Reset comment-input + any in-flight edit state (the next open re-fetches).
         if (commentInput) commentInput.value = '';
         Array.prototype.slice.call(commentList ? commentList.querySelectorAll('.comment-edit-form[hidden="false"]') : [])
@@ -402,20 +422,39 @@
 
     // ---- load + render ------------------------------------------------
 
+    /** RT-08: a load started before the modal's most recent open/flush can
+        resolve LATER and paint stale state over a fresh one (classic
+        out-of-order race — e.g. a deferred-while-dirty refresh GET
+        resolving AFTER a close+open on a different card). The `state.cardId`
+        equality check is the guard: any GET whose card id no longer matches
+        what the modal is displaying is dropped. Note this is why
+        openByCardId() must set state.cardId BEFORE issuing its fetch. */
+
     function loadCard(cardId, done) {
         api('/v1/cards/' + cardId, { method: 'GET' }).then(function (result) {
+            if (state.cardId !== cardId && isCardModalVisible()) {
+                // Re-opened on a different card while this was in flight.
+                flash((result.data && result.data.error) || t('error_bad_request') || 'Error', 'error');
+                return false;
+            }
             if ((result.status === 404 || result.status === 403) && result.data) {
                 flash((result.data && result.data.error) || 'Not found', 'error');
-                return;
+                return false;
             }
             if (result.status !== 200 || !result.data || !result.data.card) {
                 flash(t('error_bad_request') || 'Error', 'error');
-                return;
+                return false;
             }
             applyCard(result.data.card);
+            // RT-08: an authoritative successful load settles any queued
+            // deferred refresh — it IS the refresh; drop the flag so the
+            // next bump starts clean.
+            _refreshPending = false;
             done && done(result.data.card);
+            return true;
         }, function () {
             flash(t('error_bad_request') || 'Error', 'error');
+            return false;
         });
     }
 
@@ -1476,6 +1515,99 @@
         });
     }
 
+    /* ---- Chunk 02b: RT-08 live refresh + isDirty ------------------------
+     * board.js's region swap (swapRegion) fires onRegionSwapped() with the
+     * fresh fragment's DOM. The modal is OUTSIDE the region (separate overlay)
+     * so the swap doesn't break it — but the modal's data (title/desc/comments
+     * /checklists/attachments/assignees) is now frozen at whatever it loaded
+     * at open() time.
+     *
+     * If the modal is CLEAN (nothing unsaved, no in-flight save, no pending
+     * autosave debounce) we re-fetch the card record and re-render in place
+     * immediately — this is the cross-modal / cross-browser live update.
+     *
+     * If the modal is DIRTY (mid-edit, in-flight save, pending debounce) a
+     * re-fetch RIGHT NOW would race the user's own save — the re-fetch would
+     * overwrite their unsaved text OR stomp the save's own in-progress
+     * response (a classic "who wins?" race). Instead we QUEUE the re-fetch
+     * (_refreshPending) and let it settle:
+     *   (a) save() success path  →  flushDeferredCardRefresh() right after
+     *                            the server's card record is applied locally,
+     *                            so the flush sees the authoritative state.
+     *   (b) close()  →  flushDeferredCardRefresh() — the modal is closing,
+     *                            the user's unsaved fields (any unsaved
+     *                            title/due text) lose; the NEW server state
+     *                            (which includes any other client's changes
+     *                            they hadn't seen) is what stays. The
+     *                            user's board tile underneath is already
+     *                            reconciled by close().
+     * ------------------------------------------------------------------- */
+    var _refreshPending = false;
+    function flushDeferredCardRefresh() {
+        if (!_refreshPending) return;
+        _refreshPending = false;
+        if (!isCardModalVisible()) return;   // modal closed — nothing to update
+        if (state.saving) return;             // still mid-save — close/settle re-triggers
+        loadCard(state.cardId);              // full re-render from the server record
+    }
+    function onRegionSwapped() {
+        if (!isCardModalVisible()) return false;
+        if (isDirty()) {
+            // Mid-flight edit (or unsaved text): queue the re-fetch so it
+            // settles cleanly instead of clobbering the user's in-progress
+            // edit or racing the in-flight save's response. Close() and
+            // save()'s success path both call flushDeferredCardRefresh().
+            _refreshPending = true;
+            return false;
+        }
+        // Clean path: the region is already fresh (board.js just swapped it)
+        // and the modal has no pending state — one authoritative re-fetch
+        // re-renders title/desc/comments/checklists/attachments/assignees in
+        // place, and the dirty flags are all zero so nothing is clobbered.
+        loadCard(state.cardId);
+        return true;
+    }
+
+    /** Public: true while the modal has any live, unsaved/unsent state —
+     *  OR an unscheduled autosave debounce is armed (title/due dirty flag
+     *  set but the timer hasn't fired yet). board.js syncGuardActive() calls
+     *  this to decide whether the board region can live-swap-and-refresh
+     *  immediately (clean) or must queue the refresh until the state settles
+     *  (dirty → _refreshPending, flushed on save-success / close). */
+    function isDirty() {
+        if (state.saving) return true;
+        if (state.commentPosting) return true;
+        if (state.mergeBusy) return true;
+        if (state.moveBusy) return true;
+        if (state.labelsBusy) return true;
+        if (_boardMutInFlight > 0) return true;
+        if (_titleDirty || _dueDirty) return true;              // autosave debounced, not yet in flight
+        if (_refreshPending) return true;                        // already queued by a prior bump
+        if (state.card && state.card._descDirty) return true;    // description unsaved
+        // A comment draft in the input (not yet posted) or an in-progress
+        // comment edit (edit form is visible). Both are unsaved state that a
+        // re-render would silently destroy; defer the refresh instead.
+        if (commentInput && commentInput.value.trim() !== '') return true;
+        if (commentList && commentList.querySelector &&
+            commentList.querySelector('.comment-edit-form[hidden="false"]')) return true;
+        // title/due/desc inputs holding text that differs from state.card —
+        // the user is typing but hasn't blurred/triggered the dirty flag yet.
+        // Trim BOTH sides (title/due): save() diffs titleInput.value.trim()
+        // against card.title, so a space-only difference is not an edit and
+        // must not block the live refresh. (Description: saveDesc()/the
+        // server keep the raw body, so compare raw for that one.)
+        var cur = state.card;
+        if (cur) {
+            if (titleInput && (titleInput.value.trim() || '') !== (cur.title || '')) return true;
+            if (dueInput) {
+                var curDue = cur.due_date ? String(cur.due_date).slice(0,10) : '';
+                if ((dueInput.value || '') !== curDue) return true;
+            }
+            if (descInput && !(cur.description === null) && (descInput.value || '') !== (cur.description || '')) return true;
+        }
+        return false;
+    }
+
     function submitComment() {
         if (!CAN_EDIT) return;
         if (state.commentPosting) return;
@@ -1895,6 +2027,13 @@
                 if (titleInput && 'title' in payload) titleInput.value = saved.title || '';
                 if (dueInput   && 'due_date' in payload) dueInput.value = saved.due_date ? String(saved.due_date).slice(0, 10) : '';
                 if (modalTitle) modalTitle.textContent = saved.title || '';
+                // RT-08: a board bump queued a modal re-fetch while this save
+                // was in flight (isDirty() blocked it then — re-fetching
+                // mid-PUT could race this response or clobber unsaved text).
+                // The PUT is settled now and state.card holds the server's
+                // record, so flush the queued re-fetch: the fresh GET lands
+                // AFTER this response and carries the authoritative state.
+                flushDeferredCardRefresh();
             } else {
                 // Keep the user's text (Stage D: the field retains the
                 // unsaved value so they can retry / fix it).
@@ -2310,9 +2449,13 @@
             return;
         }
         // Fallback: fetch + render directly (the modal is card-centric).
+        // state.cardId must be set BEFORE the fetch — loadCard() drops a
+        // resolved record whose id differs from state.cardId (the stale-open
+        // guard), so a load that runs before state.cardId is assigned would
+        // be dropped (or, worse, applied to the previous card).
+        state.cardId = cardId;
         loadCard(cardId, function (card) {
             if (!card) return;
-            state.cardId = cardId;
             // Honor a deep-linked tab (?tab=comments|history), default card.
             var wantTab = 'card';
             try {
@@ -2360,7 +2503,17 @@
         /** Whether the card modal is currently visible (used by board.js real-time-sync guards, SPEC §5.19). */
         isCardModalVisible: function () { return isCardModalVisible(); },
         /** Currently active card id (0 = none). */
-        getCardId: function () { return state.cardId; }
+        getCardId: function () { return state.cardId; },
+        /** RT-08: true while the modal has live unsaved/unsent state.
+            board.js consults this in syncGuardActive() to decide whether the
+            board region can swap live underneath the modal (clean → swap +
+            onRegionSwapped) or must defer until close (dirty → pendingSync). */
+        isDirty: function () { return isDirty(); },
+        /** RT-08: called by board.js after a live region swap. Re-fetches the
+            open card's record and re-renders the modal in place (title,
+            description, comments, checklists, attachments, assignees).
+            No-op when the modal is closed or dirty. */
+        onRegionSwapped: function () { return onRegionSwapped(); }
     };
 
     // ---- deep-link bootstrap (CARD-15) ---------------------------------
