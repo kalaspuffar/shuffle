@@ -221,6 +221,86 @@ class UserPrio
         return $newPos;
     }
 
+    /**
+     * Inserts a new membership AFTER an existing entry in the user's list
+     * (PRIO-15, inbox→priority positional drop). Same §4.2 gap scheme as
+     * reposition(): midpoint between the anchor and its next neighbor, or
+     * anchor + GAP at the end; a collapsed gap renumbers the user's
+     * container and the insert is retried.
+     *
+     * A fresh row can never collide with the moving position (unlike
+     * reposition's self-exclusion), so no survivor filter is needed.
+     *
+     * @param int $userId   User ID
+     * @param int $cardId   New card
+     * @param int $afterCardId Anchor — must already be in the user's list
+     * @return int The new entry's position
+     * @throws \RuntimeException If the anchor is not in this user's list
+     */
+    public function insertAfter(int $userId, int $cardId, int $afterCardId): int
+    {
+        $entries = $this->findByUser($userId); // already ordered by position
+        $idx = $this->indexOfCard($entries, $afterCardId);
+        if ($idx === null) {
+            throw new \RuntimeException('Anchor entry not found in this list');
+        }
+
+        $afterPos = (int) $entries[$idx]['position'];
+        $nextPos = ($idx + 1 < count($entries)) ? (int) $entries[$idx + 1]['position'] : null;
+
+        if ($nextPos === null) {
+            $newPos = $afterPos + self::POSITION_GAP;
+        } else {
+            $newPos = (int) floor(($afterPos + $nextPos) / 2);
+            if ($newPos <= $afterPos) {
+                $this->renumberPositions($userId);
+                return $this->insertAfter($userId, $cardId, $afterCardId);
+            }
+        }
+
+        $this->db->execute(
+            'INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, ?)',
+            [$userId, $cardId, $newPos]
+        );
+        return $newPos;
+    }
+
+    /**
+     * Inserts a new membership at the TOP of the user's list (PRIO-15).
+     * Empty list: position = GAP (the first slot). Collapsed gap →
+     * renumber + retry (the renumber keeps positions, the new row is
+     * then inserted at position GAP/2 of the first surviving slot).
+     *
+     * @param int $userId User ID
+     * @param int $cardId New card
+     * @return int The new entry's position
+     */
+    public function insertAtTop(int $userId, int $cardId): int
+    {
+        $entries = $this->findByUser($userId); // ordered by position ASC
+
+        if ($entries === []) {
+            $this->db->execute(
+                'INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, ?)',
+                [$userId, $cardId, self::POSITION_GAP]
+            );
+            return self::POSITION_GAP;
+        }
+
+        $firstPos = (int) $entries[0]['position'];
+        $newPos = (int) floor($firstPos / 2);
+        if ($newPos < 1 || $newPos >= $firstPos) {
+            $this->renumberPositions($userId);
+            return $this->insertAtTop($userId, $cardId);
+        }
+
+        $this->db->execute(
+            'INSERT INTO user_prio (user_id, card_id, position) VALUES (?, ?, ?)',
+            [$userId, $cardId, $newPos]
+        );
+        return $newPos;
+    }
+
     private function indexOfCard(array $entries, int $cardId): ?int
     {
         foreach ($entries as $i => $entry) {

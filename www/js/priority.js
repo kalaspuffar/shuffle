@@ -38,6 +38,8 @@
         added:            L.added             || 'Moved to prioritized.',
         removed:          L.removed           || 'Moved back to inbox.',
         moved:            L.moved             || 'Reordered.',
+        placed:           L.placed            || 'Placed in your priority list.',
+        insert_top:       L.insert_top        || 'Insert at top (priority list)',
         errorFailed:      L.error_failed      || "Couldn't update your priority list. Please try again.",
         remove:           L.action_remove     || 'Remove from list',
         prioritize:       L.action_prioritize || 'Prioritize',
@@ -279,15 +281,26 @@
     }
 
     // ------------------------------------------------------------------
-    // Drag & drop reordering.
+    // Drag & drop reordering (+ PRIO-15: positional inbox → list drop).
     //
     // DELEGATED on document (not on the list element) because the live
     // #priority-reorder-list <ul> is swapped in and out of the DOM as the
     // first/last item is added/removed. Handlers bound to an old <ul>
     // would silently stop firing — the exact bug reported ("can't reorder
     // right after adding").
+    //
+    // PRIO-15 adds the inbox→list drag: inbox items become drag sources
+    // (draggable is set on dragstart and removed on dragend, so the +
+    // button stays a plain click), while the prioritized section is a
+    // drop zone that previews the landing slot with `.priority-drop-
+    // indicator` (the board.js insertionPoint() lesson: the ghost is
+    // excluded from the hit-test walk and unshifts its own height, so the
+    // drop resolves to exactly the slot the bar previews — hit-testing is
+    // pure geometry over list order, never e.target — the lane gap lesson).
     // ------------------------------------------------------------------
     var dragSrc = null;
+    var dragFromInbox = false;
+    var dropIndicator = null;
 
     function reorderableItemOf(target) {
         if (!target || !target.closest) return null;
@@ -321,9 +334,105 @@
         return all.length ? all[all.length - 1] : null;
     }
 
+    // ------------------------------------------------------------------
+    // PRIO-15 — positional inbox→list drop (ghost indicator)
+    //
+    // The drop indicator is the sole preview of the slot the drop will
+    // land in. It is inserted as a sibling of the list items (so it sizes
+    // to the list width) and the hit-test walk below RESOLVES the slot
+    // from list order + cursor Y, never from e.target — the board.js
+    // insertionPoint() and lane gap/padding lessons. The indicator is
+    // excluded from its own walk, so it never skews the calc.
+    // ------------------------------------------------------------------
+    function ensureDropIndicator(list) {
+        if (dropIndicator) return dropIndicator;
+        dropIndicator = document.createElement('div');
+        dropIndicator.className = 'priority-drop-indicator';
+        dropIndicator.setAttribute('aria-hidden', 'true');
+        return dropIndicator;
+    }
+
+    // Places the indicator before/after the resolved target item.
+    function placeDropIndicator(list, target, before) {
+        var ind = ensureDropIndicator(list);
+        if (before) {
+            if (target !== ind) list.insertBefore(ind, target);
+        } else {
+            var next = target.nextElementSibling;
+            if (next && next !== ind) list.insertBefore(ind, next);
+            else if (list.lastElementChild !== ind) list.appendChild(ind);
+        }
+    }
+
+    /**
+     * Geometry walk over the live list items to resolve the slot that a
+     * cursor Y would land in. Returns {target, before} or null for
+     * "append at end". The drop indicator itself is skipped (it is the
+     * thing being positioned, not a landing zone).
+     */
+    function resolveDropIn(list, clientY) {
+        var items = list.querySelectorAll('.priority-item--reorderable');
+        if (!items || !items.length) return null;
+
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            var rect = item.getBoundingClientRect();
+            var mid = rect.top + rect.height / 2;
+            if (clientY < mid) {
+                return { target: item, before: true };
+            }
+            // cursor is in the lower half of this item → after it, unless
+            // there is another item further down — keep walking.
+        }
+        // Past every item: append at the end.
+        var last = items[items.length - 1];
+        return { target: last, before: false };
+    }
+
+    // Called once per drag, at dragend/drop time; returns the anchor
+    // (id of the previous card, or null for top) the drop should resolve
+    // to, based on the indicator's current DOM position.
+    function dropInAnchor() {
+        var ul = prioritizedList();
+        if (!ul || !dropIndicator) return { anchored: true, after: null };
+        // Walk the indicator's position among the live items.
+        var prev = null;
+        var n = dropIndicator.previousElementSibling;
+        while (n) {
+            if (n.classList && n.classList.contains('priority-item--reorderable')) {
+                prev = n;
+            }
+            n = n.previousElementSibling;
+        }
+        return {
+            anchored: true,
+            after: prev ? (parseInt(prev.dataset.cardId, 10) || null) : null
+        };
+    }
+
+    // The dragged inbox item, resolved at event time.
+    function inboxItemOf(target) {
+        if (!target || !target.closest) return null;
+        var item = target.closest('.priority-item');
+        if (!item || !item.closest) return null;
+        return item.closest('[data-priority-section="inbox"]') ? item : null;
+    }
+
     document.addEventListener('dragstart', function (event) {
         var item = reorderableItemOf(event.target);
-        if (!item) return;
+        var inboxItem = inboxItemOf(event.target);
+        dragFromInbox = false;
+        if (!item && !inboxItem) return;
+
+        if (inboxItem) {
+            // PRIO-15: inbox card dragged toward the prioritized list.
+            // draggable is set HERE and cleared on dragend, so the +
+            // button remains a plain click (click vs drag disambiguation).
+            item = inboxItem;
+            dragFromInbox = true;
+            item.setAttribute('draggable', 'true');
+        }
+
         dragSrc = item;
         if (item.classList) item.classList.add('dragging');
         if (event.dataTransfer) {
@@ -334,20 +443,59 @@
 
     document.addEventListener('dragover', function (event) {
         if (!dragSrc) return;
-        var item = reorderableItemOf(event.target);
-        if (!item) return; // only reorder inside the prioritized list
+
+        // (a) Reorder within the prioritized list (pre-1.15 behavior).
+        if (!dragFromInbox) {
+            var inItem = reorderableItemOf(event.target);
+            if (!inItem) return; // only reorder inside the prioritized list
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+
+            var target = reorderableItemOf(event.target);
+            if (!target || target === dragSrc) return;
+            var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { top: 0, height: 40 };
+            var before = (event.clientY - rect.top) < rect.height / 2;
+            movePlaceholder(dragSrc, target, before);
+            return;
+        }
+
+        // (b) PRIO-15: inbox card → prioritized-list drop zone.
+        var section = prioritizedSection();
+        if (!section || !event.target || !event.target.closest || !event.target.closest('#priority-prioritized-section')) return;
+
         event.preventDefault();
         if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
 
-        var target = reorderableItemOf(event.target);
-        if (!target || target === dragSrc) return;
-        var rect = target.getBoundingClientRect ? target.getBoundingClientRect() : { top: 0, height: 40 };
-        var before = (event.clientY - rect.top) < rect.height / 2;
-        movePlaceholder(dragSrc, target, before);
+        // Make the section drop-able: create the live <ul> if the list is
+        // still empty (drop into an empty list = top).
+        var list = ensurePrioritizedList();
+        if (!list) return;
+
+        var slot = resolveDropIn(list, event.clientY);
+        if (slot === null) {
+            // Empty list: the indicator before the (zero) items = top.
+            var ind = ensureDropIndicator(list);
+            if (list.firstChild !== ind) list.insertBefore(ind, list.firstChild);
+            return;
+        }
+        placeDropIndicator(list, slot.target, slot.before);
     });
 
     document.addEventListener('drop', function (event) {
-        if (dragSrc && event.target && event.target.closest && event.target.closest('#priority-reorder-list')) {
+        if (!dragSrc) return;
+
+        if (dragFromInbox) {
+            // PRIO-15: release inside the prioritized section.
+            if (event.target && event.target.closest && event.target.closest('#priority-prioritized-section')) {
+                event.preventDefault();
+                commitInboxDrop();
+            }
+            // A release outside the section = no-op (the dragend below
+            // cleans up; the inbox item never left its bucket).
+            return;
+        }
+
+        if (event.target && event.target.closest && event.target.closest('#priority-reorder-list')) {
             event.preventDefault();
         }
     });
@@ -356,7 +504,23 @@
         if (!dragSrc) return;
         var el = dragSrc;
         dragSrc = null;
-        if (el.classList) el.classList.remove('dragging');
+        var wasInbox = dragFromInbox;
+        dragFromInbox = false;
+        if (el.classList) el.classList.remove('draging') || el.classList.remove('dragging');
+
+        var list = prioritizedList();
+        if (wasInbox) {
+            // Clean up the indicator if the drop was cancelled / landed
+            // outside (keep it when commitInboxDrop is still settling the
+            // async commit — but the indicator is UI-only, so drop it now;
+            // the committed state will be visible after the POST resolves
+            // and any revert re-renders the relevant nodes).
+            if (dropIndicator) {
+                if (dropIndicator.parentNode) dropIndicator.parentNode.removeChild(dropIndicator);
+                dropIndicator = null;
+            }
+            return;
+        }
         commitReorder(el);
     });
 
@@ -398,13 +562,163 @@
     }
 
     // ------------------------------------------------------------------
+    // PRIO-15 — commit an inbox→list drop (drag release or keyboard
+    // insert-top). Optimistic move + revert on failure:
+    //   1. snapshot the anchor the indicator was previewing (before it is
+    //      removed — the indicator IS the landing slot),
+    //   2. move the inbox item into the list at that slot (reorderable
+    //      clone — the same onPrioritized() path), remove it from the
+    //      inbox tier + refresh counters,
+    //   3. POST /v1/priority/inbox/{cardId} {after_card_id}, and
+    //   4. on 4xx/5xx: revert the DOM (item restored into its inbox tier
+    //      before its remembered sibling, × button back to +, counters
+    //      re-counted) and surface the server error.
+    // ------------------------------------------------------------------
+    function inboxSiblingBefore(itemEl) {
+        // Remember where the item sat in its inbox tier so a revert is
+        // exact (before the sibling that followed it, or append if tail).
+        var ref = itemEl.nextElementSibling;
+        while (ref && !(ref.classList && ref.classList.contains('priority-item'))) {
+            ref = ref.nextElementSibling;
+        }
+        return ref;
+    }
+
+    function restoreInboxItem(clone, ref, tier) {
+        var restored = clone.cloneNode(true);
+        restored.classList.remove('priority-item--reorderable');
+        restored.classList.add('priority-item--inbox');
+        // inbox items are PERMANENTLY draggable (PRIO-15 drop source —
+        // matches the static draggable="true" on freshly-rendered inbox rows)
+        delete restored.dataset.fromTier;
+        setAction(restored.querySelector ? restored.querySelector('[data-priority-action]') : null, 'prioritize', restored);
+
+        var list = inboxList();
+        var targetUl = null;
+        if (list) {
+            if (tier) {
+                var tierItems = list.querySelectorAll('li[data-tier]');
+                for (var i = 0; i < tierItems.length; i++) {
+                    if (String(tierItems[i].dataset.tier || tierItems[i].getAttribute('data-tier') || '') === tier) {
+                        var uls = tierItems[i].querySelectorAll('ul');
+                        if (uls.length) targetUl = uls[0];
+                        break;
+                    }
+                }
+            }
+            if (targetUl) {
+                if (ref && ref.parentNode === targetUl) targetUl.insertBefore(restored, ref);
+                else targetUl.appendChild(restored);
+            } else {
+                list.appendChild(restored);
+            }
+        }
+        refreshCounts();
+    }
+
+    function commitInboxInsert(itemEl, anchor) {
+        // Read the landing slot the indicator was previewing, then clear the
+        // indicator (it is a UI-only preview; the item move below IS the
+        // committed position, or the revert runs if the POST fails).
+        // ensurePrioritizedList() also matters for the KEYBOARD path into an
+        // empty section: it swaps the empty-state <p> for the live <ul>.
+        var listEl = prioritizedList() || ensurePrioritizedList();
+        if (!listEl) { flash(MSG.errorFailed, 'error'); return; }
+        var placeRef = null;
+        if (dropIndicator) {
+            var n = dropIndicator.nextElementSibling;
+            while (n && !(n.classList && n.classList.contains('priority-item'))) {
+                n = n.nextElementSibling;
+            }
+            placeRef = n || null;
+            if (dropIndicator.parentNode) dropIndicator.parentNode.removeChild(dropIndicator);
+            dropIndicator = null;
+        }
+
+        var cardId = itemEl.dataset.cardId;
+        var tier = itemEl.dataset.fromTier
+            || (itemEl.closest ? (function () {
+                var t = itemEl.closest('li[data-tier]');
+                return t ? String(t.dataset.tier || t.getAttribute('data-tier') || '') : '';
+            })() : '');
+        if (tier === '') tier = null;
+
+        var clone = itemEl.cloneNode(true);
+        clone.classList.add('priority-item--reorderable');
+        clone.classList.remove('priority-item--inbox');
+        clone.setAttribute('draggable', 'true');
+        var ref = inboxSiblingBefore(itemEl);
+
+        if (listEl) {
+            if (placeRef) listEl.insertBefore(clone, placeRef);
+            else listEl.appendChild(clone);
+        }
+        itemEl.remove ? itemEl.remove() : itemEl.parentNode.removeChild(itemEl);
+
+        var all = document.querySelectorAll ? document.querySelectorAll('.priority-all-empty') : null;
+        if (all && all.length) all[0].remove();
+        refreshCounts();
+
+        api('/v1/priority/inbox/' + encodeURIComponent(cardId), {
+            method: 'POST',
+            body: { after_card_id: anchor }
+        })
+            .then(function (res) {
+                if (res.status !== 200 && res.status !== 204) {
+                    throw { message: (res.data && res.data.error) || MSG.errorFailed };
+                }
+                flash(MSG.placed, 'success');
+            })
+            .catch(function (err) {
+                restoreInboxItem(clone, ref, tier);
+                if (listEl && clone.parentNode === listEl) {
+                    clone.remove ? clone.remove() : clone.parentNode.removeChild(clone);
+                }
+                var ul = prioritizedList();
+                if (ul && countItems(ul) === 0) emptyPrioritizedSection();
+                refreshCounts();
+                flash((err && err.message) || MSG.errorFailed, 'error');
+            });
+    }
+
+    // drop fires before dragend: commit here (dragSrc still set), and let
+    // the dragend handler do the shared cleanup (draggable removal,
+    // indicator removal for cancelled drags).
+    function commitInboxDrop() {
+        var el = dragSrc;
+        if (!el) return;
+        var anchor = dropInAnchor(); // {anchored:true, after:int|null}
+        commitInboxInsert(el, anchor.after);
+    }
+
+    // ------------------------------------------------------------------
     // Keyboard reordering (Alt+↑ / Alt+↓ / Alt+Home / Alt+End) — also
     // delegated, also event-time list resolution.
+    //
+    // PRIO-15 keyboard parity on the inbox→list path: a FOCUSED inbox item
+    // + Alt+Insert (or Alt+U) inserts it at the TOP of the prioritized
+    // list (the a11y equivalent of the drag — in-list reordering keeps the
+    // full Alt+arrows set, so the minimum keyboard surface for a new
+    // priority position is "top"; finer positions are reachable by
+    // dropping at top then Alt+arrowing, mirroring the drag).
     // ------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {
         if (!event.altKey) return;
         var t = event.target;
-        var item = (t && t.closest) ? t.closest('.priority-item--reorderable') : null;
+        if (!t || !t.closest) return;
+
+        // (a) PRIO-15: focused inbox item — insert at top.
+        var inboxEl = t.closest('.priority-item--inbox');
+        if (inboxEl) {
+            if (event.key === 'Insert' || event.key === 'U' || event.key === 'u') {
+                event.preventDefault ? event.preventDefault() : null;
+                commitInboxInsert(inboxEl, null); // null anchor = top
+                return;
+            }
+            return;
+        }
+
+        var item = t.closest('.priority-item--reorderable');
         if (!item) return;
         var list = item.parentNode;
         if (!list || list.id !== 'priority-reorder-list') return;

@@ -52,6 +52,19 @@ switch ($cmd) {
         _rt_do_request($argv, 'POST', $argv[5] ?? '{}', null);
         break;
 
+    case 'json':
+        // json <method> <url> <sid> <bodyOut> [jsonBody]
+        //
+        // Generic JSON driver for methods without a first-class command
+        // (PUT / DELETE). Same semantics as post: response BODY → bodyOut,
+        // HTTP status (int) → stdout, sid "" = unauth probe, the session's
+        // X-CSRF-Token attached. [jsonBody] omitted/'' = no body at all
+        // (Content-Type unset) — NOT an empty object.
+        $method  = strtoupper($argv[2] ?? 'GET');
+        $synth   = [$argv[1], 'x', $argv[3], $argv[4], $argv[5]]; // [script, cmd, url, sid, bodyOut]
+        _rt_do_request($synth, $method, (isset($argv[6]) && $argv[6] !== '') ? $argv[6] : null, null);
+        break;
+
     case 'put':
         // put <url> <sid> <bodyOut> <filePath> <mimeType> <originalName>
         //

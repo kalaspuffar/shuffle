@@ -262,7 +262,98 @@ try {
     check('deprioritize again is a no-op', true);
 
     // ------------------------------------------------------------------
-    echo "\n[7] State restore verification\n";
+    echo "\n[7] PRIO-15 positional prioritize (anchor paths)\n";
+    //
+    // State going in: fx1 in the inbox (deprioritized in [6]), fx2..fx5
+    // prioritized (after the [5] stress, order arbitrary). All fixture
+    // cards are assigned to the test user.
+    // ------------------------------------------------------------------
+    $baseCount = count($svc->getList($asUser)['prioritized']);
+
+    // [7a] omitted anchor — append at the bottom (pre-1.19 contract).
+    $r = $svc->prioritize($asUser, $fxCards[0]);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    check('7a: omitted anchor appends at bottom', (int) $ids[count($ids)-1] === $fxCards[0] && count($l['prioritized']) === $baseCount + 1);
+    $posA = $r['position'];
+    $r2 = $svc->prioritize($asUser, $fxCards[0]);
+    check('7a: re-prioritize (no anchor) idempotent, same position', $r2['position'] === $posA);
+
+    // [7b] explicit anchor null — top (reposition of an in-list card).
+    $svc->prioritize($asUser, $fxCards[0], true, null);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    check('7b: anchor null → top', (int) $ids[0] === $fxCards[0]);
+
+    // [7c] anchor id — insert after that card (in-list reposition).
+    $svc->prioritize($asUser, $fxCards[1], true, $fxCards[0]);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    $i0 = array_search($fxCards[0], $ids); $i1 = array_search($fxCards[1], $ids);
+    check('7c: anchor id inserts directly after the anchor', $i0 !== false && $i1 !== false && $i1 === $i0 + 1, "i0=$i0 i1=$i1");
+
+    // [7d] anchor = self → rejected, list unchanged.
+    $lBefore = $svc->getList($asUser)['prioritized'];
+    $threw = false;
+    try { $svc->prioritize($asUser, $fxCards[0], true, $fxCards[0]); } catch (\InvalidArgumentException $e) { $threw = true; }
+    check('7d: self-anchor → InvalidArgumentException', $threw);
+    $idsNow = array_map(fn($x) => (int) $x['card_id'], $svc->getList($asUser)['prioritized']);
+    $idsBefore = array_map(fn($x) => (int) $x['card_id'], $lBefore);
+    check('7d: list unchanged after self-anchor 400', $idsNow === $idsBefore);
+
+    // [7e] foreign anchor → rejected, list unchanged.
+    $threw = false;
+    try { $svc->prioritize($asUser, $fxCards[2], true, 99999999); } catch (\InvalidArgumentException $e) { $threw = true; }
+    check('7e: unknown anchor → InvalidArgumentException', $threw);
+    $idsNow = array_map(fn($x) => (int) $x['card_id'], $svc->getList($asUser)['prioritized']);
+    check('7e: list unchanged after foreign-anchor 400', $idsNow === $idsBefore);
+
+    // [7f] new-card insert: deprioritize fx2 (back to inbox), insert at top.
+    $svc->deprioritize($asUser, $fxCards[1]);
+    $svc->prioritize($asUser, $fxCards[1], true, null);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    check('7f: new card, anchor null → inserted at top', (int) $ids[0] === $fxCards[1] && count($l['prioritized']) === $baseCount + 1);
+
+    // [7g] new-card insert at the end (anchor = last card).
+    $svc->deprioritize($asUser, $fxCards[3]); // back to inbox
+    $endId = (int) $ids[count($ids)-1];
+    $svc->prioritize($asUser, $fxCards[3], true, $endId);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    check('7g: new card, anchor = last → inserted at end', (int) $ids[count($ids)-1] === $fxCards[3] && count($l['prioritized']) === $baseCount + 1);
+
+    // [7h] mid-insert with a fresh card (fx4 from the inbox).
+    $svc->deprioritize($asUser, $fxCards[4]);
+    $svc->prioritize($asUser, $fxCards[4], true, $fxCards[0]);
+    $l = $svc->getList($asUser);
+    $ids = array_map(fn($x) => (int) $x['card_id'], $l['prioritized']);
+    $i0 = array_search($fxCards[0], $ids); $i4 = array_search($fxCards[4], $ids);
+    check('7h: new card mid-insert after fx1', $i0 !== false && $i4 !== false && $i4 === $i0 + 1, "i0=$i0 i4=$i4");
+
+    // [7i] stress: 30 random positional inserts on the fixture cards.
+    $fxSet = $fxCards; sort($fxSet);
+    $errors = 0;
+    for ($i = 0; $i < 30; $i++) {
+        $moving = $fxSet[array_rand($fxSet)];
+        $others = array_values(array_diff($fxSet, [$moving]));
+        $after = ($others !== [] && random_int(0, 1) === 0) ? $others[array_rand($others)] : null;
+        try {
+            $svc->prioritize($asUser, $moving, true, $after);
+            $cur = array_values(array_filter(
+                array_map(fn($x) => (int) $x['card_id'], $svc->getList($asUser)['prioritized']),
+                fn($id) => in_array($id, $fxSet, true)));
+            sort($cur);
+            if ($cur !== $fxSet) { $errors++; continue; }
+            $flat = array_map(fn($p) => (int) $p['position'],
+                $db->fetchAll('SELECT position FROM user_prio WHERE user_id = ?', [(int) $asUser['id']]));
+            if (count(array_unique($flat)) !== count($flat) || min($flat) < 1) { $errors++; }
+        } catch (\Throwable $t) { $errors++; }
+    }
+    check('7i: 30 random positional inserts: no dup/loss, positions unique > 0', $errors === 0, "errors=$errors");
+
+    // ------------------------------------------------------------------
+    echo "\n[8] State restore verification\n";
     $cleanUp();
     $now = $db->fetchAll('SELECT card_id, position FROM user_prio WHERE user_id = ?', [(int)$asUser['id']]);
     $nowSet = array_map(fn($r) => [(int)$r['card_id'], (int)$r['position']], $now); sort($nowSet);

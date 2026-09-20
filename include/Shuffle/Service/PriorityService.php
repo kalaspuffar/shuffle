@@ -108,28 +108,79 @@ class PriorityService
     }
 
     /**
-     * Adds a card to the user's prioritized section (PRIO-05).
+     * Adds a card to the user's prioritized section (PRIO-05), optionally at
+     * a chosen position (PRIO-15).
      *
-     * Idempotent: a card already prioritized is a no-op success (position returned as-is).
+     * Anchor contract (two-argument sentinel design):
+     *   - `anchor === null`           → append at the bottom (pre-1.19
+     *                                    behavior; the backward-compatible
+     *                                    default when no body is sent)
+     *   - `afterCardId === null`      → insert at the TOP
+     *   - `afterCardId` = positive id → insert directly after that card; the
+     *                                    anchor must be in THIS user's list
+     *     (a foreign/unknown anchor is a 400 — and no row on another user's
+     *     list is ever read or named, so it is not a leak vector)
      *
-     * @throws \RuntimeException If the card is unknown or on an inaccessible board (404)
-     * @throws \LogicException   If the card is on a Done lane (409)
+     * Idempotent on the no-body path: an already-prioritized card is a
+     * no-op success (position returned as-is). With an explicit anchor the
+     * call repositions (unified move semantics — the second manual drag is
+     * the problem this feature removes).
+     *
+     * @param array      $user        Acting user row
+     * @param int        $cardId      Card to add
+     * @param int|null   $anchor      Appended when null; set (any value) enables the anchor path
+     * @param int|null   $afterCardId null = top, positive id = after that (only read when $anchor is set)
+     * @throws \RuntimeException  If the card is unknown/inaccessible/not assigned (404)
+     * @throws \LogicException    If the card is on a complete lane (409)
+     * @throws \InvalidArgumentException When the anchor is invalid for this user (400)
      * @return array{position: int}
      */
-    public function prioritize(array $user, int $cardId): array
+    public function prioritize(array $user, int $cardId, bool $anchored = false, ?int $afterCardId = null): array
     {
         $this->requireAssignedCard($user, $cardId);
+        $userId = (int) $user['id'];
 
-        $existing = $this->userPrio->findByCardAndUser((int) $user['id'], $cardId);
+        $existing = $this->userPrio->findByCardAndUser($userId, $cardId);
 
-        if ($existing !== null) {
-            return ['position' => (int) $existing['position']];
+        if (!$anchored) {
+            if ($existing !== null) {
+                return ['position' => (int) $existing['position']]; // idempotent no-op (today's 200)
+            }
+            $position = $this->userPrio->maxPosition($userId) + self::POSITION_GAP;
+            $this->userPrio->add($userId, $cardId, $position);
+            return ['position' => $position];
         }
 
-        $position = $this->userPrio->maxPosition((int) $user['id']) + self::POSITION_GAP;
+        // Explicit anchor from the body (PRIO-15).
+        if ($afterCardId === $cardId) {
+            throw new \InvalidArgumentException('A card cannot be positioned after itself');
+        }
 
-        $this->userPrio->add((int) $user['id'], $cardId, $position);
+        if ($existing !== null) {
+            // Already prioritized + explicit anchor = reposition.
+            if ($afterCardId !== null) {
+                $anchorRow = $this->userPrio->findByCardAndUser($userId, $afterCardId);
+                if ($anchorRow === null) {
+                    // 400 contract: not in this user's list (or unknown).
+                    throw new \InvalidArgumentException('Invalid anchor: card is not in your priority list');
+                }
+            }
+            $position = $this->userPrio->reposition($userId, $cardId, $afterCardId);
+            return ['position' => $position];
+        }
 
+        if ($afterCardId === null) {
+            // Top insertion (or an empty list — the single element is trivially the top).
+            $position = $this->userPrio->insertAtTop($userId, $cardId);
+            return ['position' => $position];
+        }
+
+        $anchorRow = $this->userPrio->findByCardAndUser($userId, $afterCardId);
+        if ($anchorRow === null) {
+            // Not in this user's list (or unknown): 400, list unchanged.
+            throw new \InvalidArgumentException('Invalid anchor: card is not in your priority list');
+        }
+        $position = $this->userPrio->insertAfter($userId, $cardId, $afterCardId);
         return ['position' => $position];
     }
 
