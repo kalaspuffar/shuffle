@@ -208,7 +208,9 @@ require ROOT_DIR . '/include/templates/header.php';
                     <h3 class="priority-tier-label"><?= htmlspecialchars($labelByTier[$tierIdx], ENT_QUOTES, 'UTF-8') ?></h3>
                     <ul class="priority-tier-items" role="list">
                         <?php foreach ($tierItems as $item): ?>
-                        <li class="priority-item priority-item--inbox" data-card-id="<?= (int) $item['card_id'] ?>">
+                        <li class="priority-item priority-item--inbox" data-card-id="<?= (int) $item['card_id'] ?>"
+    draggable="true" tabindex="0" role="listitem"
+    aria-label="<?= htmlspecialchars($item['card_title'] . ' — ' . $lang->get('priority.insert_top'), ENT_QUOTES, 'UTF-8') ?>">
                             <div class="priority-item-inner">
                                 <?php render_priority_item($item, false, true); ?>
                             </div>
@@ -235,7 +237,8 @@ require ROOT_DIR . '/include/templates/header.php';
             <?php else: ?>
             <ul class="priority-list" role="list" data-priority-section="prioritized" id="priority-reorder-list">
                 <?php foreach ($list['prioritized'] as $item): ?>
-                <li class="priority-item priority-item--reorderable" data-card-id="<?= (int) $item['card_id'] ?>" draggable="true">
+                <li class="priority-item priority-item--reorderable" data-card-id="<?= (int) $item['card_id'] ?>" draggable="true"
+    tabindex="0" role="listitem">
                     <div class="priority-item-inner">
                         <?php render_priority_item($item, true, true); ?>
                     </div>
@@ -256,6 +259,10 @@ $priorityLang = json_encode([
     'added'          => $lang->get('priority.added'),
     'removed'        => $lang->get('priority.removed'),
     'moved'          => $lang->get('priority.moved'),
+    'placed'         => $lang->get('priority.placed'),
+    'insert_top'     => $lang->get('priority.insert_top'),
+    'drop_top'       => $lang->get('priority.drop_top'),
+    'drop_after'     => $lang->get('priority.drop_after'),
     'error_failed'   => $lang->get('priority.error_failed'),
     'error_conflict' => $lang->get('priority.error_conflict'),
     'remove'         => $lang->get('priority.action_remove'),

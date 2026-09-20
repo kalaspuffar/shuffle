@@ -114,7 +114,17 @@ class Element {
     get firstElementChild() { return this.children[0] || null; }
     get lastElementChild() { return this.children[this.children.length - 1] || null; }
     focus() {}
-    getBoundingClientRect() { return { top: 0, left: 0, height: 40, width: 300 }; }
+    getBoundingClientRect() {
+        // Geometry-aware: position follows the element's sibling index
+        // (uniform 40px rows + 4px gap), so hit-test walks that compare
+        // cursor Y vs per-item midpoints behave like a real layout.
+        let top = 0;
+        if (this.parentNode && Array.isArray(this.parentNode.children)) {
+            const i = this.parentNode.children.indexOf(this);
+            if (i > 0) top = i * 44;
+        }
+        return { top, left: 0, height: 40, width: 300 };
+    }
 
     addEventListener(t, fn) { (this._listeners[t] = this._listeners[t] || []).push(fn); }
     removeEventListener(t, fn) {
@@ -131,7 +141,7 @@ class Element {
     _matchSimple(sel) {
         // .class | #id | tag | [attr] | [attr="v"] | tag.cls (keep simple)
         sel = sel.trim();
-        const clsM = sel.match(/^\.([-a-z_][-\w]*)$/i);
+        const clsM = sel.match(/^\.([\w-][\w-]*)$/i);
         if (clsM) return this.classList.contains(clsM[1]);
         const idM = sel.match(/^#([\w-]+)$/);
         if (idM) return this._id === idM[1];
@@ -576,6 +586,181 @@ console.log('[4] keyboard: Alt+ArrowDown moves item + commits PUT (delegated, no
     const put = s.apiLog.filter(x => x.url === '/v1/priority/position').pop();
     check('PUT body: card 101 after 303', put && put.options.body && put.options.body.card_id === 101 && put.options.body.after_card_id === 303,
         put && JSON.stringify(put.options.body));
+}
+
+console.log('[5.5] PRIO-15: inbox→list drop — indicator before the first item → after null (top); commit body shape');
+{
+    const s = makeSandbox();
+    vm.runInContext(SRC, s.sandbox, { filename: 'priority.js' });
+    s.sandbox.window.Shuffle = s.shuffleObj;
+    s.sandbox.Shuffle = s.shuffleObj;
+
+    // two real inbox items (existing 101 + one more) to give a tier with 2 rows
+    const tier1Ul = s.dom.tier1Ul;
+    const item2 = new Element('li');
+    item2.setAttribute('class', 'priority-item priority-item--inbox');
+    item2.setAttribute('data-card-id', '402');
+    const btn2 = new Element('button');
+    btn2.setAttribute('data-priority-action', 'prioritize');
+    btn2.setAttribute('data-card-id', '402');
+    item2.appendChild(btn2);
+    tier1Ul.appendChild(item2);
+
+    // dragstart on inbox item 101
+    s.documentObj.dispatch('dragstart', {
+        target: s.dom.inboxItem,
+        dataTransfer: { setData() {}, effectAllowed: '' },
+        preventDefault() {}
+    });
+
+    // dragover the prioritized section (empty state at this point — section
+    // exists but no live <ul> yet). Simulate clientY ABOVE the section head
+    // (clientY=1 is above any item, since no items exist yet → indicator
+    // before the first element = top).
+    s.documentObj.dispatch('dragover', {
+        target: s.dom.prioSection,
+        clientY: 1,
+        preventDefault() {},
+        dataTransfer: {}
+    });
+
+    // The live <ul> should now exist with the drop indicator as its FIRST child.
+    const ul = s.documentObj.getElementById('priority-reorder-list');
+    check('5.5a: live <ul> created on dragover into empty section', !!ul);
+    const ind = ul ? ul.querySelector('.priority-drop-indicator') : null;
+    check('5.5b: indicator present + first child', !!ind && ind.parentNode === ul && ul.children[0] === ind,
+        UL_CHILDREN(ul));
+
+    // drop → commit
+    s.documentObj.dispatch('drop', { target: s.dom.prioSection, preventDefault() {} });
+    s.documentObj.dispatch('dragend', {});
+    await settle();
+
+    const post = s.apiLog.find(x => x.url === '/v1/priority/inbox/101' && x.options.method === 'POST' && x.options.body);
+    check('5.5c: POST fired with body', !!post, JSON.stringify(s.apiLog.map(x => [x.url, x.options.method])));
+    check('5.5d: body = {after_card_id: null} (top)',
+        post && post.options.body && post.options.body.after_card_id === null,
+        post && JSON.stringify(post.options.body));
+
+    // item moved into the list, + icon turned to ×
+    const items = ul ? ul.querySelectorAll('.priority-item--reorderable') : [];
+    check('5.5e: item now reorderable in the list', items.length === 1 && items[0]._dataset.cardId === '101',
+        JSON.stringify(items.map(x => x._dataset.cardId)));
+}
+
+console.log('[5.6] PRIO-15: revert-on-500 — item leaves inbox, POST 500 → restored to inbox');
+{
+    const s = makeSandbox();
+    vm.runInContext(SRC, s.sandbox, { filename: 'priority.js' });
+    // api() rejects for the POST (500)
+    s.shuffleObj.api = (url, options) => {
+        s.apiLog.push({ url, options });
+        if (url === '/v1/priority/inbox/101') {
+            return Promise.resolve({ status: 500, data: { error: 'boom' } });
+        }
+        return Promise.resolve({ status: 200, data: {} });
+    };
+    s.sandbox.window.Shuffle = s.shuffleObj;
+    s.sandbox.Shuffle = s.shuffleObj;
+
+    s.documentObj.dispatch('dragstart', {
+        target: s.dom.inboxItem,
+        dataTransfer: { setData() {}, effectAllowed: '' },
+        preventDefault() {}
+    });
+    s.documentObj.dispatch('dragover', { target: s.dom.prioSection, clientY: 1, preventDefault() {}, dataTransfer: {} });
+    s.documentObj.dispatch('drop', { target: s.dom.prioSection, preventDefault() {} });
+    s.documentObj.dispatch('dragend', {});
+    await settle(6);
+
+    const post = s.apiLog.find(x => x.url === '/v1/priority/inbox/101' && x.options.method === 'POST' && x.options.body);
+    check('5.6a: POST was attempted', !!post, 'no POST');
+    // Revert: inbox item back, × button gone, no leftover reorderable
+    const inboxItems = s.dom.inboxList.querySelectorAll('.priority-item');
+    check('5.6b: item restored to inbox (101)', inboxItems.length === 1 && inboxItems[0]._dataset.cardId === '101',
+        'count=' + inboxItems.length);
+    const ul = s.documentObj.getElementById('priority-reorder-list');
+    const leftInList = ul ? ul.querySelectorAll('.priority-item--reorderable').length : 0;
+    check('5.6c: no leftover in the prioritized list', leftInList === 0,
+        'leftover=' + leftInList);
+    // Indicator cleaned up.
+    const ind = ul ? ul.querySelector('.priority-drop-indicator') : (s.dom.prioSection.querySelector('.priority-drop-indicator'));
+    check('5.6d: indicator cleaned up', ind === null, 'indicator still present');
+}
+
+console.log('[5.7] PRIO-15: keyboard Alt+Insert on focused inbox item → top insert (POST body {after_card_id:null})');
+{
+    const s = makeSandbox();
+    vm.runInContext(SRC, s.sandbox, { filename: 'priority.js' });
+    s.sandbox.window.Shuffle = s.shuffleObj;
+    s.sandbox.Shuffle = s.shuffleObj;
+
+    s.documentObj.dispatch('keydown', { target: s.dom.inboxItem, altKey: true, key: 'Insert', preventDefault() {} });
+    await settle();
+
+    const post = s.apiLog.find(x => x.url === '/v1/priority/inbox/101' && x.options.method === 'POST' && x.options.body);
+    check('5.7a: keyboard INSERT POST fired with body', !!post, 'no POST');
+    check('5.7b: body = {after_card_id: null}', post && post.options.body && post.options.body.after_card_id === null,
+        post && JSON.stringify(post.options.body));
+    const ul = s.documentObj.getElementById('priority-reorder-list');
+    check('5.7c: item moved into the list (empty → top)', ul && ul.querySelectorAll('.priority-item--reorderable').length === 1,
+        'ul exists=' + !!ul);
+}
+
+console.log('[5.8] PRIO-15: dragover into a non-empty list — indicator between items (anchor = the card above)');
+{
+    const s = makeSandbox();
+    vm.runInContext(SRC, s.sandbox, { filename: 'priority.js' });
+    s.sandbox.window.Shuffle = s.shuffleObj;
+    s.sandbox.Shuffle = s.shuffleObj;
+
+    // Prime a live list with two items (101 then 555).
+    s.documentObj.dispatch('click', { target: s.dom.inboxBtn, preventDefault() {} });
+    await settle();
+    const ul = s.documentObj.getElementById('priority-reorder-list');
+    const extra = new Element('li');
+    extra.setAttribute('class', 'priority-item priority-item--reorderable');
+    extra.setAttribute('data-card-id', '555');
+    extra.setAttribute('draggable', 'true');
+    ul.appendChild(extra);
+    // Simulate clientY in the LOWER half of the first item (101) → indicator
+    // AFTER 101 / BEFORE 555. Shim rect: top 0, height 40 → lower half = clientY 25.
+    s.documentObj.dispatch('dragstart', {
+        target: buildInboxItemForDrag(s, '777'),
+        dataTransfer: { setData() {}, effectAllowed: '' },
+        preventDefault() {}
+    });
+    s.documentObj.dispatch('dragover', { target: s.dom.prioSection, clientY: 25, preventDefault() {}, dataTransfer: {} });
+    const ind = ul.querySelector('.priority-drop-indicator');
+    check('5.8a: indicator placed (non-empty list)', !!ind, 'no indicator');
+    // The DOM order should now be: 101, indicator, 555
+    const order = ul.children.filter(x => x.classList && (x.classList.contains('priority-item') || x.classList.contains('priority-drop-indicator')))
+                            .map(x => x.classList.contains('priority-drop-indicator') ? '<<IND>>' : (x.getAttribute('data-card-id') || '?'));
+    check('5.8b: DOM order [101, IND, 555]', order.length === 3 && order[0] === '101' && order[1] === '<<IND>>' && order[2] === '555',
+        JSON.stringify(order));
+    s.documentObj.dispatch('drop', { target: s.dom.prioSection, preventDefault() {} });
+    s.documentObj.dispatch('dragend', {});
+    await settle();
+    const post = s.apiLog.find(x => x.url === '/v1/priority/inbox/777' && x.options.method === 'POST' && x.options.body);
+    check('5.8c: commit body after_card_id = 101 (anchor above)',
+        post && post.options.body && post.options.body.after_card_id === 101,
+        post && JSON.stringify(post.options.body));
+}
+
+function buildInboxItemForDrag(s, cardId) {
+    const item = new Element('li');
+    item.setAttribute('class', 'priority-item priority-item--inbox');
+    item.setAttribute('data-card-id', cardId);
+    const btn = new Element('button');
+    btn.setAttribute('data-priority-action', 'prioritize');
+    btn.setAttribute('data-card-id', cardId);
+    item.appendChild(btn);
+    s.dom.tier1Ul.appendChild(item);
+    return item;
+}
+
+function UL_CHILDREN(ul) {
+    return ul ? JSON.stringify(ul.children.map(x => x.tagName + (x.getAttribute('class') ? '.' + x.getAttribute('class') : '') + (x.getAttribute('data-card-id') || ''))) : 'null';
 }
 
 console.log('[5] guard: Shuffle still undefined at action time → clean rejection (no throw)');

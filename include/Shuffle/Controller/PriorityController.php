@@ -50,8 +50,15 @@ class PriorityController
     /**
      * POST /v1/priority/inbox/{cardId}
      *
-     * Adds the card to the user's prioritized section (PRIO-05).
-     * Idempotent: an already-prioritized card is a 200 no-op.
+     * Adds the card to the user's prioritized section (PRIO-05), at a
+     * chosen position when the body carries the anchor (PRIO-15).
+     *
+     * The JSON body is OPTIONAL (backward compatible):
+     *   - body omitted (or `{}`)          → append at the bottom (pre-1.19)
+     *   - { after_card_id: null }         → insert at the top
+     *   - { after_card_id: <id> }         → insert after that card (which
+     *     must be in the acting user's own prioritized list)
+     * Already-prioritized + anchor → reposition (200, new position).
      */
     public function prioritize(Request $request, Response $response, array $params): void
     {
@@ -63,9 +70,25 @@ class PriorityController
             return;
         }
 
+        $body = $request->getBody();
+        $anchored = array_key_exists('after_card_id', $body);
+        $afterCardId = null;
+        if ($anchored && $body['after_card_id'] !== null) {
+            $afterCardId = (int) $body['after_card_id'];
+            if ($afterCardId <= 0) {
+                $response->error('after_card_id must be a positive integer or null', 400);
+                return;
+            }
+        }
+        // $anchored true + after_card_id null  → top
+        // $anchored true + positive id         → insert after that card
+        // $anchored false (body omitted / {}) → append (pre-1.19 default)
+
         try {
-            $result = $this->priorityService->prioritize($user, $cardId);
+            $result = $this->priorityService->prioritize($user, $cardId, $anchored, $afterCardId);
             $response->json(['card' => $cardId, 'position' => $result['position']]);
+        } catch (\InvalidArgumentException $e) {
+            $response->error($e->getMessage(), 400);
         } catch (\LogicException $e) {
             $response->error($e->getMessage(), 409);
         } catch (\RuntimeException $e) {

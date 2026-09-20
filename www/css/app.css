@@ -4113,6 +4113,21 @@ small,
     box-shadow: 0 4px 16px var(--color-drag-shadow);
 }
 
+/* PRIO-15 — positional inbox→list drop: the insertion indicator is the
+   preview of the exact slot the drop will resolve to (ghost walk in
+   js/priority.js excludes it from its own hit-test, so it never skews
+   the calc — board.js insertionPoint() lesson). Inserted as a sibling of
+   the list items, so it sizes to the list width. */
+.priority-drop-indicator {
+    flex: 0 0 auto;
+    height: 3px;
+    margin: 1px 0;
+    border-radius: 2px;
+    background: var(--color-primary-hover);
+    box-shadow: 0 0 0 2px var(--color-primary-subtle);
+    pointer-events: none;
+}
+
 .priority-item-inner {
     display: flex;
     align-items: center;
