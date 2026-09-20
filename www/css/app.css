@@ -4923,6 +4923,35 @@ small,
     margin-top: var(--space-5);
 }
 
+/* Email-notifications card (NOTIF-06, v1.18) — checkbox + inline buttons.
+   Both .btn-primary and .btn-ghost exist (used elsewhere); tokens only. */
+.profile-email-notif .form-label--checkbox {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    line-height: 1.5;
+    cursor: pointer;
+    color: var(--color-text);
+}
+
+.profile-email-notif .form-label--checkbox input[type="checkbox"] {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    flex: none;
+    margin-top: 2px;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+
+.profile-email-notif .form-actions--inline {
+    margin-top: var(--space-4);
+}
+
+.profile-email-notif .form-actions--inline .btn {
+    flex: none;
+}
+
 /* Dropdown "Profile" link — match the logout button's baseline (the
    .user-dropdown a/button rules already cover it; this just ensures the
    link never inherits a text-decoration underline). */

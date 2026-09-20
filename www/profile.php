@@ -37,6 +37,10 @@ $profileLang = [
     'change_password'     => $lang->get('profile.change_password'),
     'saved_ok'            => $lang->get('flash.profile_saved'),
     'password_changed'    => $lang->get('flash.password_changed'),
+    'test_email_sent'     => $lang->get('flash.test_email_sent'),
+    'test_email_failed'   => $lang->get('flash.test_email_failed'),
+    'test_email_busy'     => $lang->get('profile.test_email_busy'),
+    'send_test_email'     => $lang->get('profile.send_test_email'),
     'err_password_mismatch' => $lang->get('profile.err_password_mismatch'),
     'err_current_wrong'     => $lang->get('profile.err_current_wrong'),
     'err_name_required'     => $lang->get('profile.err_name_required'),
@@ -103,7 +107,25 @@ require ROOT_DIR . '/include/templates/header.php';
         </div>
     </form>
 
-    <!-- Password change (USER-02): PUT /v1/me/password -->
+    <!-- Email notifications (NOTIF-06, v1.18): PUT /v1/me {email_notifications} + POST /v1/me/test-email -->
+<section class="profile-section profile-form profile-email-notif" id="email-notif-section" aria-labelledby="profile-email-notif-heading">
+    <h2 id="profile-email-notif-heading"><?= htmlspecialchars($lang->get('profile.section_email_notifications'), ENT_QUOTES, 'UTF-8') ?></h2>
+
+    <div class="form-group form-group--checkbox">
+        <label for="email-notif-check" class="form-label form-label--checkbox">
+            <input type="checkbox" id="email-notif-check" name="email_notifications"
+                <?= ((int) ($user['email_notifications'] ?? 0) === 1) ? 'checked' : '' ?>>
+            <?= htmlspecialchars($lang->get('profile.email_notifications'), ENT_QUOTES, 'UTF-8') ?>
+        </label>
+    </div>
+
+    <div class="form-actions form-actions--inline">
+        <button type="button" class="btn btn-primary" id="email-notif-save"><?= htmlspecialchars($lang->get('profile.save_profile'), ENT_QUOTES, 'UTF-8') ?></button>
+        <button type="button" class="btn btn-ghost" id="test-email-btn"><?= htmlspecialchars($lang->get('profile.send_test_email'), ENT_QUOTES, 'UTF-8') ?></button>
+    </div>
+</section>
+
+<!-- Password change (USER-02): PUT /v1/me/password -->
     <form class="profile-section profile-form" id="password-form" novalidate>
         <h2 id="profile-password-heading"><?= htmlspecialchars($lang->get('profile.section_password'), ENT_QUOTES, 'UTF-8') ?></h2>
 

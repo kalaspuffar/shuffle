@@ -578,10 +578,21 @@
   "profile.err_name_required": "Name is required.",
   "profile.err_password_mismatch": "New passwords do not match.",
   "profile.err_current_wrong": "Current password is incorrect.",
+  "profile.section_email_notifications": "Email notifications",
+  "profile.email_notifications": "Email me when someone assigns me to a card, comments on one, or moves my card to Done",
+  "profile.send_test_email": "Send test email",
+  "profile.test_email_busy": "Sending…",
 
   "flash.profile_saved": "Profile saved.",
   "flash.password_changed": "Password changed.",
   "flash.user_password_reset": "User's password has been reset.",
+  "flash.test_email_sent": "Test email sent.",
+  "flash.test_email_failed": "Test email failed to send.",
+
+  "notification.email_view_card": "View card",
+  "notification.email_footer": "You're receiving this because you enabled email notifications on Shuffle. Turn them off anytime on your profile page.",
+  "notification.test_email_subject": "Shuffle — test email",
+  "notification.test_email_body": "This is a delivery test from your Shuffle instance. If you can read this, your SMTP is working and email notifications are ready to enable.",
 
   "admin.users.edit": "Edit",
   "admin.users.edit_title": "Edit user",

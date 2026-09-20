@@ -113,6 +113,12 @@ $cardService->setDatabase($db);
 // Notification system
 $notificationModel      = new Shuffle\Model\Notification($db);
 $notificationService    = new Shuffle\Service\NotificationService($notificationModel, $cardModel, $lang);
+
+// v1.18 NOTIF-06: enable email delivery (opt-in-gated, non-fatal).
+// The User model batch-resolves recipient email + opt-in (one IN-query);
+// the Mailer + app.url are shared with the invite flow (already in scope).
+$notificationService->setUserModel($userModel);
+$notificationService->setMailer($mailer, $appUrl);
 $notificationController = new Shuffle\Controller\NotificationController($auth, $notificationService);
 
 // Wire NotificationService into CommentService for comment notifications
@@ -217,6 +223,8 @@ $router->delete('/users/{id}', [$userController, 'delete']);
 // Self-service profile (USER-02, §5.22)
 $router->put('/me', [$userController, 'updateMe']);
 $router->put('/me/password', [$userController, 'changeMyPassword']);
+// v1.18 NOTIF-06: verification tool — send a test email to the actor's own address
+$router->post('/me/test-email', [$notificationController, 'sendTestEmail']);
 // Admin password reset (USER-03, §5.22)
 $router->post('/admin/users/{id}/reset-password', [$userController, 'resetPassword']);
 

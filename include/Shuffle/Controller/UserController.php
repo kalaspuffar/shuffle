@@ -112,6 +112,9 @@ class UserController
             // the §5.22 contract keeps it admin/self-only. Null it (not
             // unset) so the key stays present in the JSON shape.
             $user['email'] = null;
+            // v1.18 NOTIF-06: email_notifications is the user's own
+            // preference — admin/self-only, the same privacy class as email.
+            $user['email_notifications'] = null;
         }
 
         $response->json(['user' => $user]);

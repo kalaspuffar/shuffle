@@ -1,7 +1,7 @@
 # Requirements Document: Shuffle
 
-**Version:** 2.3
-**Date:** 2026-09-18
+**Version:** 2.4
+**Date:** 2026-09-20
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
@@ -144,7 +144,6 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 - Backup and disaster recovery tooling (responsibility of infrastructure maintainer)
 - Hosted/cloud offering
 - Gantt charts, time tracking, or advanced project management features
-- Email notifications
 - Self-registration / public sign-up
 - Import from non-Trello sources (Jira, Asana, etc.)
 
@@ -340,10 +339,17 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 | NOTIF-03 | Users can view and dismiss notifications | Must-have |
 | NOTIF-04 | Unread notification count visible in UI | Must-have |
 | NOTIF-05 | **Due date reminder** notifications | Nice-to-have |
-| NOTIF-06 | Email notifications | Future |
+| NOTIF-06 | Email notifications | Must-have |
 | NOTIF-07 | In-app notification to the **creator** of a card when someone **comments on that card** (in addition to the assigned-user notifications of NOTIF-02; the creator is never notified of their own comment, and a user already notified for the same event as an assignee is not double-notified) | Should-have |
 | NOTIF-08 | In-app notification to the **creator** of a card when the card **moves to a Done lane** (the "your card shipped" signal; uses the same Done-lane matching as the priority digest, PRIO-13). Card moves to non-Done lanes, archive/restore, and assignment changes on the creator's own card are **not** creator-notified in v1 (deliberate — keep creator noise low) | Should-have |
 | NOTIF-09 | **Notification routing:** clicking a notification in the bell panel opens **the card's modal on its board** (deep link per CARD-15), not a standalone page. A comment notification (`type=comment`, carries the comment id) lands on the **Comments tab** scrolled to and highlighting that comment; a creator "moved to Done" notification (`type=creator`) lands on the **History tab** (where the event is visible); assignment notifications land on the **Card tab** (the default) | Must-have |
+
+**NOTIF-06 design decisions (2026-09-20, Daniel):**
+- Per-user opt-in (`users.email_notifications`), **default OFF** — users enable it on the profile page. A user who has not opted in never receives email, even when every SMTP setting is configured.
+- Email is emitted for the same three event types as the in-app notifications of NOTIF-01/02/07/08 (assignment, comment, creator-done-move); each email carries a **deep link to the card's modal on its board** (NOTIF-09 contract; comment events land on the Comments tab / comment anchor).
+- **Non-fatal delivery:** an SMTP failure must never block or corrupt the underlying action and must never suppress the in-app notification (which is created first). Failures are logged server-side.
+- Profile page: a **test-email** control sends a one-off confirmation message to the user's own address (same opt-in-gated delivery path — the test is always allowed because the recipient is the actor themselves).
+- Recipient email addresses come from `users.email` (identity anchor, immutable) and are never shown in the email body of other users' events beyond the actor's display name.
 
 ### 7.11 Search
 
