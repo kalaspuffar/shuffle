@@ -239,8 +239,23 @@ class UserController
     {
         $currentUser = $this->auth->requireAuth();
 
+        // THEME-02 (v1.20 §5.27): the ergonomic alias `theme` is accepted in
+        // the request body and mapped to the canonical column name `theme_preference`
+        // so API clients (and JS helpers) can send either spelling. `theme_preference`
+        // is the single source of truth for the server schema; `theme` is a
+        // convenience for the UI's `PUT /v1/me` calls.
+        // (This mapping is applied at the controller — the service only sees
+        // the canonical name — so the admin `PUT /v1/users/{id}` path is
+        // unaffected. The service still validates the value regardless of which
+        // spelling was used.)
+        $body = $request->getBody();
+        if (is_array($body) && array_key_exists('theme', $body) && !array_key_exists('theme_preference', $body)) {
+            $body['theme_preference'] = $body['theme'];
+            unset($body['theme']);
+        }
+
         try {
-            $user = $this->userService->updateMe((int) $currentUser['id'], $request->getBody());
+            $user = $this->userService->updateMe((int) $currentUser['id'], $body);
             $response->json(['user' => $user]);
         } catch (\InvalidArgumentException $e) {
             $response->error($e->getMessage(), 400);

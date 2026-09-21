@@ -205,6 +205,25 @@ TEXT;
         // admin via /v1/admin/users/{id} (both funnel through updateMeFields()).
         $updateData = array_merge($updateData, $this->updateMeFields($data));
 
+        // Theme preference (THEME-02, v1.20 §5.27). `users.theme_preference` is
+        // an ENUM('dark','light') NOT NULL DEFAULT 'dark' — a hard enum, NOT a
+        // string-length field like `phone`/`location`/`bio` (those go through
+        // updateMeFields' length validator). The value must be the exact
+        // string 'dark' or 'light' (case-sensitive; TRUE/FALSE/null/'Dark'/' '
+        // are all 400). The column lives on the actor's own row here (the
+        // updateUser access gate already enforces self-or-admin), so no
+        // additional privilege check is needed for the SELF path; the admin path
+        // is gated at the controller layer (UserController::update — the theme
+        // field is not advertised in the admin surface per the THEME-01
+        // self-service-only contract).
+        if (array_key_exists('theme_preference', $data)) {
+            $theme = $data['theme_preference'];
+            if (!is_string($theme) || !in_array($theme, ['dark', 'light'], true)) {
+                throw new \InvalidArgumentException('Invalid theme: must be "dark" or "light"');
+            }
+            $updateData['theme_preference'] = $theme;
+        }
+
         // Admin-only fields: role, organization_id, status
         if ($isAdmin) {
             if (isset($data['role'])) {

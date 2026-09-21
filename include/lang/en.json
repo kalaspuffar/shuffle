@@ -586,6 +586,11 @@
   "profile.email_notifications": "Email me when someone assigns me to a card, comments on one, or moves my card to Done",
   "profile.send_test_email": "Send test email",
   "profile.test_email_busy": "Sending…",
+  "profile.section_appearance": "Appearance",
+  "profile.theme": "Theme",
+  "profile.theme_hint": "Shuffle remembers your choice on this device and every browser you're logged in from. Dark is the default.",
+  "profile.theme_dark": "Dark",
+  "profile.theme_light": "Light",
 
   "flash.profile_saved": "Profile saved.",
   "flash.password_changed": "Password changed.",

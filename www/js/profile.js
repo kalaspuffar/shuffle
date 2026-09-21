@@ -198,4 +198,44 @@
             flash(LANG.err_server || 'Password change failed', false);
         });
     });
+
+    /* ------------------------------------- theme (THEME-01..07, v1.20) */
+    // Immediate visual apply (no page reload) + immediate persist via
+    // PUT /v1/me {theme}. The server is authoritative — on failure we
+    // roll the visual state back so UI and DB never diverge silently.
+    var themeDark   = document.getElementById('theme-dark');
+    var themeLight  = document.getElementById('theme-light');
+    if (themeDark && themeLight) {
+        function applyTheme(t) {
+            document.documentElement.setAttribute('data-theme', t);
+        }
+        function persistTheme(t) {
+            if (!isApiReady()) {
+                flash(LANG.err_server || 'Shuffle API unavailable', false);
+                return;
+            }
+            var prev = document.documentElement.getAttribute('data-theme') || 'dark';
+            applyTheme(t);
+            Shuffle.api('/v1/me', {
+                method: 'PUT',
+                body: { theme: t }
+            }).then(function (result) {
+                if (result.status !== 200) {
+                    applyTheme(prev); // roll back on server rejection
+                    flash((result && result.data && result.data.error)
+                        || (LANG.err_server || 'Save failed'), false);
+                }
+            }).catch(function () {
+                applyTheme(prev);
+                flash(LANG.err_server || 'Save failed', false);
+            });
+        }
+        [themeDark, themeLight].forEach(function (el) {
+            el.addEventListener('change', function () {
+                if (!el.checked) return;
+                persistTheme(el.value);
+            });
+        });
+    }
+
 })();
