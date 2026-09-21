@@ -125,6 +125,30 @@ require ROOT_DIR . '/include/templates/header.php';
     </div>
 </section>
 
+    <!-- Theme (THEME-01..07, v1.20 §5.27): PUT /v1/me {theme} — immediate apply, immediate persist -->
+<section class="profile-section profile-form profile-appearance" id="appearance-section" aria-labelledby="profile-appearance-heading">
+    <h2 id="profile-appearance-heading"><?= htmlspecialchars($lang->get('profile.section_appearance'), ENT_QUOTES, 'UTF-8') ?></h2>
+
+    <div class="form-group">
+        <label class="form-label" for="theme-dark"><?= htmlspecialchars($lang->get('profile.theme'), ENT_QUOTES, 'UTF-8') ?></label>
+        <div class="theme-choice" role="radiogroup" aria-label="<?= htmlspecialchars($lang->get('profile.theme'), ENT_QUOTES, 'UTF-8') ?>">
+            <label class="theme-choice-option" for="theme-dark">
+                <input type="radio" name="theme" id="theme-dark" value="dark"
+                    <?= ($user['theme_preference'] !== 'light') ? 'checked' : '' ?>>
+                <span class="theme-choice-swatch theme-choice-swatch--dark" aria-hidden="true"></span>
+                <span class="theme-choice-label"><?= htmlspecialchars($lang->get('profile.theme_dark'), ENT_QUOTES, 'UTF-8') ?></span>
+            </label>
+            <label class="theme-choice-option" for="theme-light">
+                <input type="radio" name="theme" id="theme-light" value="light"
+                    <?= ($user['theme_preference'] === 'light') ? 'checked' : '' ?>>
+                <span class="theme-choice-swatch theme-choice-swatch--light" aria-hidden="true"></span>
+                <span class="theme-choice-label"><?= htmlspecialchars($lang->get('profile.theme_light'), ENT_QUOTES, 'UTF-8') ?></span>
+            </label>
+        </div>
+        <small class="form-help"><?= htmlspecialchars($lang->get('profile.theme_hint'), ENT_QUOTES, 'UTF-8') ?></small>
+    </div>
+</section>
+
 <!-- Password change (USER-02): PUT /v1/me/password -->
     <form class="profile-section profile-form" id="password-form" novalidate>
         <h2 id="profile-password-heading"><?= htmlspecialchars($lang->get('profile.section_password'), ENT_QUOTES, 'UTF-8') ?></h2>

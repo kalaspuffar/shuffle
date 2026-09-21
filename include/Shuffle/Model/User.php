@@ -14,7 +14,7 @@ class User
     private Database $db;
 
     /** Columns returned in standard user queries (excludes password_hash) */
-    private const SELECT_COLUMNS = 'id, username, name, email, phone, location, bio, email_notifications, role, organization_id, is_placeholder, status, created_at, updated_at';
+    private const SELECT_COLUMNS = 'id, username, name, email, phone, location, bio, email_notifications, theme_preference, role, organization_id, is_placeholder, status, created_at, updated_at';
 
     /**
      * @param Database $db Database instance
@@ -202,7 +202,7 @@ class User
      */
     public function update(int $id, array $data): void
     {
-        $allowedFields = ['name', 'email', 'phone', 'location', 'bio', 'email_notifications', 'role', 'organization_id', 'status', 'username', 'password_hash'];
+        $allowedFields = ['name', 'email', 'phone', 'location', 'bio', 'email_notifications', 'theme_preference', 'role', 'organization_id', 'status', 'username', 'password_hash'];
         $setClauses = [];
         $params = [];
 

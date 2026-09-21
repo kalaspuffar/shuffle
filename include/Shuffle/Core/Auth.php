@@ -42,7 +42,7 @@ class Auth
         }
 
         $user = $this->db->fetch(
-            'SELECT id, username, name, email, role, organization_id, status
+            'SELECT id, username, name, email, role, organization_id, status, theme_preference
              FROM users WHERE id = ? AND status = ?',
             [(int) $userId, 'active']
         );

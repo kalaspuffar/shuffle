@@ -33,7 +33,15 @@ $currentUser = $auth ? $auth->currentUser() : null;
 $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
 ?>
 <!DOCTYPE html>
-<html lang="<?= htmlspecialchars($lang->get('app.locale') ?? 'en', ENT_QUOTES, 'UTF-8') ?>" data-theme="dark">
+<?php
+// THEME-01 (spec v1.20 §5.27): apply the user's server-persisted theme
+// preference to <html> so the light/dark tokens are active before first
+// paint (no flash of wrong theme). Unauthenticated pages keep dark —
+// the theme toggle is authed-only (THEME-02).
+$themePref = (isset($currentUser['theme_preference']) ? $currentUser['theme_preference'] : 'dark');
+if ($themePref !== 'light') { $themePref = 'dark'; }
+?>
+<html lang="<?= htmlspecialchars($lang->get('app.locale') ?? 'en', ENT_QUOTES, 'UTF-8') ?>" data-theme="<?= $themePref ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
