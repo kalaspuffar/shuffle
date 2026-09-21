@@ -17,6 +17,14 @@ $_jsVer = function ($rel) { $p = __DIR__ . '/../../www' . $rel; return file_exis
 <script src="/js/app.js<?= $_jsVer('/js/app.js') ?>"></script>
 <?php if (isset($currentUser) && $currentUser !== null): ?>
 <?php
+// PWA-07 (spec v1.21 §5.28): progressive enhancement — register the SW only
+// when the browser has it AND the current origin supports SWs (secure
+// context). On plain http (LAN setups, e.g. this box) the guard in pwa.js
+// is a guarded no-op: the app is fully functional online and the offline /
+// install surfaces are simply absent. No console errors, no feature loss.
+?>
+<script src="/js/pwa.js<?= $_jsVer('/js/pwa.js') ?>"></script>
+<?php
 $notificationLang = json_encode([
     'today'        => $lang->get('notification.today'),
     'yesterday'    => $lang->get('notification.yesterday'),

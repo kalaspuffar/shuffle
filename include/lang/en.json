@@ -386,6 +386,13 @@
   "priority.tier_inbox": "Inbox",
   "priority.tier_other": "Other",
   "priority.title": "My Priority List",
+
+  "pwa.offline_body_1": "Shuffle could not reach the network, and this page has no cached copy yet.",
+  "pwa.offline_body_2": "Pages you loaded while online remain available offline — for example your boards and priority list, as of their last successful load.",
+  "pwa.offline_body_3": "Actions you take now will not sync. Try again once you are back online.",
+  "pwa.offline_cta": "Go to home",
+  "pwa.offline_heading": "You're offline",
+  "pwa.offline_title": "Offline",
   "search.board_archived": "Board archived",
   "search.card_archived": "Archived",
   "search.in_board": "in {0}",

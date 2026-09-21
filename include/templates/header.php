@@ -46,7 +46,18 @@ if ($themePref !== 'light') { $themePref = 'dark'; }
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= $csrfToken ?>">
+    <meta name="theme-color" content="#6D28D9">
     <title><?= $appName . $titleSuffix ?></title>
+    <?php
+    // PWA-01/02 (spec v1.21 §5.28): installability surface — the web app
+    // manifest (Android/Chrome/Edge) and iOS's apple-touch-icon (the iOS
+    // "Add to Home Screen" flow ignores the manifest's icon list, so it also
+    // gets an explicit link). The manifest is a static JSON file — no PHP,
+    // no auth gate required.
+    ?>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="/img/favicon.png">
     <?php
     // Cache-bust the stylesheet with its file mtime — a static /css/app.css
     // URL lets browsers (and intermediaries) serve stale CSS for days after

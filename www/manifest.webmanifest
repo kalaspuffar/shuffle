@@ -1,0 +1,29 @@
+{
+  "name": "Shuffle — Kanban Task Management",
+  "short_name": "Shuffle",
+  "description": "Self-hosted Kanban boards. Boards, lanes, cards, comments, checklists — installable and offline-tolerant.",
+  "id": "/",
+  "start_url": "/boards.php",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D0D12",
+  "theme_color": "#6D28D9",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/img/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/img/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

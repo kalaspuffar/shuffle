@@ -1,10 +1,11 @@
 # Requirements Document: Shuffle
 
-**Version:** 2.6
-**Date:** 2026-09-20
+**Version:** 2.7
+**Date:** 2026-09-21
 **Author:** Requirements Analyst
 **Status:** Complete — Ready for Architect Review
 **License:** MIT
+**Changelog (v2.7):** PWA / installable web app (PWA-01..08, §7.18, SPEC v1.21 §5.28): mobile coverage for Android/iOS via an **installable web app** instead of native apps (Daniel, 2026-09-18: EU app stores now require ID/business registration to submit — not worth it; one responsive web app must serve both platforms). The existing REST v1 API + server-rendered pages are the single codebase. Concretely: a Web App Manifest (name/short_name/icons/display/scope/start_url/theme/background colors, 192 + 512 manifest icons including a masked-safe 512, and an iOS `apple-touch-icon`), a same-origin vanilla-JS **service worker** providing honest **offline tolerance** (previously-loaded pages — including board URLs — served from cache with an explicit offline banner; never-loaded URLs served an offline fallback page from the app itself), with the hard contract that **state-changing requests are never intercepted or cached** (mutations always hit the network) and the cache is **versioned + purged on deploy**. Progressive enhancement only: on http origins without a secure context (or browsers without SW support) the app is fully functional online and the worker simply never registers. WCAG 2.1 AA carries over to the offline surfaces.
 **Changelog (v2.6):** Theme / light mode (THEME-01..07, §7.17, SPEC v1.20 §5.27): per-user dark/light theme — persisted server-side in `users.theme_preference` (default `'dark'`), switched from the app header on every authenticated page; **both themes are WCAG 2.1 AA** — the v1.18-era light set shipped four sub-4.5:1 text pairs and the existing dark set shipped white-text-on-light-semantic-fill pairs (white-on-success/warning in dark = 1.4 / 1.7:1, fails even 3:1 large-text) so both palettes are remediated in this change (§5.27 table), plus the split `*-text` vs solid-fill token architecture (THEME-05) that lets one hex serve solid-fill in light mode while a separate hex serves AA text on the light base. No visible surface may hardcode a single-theme color outside the token system (THEME-07).
 **Changelog (v2.5):** PRIO-15 positional inbox→priority drop (Daniel, 2026-09-20): `POST /v1/priority/inbox/{cardId}` accepts an optional `after_card_id` anchor (omitted = append, null = top, id = after that card in the user's own list); the prioritized section becomes a drag target for inbox cards, with keyboard insert-top parity.
 **Changelog (v2.3):** USER-04 visibility resolved (Daniel, 2026-09-18): `phone`/`location`/`bio` are visible to all users in the **same organization** (and to admins). USER-04 re-scoped to the concrete v1.16 surface: the assignee chip tooltip (name + phone + location when present).
@@ -133,7 +134,7 @@ A Trello service outage exposed the risk of depending on a third-party hosted so
 
 **Future / Nice-to-Have:**
 - Web-based onboarding wizard for first-time setup
-- Flutter mobile applications (Android and iOS)
+- Flutter mobile applications (Android and iOS) — **deprioritized** (Daniel, 2026-09-18: EU app stores require ID/business registration to submit; superseded for v2 by the installable web app, PWA-01..08 in §7.18; Flutter remains a possible later native path)
 - WebSocket-based real-time updates
 - OAuth/SSO authentication
 - Multi-language support (i18n)
@@ -482,7 +483,22 @@ the card-merge hook both read from it).
 
 - **Both:** `--color-primary-text` stays `#A78BFA` (dark) / `#6D28D9` (light), already passing. `--color-text-disabled` in dark (2.88:1) and light (~3.0:1) is intentionally marked as WCAG-exempt under §1.4.3 (disabled UI has no information), and placeholder is the user-facing one that gets remediated.
 
-**The four sub-4.5:1 light-theme text pairs this change corrects (verified 2026-09-20):** v1.18's light block had `--color-success:#16A34A` as *text on base* = 3.00:1, `--color-warning:#CA8A04` as text on base = 2.68:1, `--color-error:#DC2626` as text on base = 4.40:1, `--color-placeholder:#7A7A8E` as text on base = 3.83:1. After the split-token migration + retune: `#15803D` / `#B45309` / `#B91C1C` / `#6B6B80` all ≥ 4.5:1 on base AND on `#FFFFFF`. The existing v1.18 light **fills** (`#16A34A`, `#CA8A04`, `#DC2626`) are retained for their solid-fill roles — the split makes the two roles independent (no more "one hex has to be light enough for fill + white text AND dark enough for text on light base").
+**The four sub-4.5:1 light-theme text pairs this change corrects (verified 2026-09-20):** v1.18's light block had `--color-success:#16A34A` as *text on base* = 3.00:1, `--color-warning:#CA8A04` as text on base = 2.68:1, `--color-error:#DC2626` as text on base = 4.40:1, `--color-placeholder:#7A7A8E` as text on base = 3.83:1. After the split-token migration + retune: `#15803D` / `#B45309` / `#B91C1C` / `#6B6B80` all ≥ 4.5:1 on base AND on `#FFFFFF`. The existing v1.18 light **fills** (`#16A34A`, `#CA8A04`, `#DC2626`) are retained for their solid-fill roles — the split makes the two roles independent (no more "one hex has to be light enough for fill + white text AND dark enough as text on light base").
+
+### 7.18 PWA / Installable Web App (Daniel, 2026-09-18)
+
+**Motivation:** mobile coverage (Android + iOS) without native app-store submissions — EU stores now require ID/business registration to submit, so a single responsive **installable web app** serves both platforms (Daniel, 2026-09-18). The app is already responsive + server-rendered; what it lacks is: (a) installability (manifest + icons) and (b) graceful behavior when the network drops (today: a browser error page, and for installed contexts a dead app). **Offline scope is deliberately "read-only tolerance, never a lie":** previously-loaded pages come back from cache *flagged as offline*; actions that need the network fail loudly with the existing error handling — the PWA must never let a user believe a write persisted when it did not (board mutations are drag-and-drop + form saves; silent loss here is the exact class of bug Daniel has flagged before). WCAG 2.1 AA (UX-01), i18n (no hardcoded strings), and the zero-new-deps constraint (no npm, no build step — plain JS + JSON manifest + static PNGs) all carry over.
+
+| ID | Requirement | Priority |
+|---|---|---|
+| PWA-01 | The app is **installable**: a Web App Manifest (`/manifest.webmanifest`) serves `name`, `short_name`, `start_url` (`/boards.php`, the post-login landing), `scope` (`/`), `display: standalone`, and matching `theme_color` / `background_color`; a conforming browser (Chrome/Edge/Android, or the "Add to Home Screen" flow on iOS) shows an installable app named after Shuffle that opens as a standalone page without browser chrome | Must-have |
+| PWA-02 | **Icon set:** the manifest references a **512×512 and a 192×192** PNG (`purpose: any`), and the 512×512 declares **`purpose: any maskable`** so Android's maskable rendering works on top of the adaptive-icon safe zone (glyph contained, background solid). iOS gets a separate **180×180 `apple-touch-icon`** in the `<head>`. All icons come from **one deterministic generator** (`bin/gen-pwa-icons.py`, Pillow-only, no network at icon-build time) so the repo ships the byte-stable artifacts, not live-built ones | Must-have |
+| PWA-03 | **Offline tolerance (read path):** after successful online loads, **navigation requests** for app pages are available when the network is down — served from the **last successful response** (query strings preserved, so per-board URLs work) — with a **clear, visible offline banner** (role=status, dismissible, i18n'd) stating the content is the last cached copy and actions may not sync. The banner text itself is a static asset cached with the page, so the offline UI needs no network | Must-have |
+| PWA-04 | **Offline tolerance (first-visit path):** a page the user has **never loaded online** (e.g. a deep link opened while offline) renders the app's **offline fallback page** (own URL, own static assets, dark-token styling, a link back to home) instead of the browser's dead connection error. The fallback page + its assets must be in the cache **before the first navigation that needs them** — i.e. cached at service-worker install, not on first miss | Must-have |
+| PWA-05 | **No mutation caching, ever:** state-changing requests (POST/PUT/DELETE, file uploads, `/v1/*` writes) are **never intercepted** by the service worker and never written to the cache; every mutation that succeeds did so over the live network, and a mutation that fails while offline fails with the app's existing error feedback (no silent retry queue, no queue that resurrects stale writes post-reconnect — the offline banner tells the user not to trust the session). The worker intercepts **GET navigations + same-origin static assets only** | Must-have |
+| PWA-06 | **Cache discipline:** one versioned cache (name carries the content version); on service-worker **activation all stale-version caches are deleted**; nothing beyond the offline fallback bundle and previously-served responses is pre-cached. Cache entries must not outlive their contract: a bumped `CACHE_VERSION` is a hard purge, not a merge, so a stale deploy can never serve an old page for a new one after the client picks up the new worker | Must-have |
+| PWA-07 | **Progressive enhancement / no-secure-context fallback:** the service worker registers **only when the origin supports it** (secure context + `serviceWorker` API present); without those (plain http on a LAN host, older browsers) the app must be **fully functional online** with zero console errors — the registration is a guarded enhancement, and no feature, page, or test may depend on the worker being active | Must-have |
+| PWA-08 | **Accessibility + i18n parity on offline surfaces:** the offline banner and the offline fallback page meet WCAG 2.1 AA (contrast via the existing token system, keyboard-reachable link, focus-visible, `role="status"` live announce) and carry **no hardcoded user-facing strings** (all text in `include/lang/en.json`; the fallback page's static copy is generated through the same lang map as every other page — it must render its strings through the i18n mechanism at build/page time, not at runtime JS) | Must-have |
 
 ---
 
@@ -633,7 +649,7 @@ the card-merge hook both read from it).
 |---|---|
 | **Backend language** | PHP 8.4 (plain, no framework, no Composer) |
 | **Frontend** | Vanilla HTML, CSS, JavaScript — minimal external dependencies |
-| **Mobile** | Flutter (future, post-web) |
+| **Mobile** | PWA — installable web app (v2; Flutter deprioritized, 2026-09-18) |
 | **Database** | MySQL |
 | **File storage** | S3-compatible, path-based |
 | **Deployment target** | Bare metal Debian Trixie (13) server (primary) |
