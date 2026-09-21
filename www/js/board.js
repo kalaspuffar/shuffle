@@ -33,6 +33,7 @@
     // clobbering an in-flight swap or vice-versa.
     var pendingSync = false;   // a version-bump was seen while a guard was active
     var dragInFlight = false;  // true between dragstart and dragend (see DnD section)
+    var touchDragInFlight = false; // true while board-touch.js holds a card (MOB-05/06)
 
     /** Announces a message to screen readers via live region */
     function announce(message) {
@@ -801,60 +802,134 @@
        Card Drag and Drop
        ============================================= */
 
-    if (CAN_EDIT) {
-        var draggedCard = null;
-        var dropIndicator = null;
+    // ------------------------------------------------------------------
+    // DnD helpers — hoisted out of the CAN_EDIT block (previously scoped
+    // inside it) so board-touch.js can reuse the same insertion-point
+    // geometry + drop-indicator lifecycle as the mouse path (DRY, and
+    // the two commit paths can't drift apart).
+    // ------------------------------------------------------------------
 
+    /* Resolve the insertion point from cursor geometry, never from
+       e.target hit-testing: the 8px flex gaps and lane padding hit no
+       card element, and the indicator line shifts cards below it.
+       Walk cards in lane order; insert after the last card whose
+       (unshifted) midpoint is above the cursor. */
+    function insertionPoint(laneCards, clientY) {
+        var els = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
+        var idx = 0;
+        for (var i = 0; i < els.length; i++) {
+            var r = els[i].getBoundingClientRect();
+            if (r.height === 0) continue;
+            var midY0 = r.top + r.height / 2;
+            if (dropIndicator) {
+                var dR = dropIndicator.getBoundingClientRect();
+                if (dR.top + dR.height <= r.top) {
+                    midY0 -= dR.height + 8; // undo the indicator's layout shift
+                }
+            }
+            if (clientY >= midY0) idx = i + 1; else break;
+        }
+        var afterEl = idx > 0 ? els[idx - 1] : null;
+        return { index: idx, afterCardId: afterEl ? parseInt(afterEl.dataset.cardId, 10) : null };
+    }
+
+    function removeDropIndicator() {
+        if (dropIndicator && dropIndicator.parentNode) {
+            dropIndicator.parentNode.removeChild(dropIndicator);
+        }
+        dropIndicator = null;
+    }
+
+    function removeDropTargets() {
+        var targets = lanesContainer.querySelectorAll('.drop-target');
+        for (var i = 0; i < targets.length; i++) {
+            targets[i].classList.remove('drop-target');
+        }
+    }
+
+    /* ---- shared commit path (mouse DnD + touch held-drag) -----------
+       Both the native `drop` handler and board-touch.js commit through
+       this one function: the optimistic DOM move, the server round-trip,
+       and the revert-on-failure all live here (DRY + RT-04 sync-guard
+       shared). `afterCardEl` may be null (insert at the top of the lane).
+       Caller owns the dragInFlight / touchDragInFlight lifecycle; this
+       function handles the DOM move + API call + revert on failure. */
+    function commitMoveToLane(draggedCard, targetLaneCards, afterCardEl) {
+        var targetLaneId = parseInt(targetLaneCards.dataset.laneId, 10);
+        var cardId = parseInt(draggedCard.dataset.cardId, 10);
+
+        // Capture current DOM position so we can revert on failure.
+        var originalParent = draggedCard.parentNode;
+        var originalNextSibling = draggedCard.nextSibling;
+
+        // Optimistic DOM update — the UI moves immediately; the API call
+        // confirms or reverts below.
+        removeDropIndicator();
+        targetLaneCards.insertBefore(draggedCard, afterCardEl ? afterCardEl.nextSibling : targetLaneCards.firstChild);
+
+        var cardTitle = draggedCard.querySelector('.card-title').textContent;
+        var laneName = targetLaneCards.closest('.lane').querySelector('.lane-title').textContent;
+        announce(tmpl(LANG.announce_card_dropped || 'Dropped card {0} in {1}.', [cardTitle, laneName]));
+
+        var afterCardId = afterCardEl ? parseInt(afterCardEl.dataset.cardId, 10) : null;
+
+        return Shuffle.api('/v1/cards/' + cardId + '/move', {
+            method: 'PUT',
+            body: { lane_id: targetLaneId, after_card_id: afterCardId }
+        }).then(function (result) {
+            if (result.status !== 200) {
+                // Revert the optimistic DOM update.
+                if (originalNextSibling) originalParent.insertBefore(draggedCard, originalNextSibling);
+                else originalParent.appendChild(draggedCard);
+                var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
+                Shuffle.showFlash(msg, 'error');
+            }
+            return result;
+        });
+    }
+
+    // The DnD drop-indicator node + the card currently being dragged.
+    var dropIndicator = null;
+    var draggedCard   = null;
+
+    /* =============================================
+       Card Drag and Drop (mouse — native DnD)
+       ============================================= */
+
+    if (CAN_EDIT) {
         lanesContainer.addEventListener('dragstart', function (e) {
+            // TOUCH PATH: touch pointers can't initiate HTML5 drag events
+            // (a finger swipe is a native scroll under the browser; with
+            // `.card { touch-action: pan-x pan-y }` set in the ≤640px
+            // block, a swipe never "picks up" a card). The TOUCH MOVE path
+            // is the long-press held-drag in board-touch.js — it shares
+            // commitMoveToLane + the sync-guard below, and is the only
+            // touch surface for card movement (MOB-05/06).
             var card = e.target.closest('.card');
             if (!card) return;
-
             draggedCard = card;
             card.setAttribute('data-dragging', 'true');
-            dragInFlight = true;   // guard for real-time region sync (RT-04): don't swap mid-drag
-
-            // Set drag data
+            dragInFlight = true;   // RT-04 sync guard
             e.dataTransfer.effectAllowed = 'move';
             e.dataTransfer.setData('text/plain', card.dataset.cardId);
-
             var title = card.querySelector('.card-title').textContent;
             announce(tmpl(LANG.announce_card_picked_up || 'Picked up card {0}.', [title]));
         });
 
-        lanesContainer.addEventListener('dragend', function (e) {
+        lanesContainer.addEventListener('dragend', function () {
             if (draggedCard) {
                 draggedCard.removeAttribute('data-dragging');
                 draggedCard = null;
             }
             removeDropIndicator();
             removeDropTargets();
-            dragInFlight = false;  // release the real-time sync guard (RT-04); next tick can now swap
+            dragInFlight = false;
         });
 
-        /* Resolve the insertion point from cursor geometry, never from
-           e.target hit-testing: the 8px flex gaps and lane padding hit no
-           card element, and the indicator line shifts cards below it.
-           Walk cards in lane order; insert after the last card whose
-           (unshifted) midpoint is above the cursor. */
-        function insertionPoint(laneCards, clientY) {
-            var els = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
-            var idx = 0;
-            for (var i = 0; i < els.length; i++) {
-                var r = els[i].getBoundingClientRect();
-                if (r.height === 0) continue;
-                var midY0 = r.top + r.height / 2;
-                if (dropIndicator) {
-                    var dR = dropIndicator.getBoundingClientRect();
-                    if (dR.top + dR.height <= r.top) {
-                        midY0 -= dR.height + 8; // undo the indicator's layout shift
-                    }
-                }
-                if (clientY >= midY0) idx = i + 1; else break;
-            }
-            var afterEl = idx > 0 ? els[idx - 1] : null;
-            return { index: idx, afterCardId: afterEl ? parseInt(afterEl.dataset.cardId, 10) : null };
-        }
-
+        // The dragover / drop handlers below are the mouse-only surface;
+        // the TOUCH held-drag (board-touch.js) never touches these — it
+        // uses its own pointer-based state machine and re-uses
+        // commitMoveToLane for the actual commit (DRY).
         lanesContainer.addEventListener('dragover', function (e) {
             if (!draggedCard) return;
             e.preventDefault();
@@ -863,19 +938,15 @@
             var laneCards = e.target.closest('.lane-cards');
             if (!laneCards) return;
 
-            // Highlight drop target lane
             removeDropTargets();
             laneCards.classList.add('drop-target');
 
-            // Show drop indicator at the geometry-resolved insertion point
-            // (ghost preview), so it tracks the cursor even over gaps/padding.
             var point = insertionPoint(laneCards, e.clientY);
             var allEls = laneCards.querySelectorAll('.card:not([data-dragging="true"])');
 
             removeDropIndicator();
             dropIndicator = document.createElement('div');
             dropIndicator.className = 'drop-indicator';
-
             if (point.index < allEls.length) {
                 laneCards.insertBefore(dropIndicator, allEls[point.index]);
             } else {
@@ -897,57 +968,14 @@
             var laneCards = e.target.closest('.lane-cards');
             if (!laneCards) return;
 
-            var targetLaneId = parseInt(laneCards.dataset.laneId, 10);
-            var cardId = parseInt(draggedCard.dataset.cardId, 10);
-
-            // Position from cursor geometry (see insertionPoint) — immune to
-            // releasing over gaps/padding, the old "always to the bottom" fail.
+            // Geometry-resolved insertion point (see insertionPoint) —
+            // immune to releasing over gaps/padding.
             var point = insertionPoint(laneCards, e.clientY);
-            var afterCardId = point.afterCardId;
-
-            // Capture current DOM position so we can revert if the API call fails
-            var originalParent = draggedCard.parentNode;
-            var originalNextSibling = draggedCard.nextSibling;
-
-            // Optimistic DOM update — move the card immediately so the UI feels
-            // responsive; the API call confirms or reverts below.
-            removeDropIndicator();
-            var afterCardEl = afterCardId !== null
-                ? laneCards.querySelector('.card[data-card-id="' + afterCardId + '"]')
+            var afterCardEl = point.afterCardId !== null
+                ? laneCards.querySelector('.card[data-card-id="' + point.afterCardId + '"]')
                 : null;
-            if (afterCardEl) {
-                laneCards.insertBefore(draggedCard, afterCardEl.nextSibling);
-            } else {
-                laneCards.insertBefore(draggedCard, laneCards.firstChild);
-            }
 
-            var cardTitle = draggedCard.querySelector('.card-title').textContent;
-            var laneName = laneCards.closest('.lane').querySelector('.lane-title').textContent;
-            announce(tmpl(LANG.announce_card_dropped || 'Dropped card {0} in {1}.', [cardTitle, laneName]));
-
-            // dragend fires after drop and nulls draggedCard — capture it for the closure
-            var movedCard = draggedCard;
-
-            // Persist the move; revert the DOM on failure
-            Shuffle.api('/v1/cards/' + cardId + '/move', {
-                method: 'PUT',
-                body: {
-                    lane_id: targetLaneId,
-                    after_card_id: afterCardId
-                }
-            }).then(function (result) {
-                if (result.status !== 200) {
-                    // Revert the optimistic DOM update
-                    if (originalNextSibling) {
-                        originalParent.insertBefore(movedCard, originalNextSibling);
-                    } else {
-                        originalParent.appendChild(movedCard);
-                    }
-                    var msg = (result.data && result.data.error) || LANG.error_bad_request || 'Error';
-                    Shuffle.showFlash(msg, 'error');
-                }
-            });
-
+            commitMoveToLane(draggedCard, laneCards, afterCardEl).catch(function () {});
             removeDropTargets();
         });
     }
@@ -1088,6 +1116,17 @@
 
         var card = e.target.closest('.card');
         if (!card) return;
+
+        // MOB-06: after a touch long-press (board-touch.js) the browser
+        // synthesises a click; the long-press already surfaced the card
+        // menu, so this click must NOT also open the modal. board-touch.js
+        // sets and consumes the flag.
+        if (card.dataset.touchLongPress === '1') {
+            card.dataset.touchLongPress = '';
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
 
         // Ctrl+click: toggle the selection highlight instead of opening
         // the modal (quick-flow: hover border → arrows → Space to assign)
@@ -1330,10 +1369,9 @@
                 return 'modal';
             }
         }
-        // (2) Drag in flight — a swap would detach the node being dragged.
-        if (dragInFlight) {
-            return 'drag';
-        }
+        // (2) Drag in flight (mouse OR touch-held-drag) — a swap
+        //     would detach the node the user is literally moving.
+        if (dragInFlight || touchDragInFlight) return 'drag';
         // (3) Focus on an editable inside the region — a swap would drop input.
         var a = document.activeElement;
         if (a && lanesContainer.contains(a)) {
@@ -1694,7 +1732,49 @@
             } else {
                 performRegionSync(parseInt(targetVersion, 10));
             }
-        }
+        },
+
+        // --- MOB-05 (spec v2.8 §7.19, board-touch.js: long-press → held-drag) ---
+
+        /** Commit a card move to `targetLaneCards` at the slot resolved by
+            `afterCardEl` (null = top of the lane). THE shared commit path
+            for both the mouse DnD `drop` handler and the touch held-drag —
+            optimistic DOM move, PUT /v1/cards/{id}/move, revert-on-failure.
+            board-touch.js calls it on drop; it does NOT own the
+            dragInFlight lifecycle (the caller sets + clears it). */
+        touchDrag: {
+            /** true while a touch held-drag is in flight (board-touch.js).
+                Feeds the RT-04 sync guard (see guardReason above). */
+            isHeld: function () { return touchDragInFlight; },
+            setHeld: function (flag) { touchDragInFlight = !!flag; },
+            /** Commit the held card. Returns the Promise from the API call. */
+            commit: function (card, targetLaneCards, afterCardEl) {
+                return commitMoveToLane(card, targetLaneCards, afterCardEl);
+            },
+            /** Clear the drop-target highlights + ghost insertion line. */
+            clearIndicators: function () {
+                removeDropTargets();
+                removeDropIndicator();
+            },
+            /** Highlight `laneCards` + put the insertion line in the slot
+                resolved by `afterCardEl` (null = top of the lane).
+                Slot convention matches the mouse path: the indicator sits
+                at "after afterCardEl", which is exactly where
+                commitMoveToLane will drop the card. */
+            preview: function (laneCards, afterCardEl) {
+                removeDropTargets();
+                removeDropIndicator();
+                laneCards.classList.add('drop-target');
+                dropIndicator = document.createElement('div');
+                dropIndicator.className = 'drop-indicator';
+                dropIndicator.setAttribute('aria-hidden', 'true');
+                if (afterCardEl) {
+                    laneCards.insertBefore(dropIndicator, afterCardEl.nextSibling);
+                } else {
+                    laneCards.insertBefore(dropIndicator, laneCards.firstChild);
+                }
+            }
+        },
     };
 
     /* =============================================

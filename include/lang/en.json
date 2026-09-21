@@ -289,6 +289,7 @@
   "lane.title": "Lane Title",
   "lane.title_placeholder": "Enter lane title...",
   "nav.main": "Main navigation",
+  "board.long_press_hint": "Tip: press and hold a card to drag it to another lane. A quick swipe won't move it.",
   "nav.skip_to_content": "Skip to main content",
   "notification.assigned_to": "You were assigned to ''{0}''",
   "notification.commented_on": "{0} commented on ''{1}''",
