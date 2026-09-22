@@ -191,19 +191,29 @@ require ROOT_DIR . '/include/templates/header.php';
             <?= htmlspecialchars($lang->get('board.back'), ENT_QUOTES, 'UTF-8') ?>
         </a>
         <h1 class="board-view-title"><?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?></h1>
-        <label class="boards-filter-label board-archived-toggle">
-            <input type="checkbox" id="toggle-archived-cards" class="boards-filter-checkbox" <?= $includeArchived ? 'checked' : '' ?>>
-            <span class="text-sm"><?= htmlspecialchars($lang->get('board.show_archived'), ENT_QUOTES, 'UTF-8') ?></span>
-        </label>
-        <button type="button" class="board-manage-labels-btn btn btn-ghost btn-sm" id="board-manage-labels-btn" aria-haspopup="dialog" aria-controls="board-labels-modal" title="<?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M7 1L1.5 4v6L7 13l5.5-3V4L7 1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-            </svg>
-            <?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>
-        </button>
+        <?php
+        // MOB-02 (spec v2.8 §7.19): the board workspace header stays
+        // ONE ROW on phones. The "Show archived" checkbox and the
+        // "Manage labels" button live exactly ONCE in the DOM, in this
+        // .board-options block; CSS renders the block inline (desktop)
+        // or as the second header row (≤ 640px) — a single source of
+        // truth, no duplication, ids/handlers untouched.
+        ?>
+        <div class="board-options">
+            <label class="boards-filter-label board-archived-toggle">
+                <input type="checkbox" id="toggle-archived-cards" class="boards-filter-checkbox" <?= $includeArchived ? 'checked' : '' ?>>
+                <span class="text-sm"><?= htmlspecialchars($lang->get('board.show_archived'), ENT_QUOTES, 'UTF-8') ?></span>
+            </label>
+            <button type="button" class="board-manage-labels-btn btn btn-ghost btn-sm" id="board-manage-labels-btn" aria-haspopup="dialog" aria-controls="board-labels-modal" title="<?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>">
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M7 1L1.5 4v6L7 13l5.5-3V4L7 1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+                </svg>
+                <?= htmlspecialchars($lang->get('label.manage_title'), ENT_QUOTES, 'UTF-8') ?>
+            </button>
+        </div>
     </div>
 
-    <div class="board-lanes-container" role="region" aria-label="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">    <div class="board-lanes-container" role="region" aria-label="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">
+    <div class="board-lanes-container" role="region" aria-label="<?= htmlspecialchars($board['title'], ENT_QUOTES, 'UTF-8') ?>">
         <?php require ROOT_DIR . '/include/templates/board-region.php'; ?>
     </div>
 
@@ -503,6 +513,7 @@ $boardLang = json_encode([
     'card_full_details'    => $lang->get('card.full_details'),
     'card_no_assignees'    => $lang->get('card.no_assignees'),
     'card_selected_hint'   => $lang->get('card.selected_hint'),
+    'card_long_press_hint' => $lang->get('board.long_press_hint'),
     'card_assigned_self'   => $lang->get('card.assigned_self'),
     'card_unassigned_self' => $lang->get('card.unassigned_self'),
     'card_assignee_picker_label' => $lang->get('card.assignee_picker_label'),
@@ -622,10 +633,12 @@ $laneTemplatesJson = json_encode(
 // double-render he reported. mtime changes on every commit → fresh JS.
 $jsV   = function ($p) { return file_exists($p) ? (int) filemtime($p) : 1; };
 $boardJsV  = $jsV(__DIR__ . '/js/board.js');
+$touchJsV  = $jsV(__DIR__ . '/js/board-touch.js');
 $activityJsV = $jsV(__DIR__ . '/js/card-activity.js');
 $modalJsV = $jsV(__DIR__ . '/js/card-modal.js');
 ?>
 <script id="board-script" src="/js/board.js?v=<?= $boardJsV ?>" data-lang="<?= htmlspecialchars($boardLang, ENT_QUOTES, 'UTF-8') ?>" data-can-edit="<?= $canEdit ? '1' : '0' ?>" data-me="<?= (int) $currentUser['id'] ?>" data-role="<?= htmlspecialchars($currentUser['role'], ENT_QUOTES, 'UTF-8') ?>" data-lane-templates="<?= htmlspecialchars($laneTemplatesJson, ENT_QUOTES, 'UTF-8') ?>"></script>
+<script src="/js/board-touch.js?v=<?= $touchJsV ?>"></script>
 <script src="/js/card-activity.js?v=<?= $activityJsV ?>"></script>
 <script src="/js/card-modal.js?v=<?= $modalJsV ?>"></script>
 <?php require ROOT_DIR . '/include/templates/footer.php'; ?>

@@ -1,0 +1,67 @@
+/* Shuffle — offline fallback styling.
+ * Self-contained (no app.css) so the offline page survives a broken
+ * stylesheet deploy. Colors: dark-theme tokens from app.css, inlined. */
+:root {
+    --color-base: #0D0D12;
+    --color-raised: #161625;
+    --color-primary: #6D28D9;
+    --color-primary-subtle: rgba(109, 40, 217, 0.35);
+    --color-text: #E2E2EC;
+    --color-text-secondary: #9D9DAF;
+    --color-border: #2A2A3D;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--color-base);
+    color: var(--color-text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.offline-shell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    min-height: 100vh;
+    padding: 2rem 1.5rem;
+    text-align: center;
+}
+
+.offline-shell img {
+    width: 72px;
+    height: 72px;
+    display: block;
+}
+
+.offline-shell h1 {
+    margin: 0.25rem 0 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+.offline-shell p {
+    margin: 0;
+    max-width: 34rem;
+    color: var(--color-text-secondary);
+}
+
+.offline-cta {
+    display: inline-block;
+    margin-top: 1.25rem;
+    padding: 0.6rem 1.25rem;
+    border: 1px solid var(--color-primary);
+    background: var(--color-primary-subtle);
+    color: var(--color-text);
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.offline-cta:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}

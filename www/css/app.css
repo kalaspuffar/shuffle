@@ -4013,6 +4013,48 @@ small,
     }
 }
 
+/* Mobile width fix: the default `grid-auto-columns` / explicit `1fr` sizing
+   is `minmax(min-content, 1fr)` — the column sizes to its item's intrinsic
+   min-content, which on a 393 px viewport was measured at ~739 px because
+   the `.priority-section` inside the track has `min-width: auto` (block
+   default for list items) and its flex children (the `.priority-tier`
+   label + item row) report a large min-content. Forcing the section to
+   `min-width: 0` lets it shrink to the viewport, and the existing
+   ellipsis on the item link kicks in as intended.
+   Same fix for the single-column case at ≤760px (Daniel QA: "both inbox
+   and priority lists are still too wide" @ Pixel 9). */
+@media (max-width: 760px) {
+    .priority-columns {
+        min-width: 0;    /* the grid itself must not be forced wider than the viewport */
+    }
+    .priority-section {
+        min-width: 0;    /* allow the block to shrink below its intrinsic min-content */
+        overflow: hidden; /* belt-and-braces: clips the ~739 px intrinsic */
+    }
+    .priority-tier {
+        min-width: 0;    /* the list item is the direct child of the 1fr track */
+    }
+    .priority-list,
+    .priority-tier-items {
+        min-width: 0;    /* the flex containers inside the tier */
+    }
+    .priority-item,
+    .priority-item-inner,
+    .priority-item-title,
+    .priority-item-board,
+    .priority-item-lane {
+        min-width: 0;    /* every flex child that could push the intrinsic out */
+    }
+    .priority-item-meta {
+        min-width: 0;
+        flex: 0 1 auto;  /* allow the meta to shrink (default is 0 0 auto — refuses to shrink) */
+        max-width: 50%;  /* hard cap — the "board / lane" pill can take at most half the row */
+    }
+    .priority-item-marker {
+        flex: 0 0 auto;  /* the small marker keeps its width */
+    }
+}
+
 .priority-section {
     background: var(--color-raised);
     border: 1px solid var(--color-border);
@@ -5072,4 +5114,178 @@ small,
 
 .theme-choice-swatch--light {
     background: #F5F3FF;
+}
+
+
+/* ==================== v2.8 §7.19 — MOBILE SURFACE (MOB-01..09) ==========
+   Placed at the END of app.css on purpose: the top-level
+   .header-search { display:flex } (section 29) re-enables the search box
+   AFTER the ≤767px block that tried to hide it — that's the mechanism
+   behind the "everything overflows at 393 px" QA finding. Rules here live
+   later in the cascade, so they win at equal specificity. Everything is
+   scoped to ≤640px so the desktop (≥641px) render stays byte-identical
+   (MOB-09 regression gate). No new deps; desktop untouched.              */
+
+/* ------------------------------------------------------------------
+   MOB-01 · App header collapses to two rows on the phone.
+   DOM is unchanged from desktop (header.php single-source, no panel
+   copies, no duplicate ids — app.js user-menu handler keeps working).
+   Row 1: brand … bell + avatar            (always fits 393 px)
+   Row 2: [Boards] [Priority] …  [search]  (scrollable if 5 links)
+   The document therefore can't overflow horizontally because of the
+   header (acceptance criteria): every element stays ≤ clientWidth.
+   ------------------------------------------------------------------ */
+@media (max-width: 640px) {
+    .app-header {
+        position: relative;        /* containing block for the panels   */
+        height: auto;
+        min-height: var(--header-height);
+        flex-wrap: wrap;           /* ← the fix: one line → two, never overflow */
+        row-gap: var(--space-2);
+        column-gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+    }
+    .header-left {
+        flex: 1 1 auto;
+        min-width: 0;              /* let the title/links ellipsize      */
+        flex-wrap: wrap;
+        row-gap: var(--space-2);
+    }
+    .header-brand {
+        font-size: var(--font-size-base);
+        white-space: nowrap;
+    }
+    .header-nav {
+        flex: 0 1 auto;
+        min-width: 0;
+        overflow-x: auto;          /* 5 links → scroll, never push the doc wide */
+        scrollbar-width: none;
+    }
+    .header-nav::-webkit-scrollbar { display: none; }
+    .header-nav-link {
+        white-space: nowrap;
+        padding: var(--space-2) var(--space-3);   /* ≥ 44 px tall target (MOB-08) */
+    }
+    .header-right {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;         /* bell + chip on one line             */
+    }
+    .header-search {
+        flex: 1 1 40%;             /* shrink, don't force 200 px          */
+        min-width: 0;
+        display: flex;             /* (this rule is what the ≤767px block couldn't beat) */
+    }
+    .header-search-input {
+        width: 100%;               /* follow the form's width             */
+    }
+    .header-search-input:focus {
+        width: 100%;
+    }
+    .header-icon-btn {
+        min-width: 44px;           /* MOB-08 */
+        min-height: 44px;
+    }
+    .user-name { display: none; }  /* avatar only; row 1 stays compact    */
+    /* The two overlay panels (notifs + user menu) get the phone-safe
+       positions already covered by the ≤767px block: right-offset +
+       width calc(100vw…) — verified present at lines 2775-2777. */
+}
+
+/* ---------------- MOB-02: board workspace header, one row --------------
+   Desktop:  [Back]  [Title ....]  [Show archived ☐]  [Manage labels ⚙]
+   Mobile:   row 1 [Back] [Title ....]
+             row 2 [Show archived ☐]  [Manage labels ⚙]   ← the "menu"
+   The controls appear exactly ONCE in the DOM (board.php); CSS toggles
+   whether .board-options wraps to the second row or flows inline.    */
+@media (max-width: 640px) {
+    .board-view-header {
+        flex-wrap: wrap;
+        align-items: center;
+        row-gap: var(--space-2);
+        padding: var(--space-2) var(--space-3);
+        min-height: var(--header-height);
+    }
+    .board-view-title {
+        flex: 1 1 auto;      /* eat the leftover row-1 width so ⋯/options
+                                row is clean, but never shrink to zero */
+        min-width: 0;        /* allow ellipsis */
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .board-options {
+        flex-basis: 100%;    /* force onto the second row */
+        display: flex;
+        align-items: center;
+        gap: var(--space-2);
+        padding: 0;          /* the group itself carries no chrome */
+    }
+    .board-manage-labels-btn {
+        min-height: 44px;    /* MOB-08 */
+    }
+    .board-archived-toggle {
+        min-height: 44px;    /* MOB-08: the label row becomes a big tap target */
+        align-items: center;
+    }
+    .board-archived-toggle .boards-filter-checkbox {
+        width: 20px;
+        height: 20px;
+        margin: 0 var(--space-2) 0 0;
+    }
+    .lane-add-card-btn,
+    .lane-menu-btn {
+        min-height: 44px;    /* MOB-08 */
+        min-width: 44px;
+    }
+    .card-menu-btn {
+        min-width: 44px;     /* MOB-08: card ⋯ */
+        min-height: 44px;
+        opacity: 1;          /* no hover — always touch-visible on phone */
+    }
+
+    /* MOB-05/06: the board OWNS the touch gesture on a card.
+       `touch-action: none` (from the first touch, not mid-gesture) stops
+       the browser from claiming the touch for scrolling — with `pan-x
+       pan-y` Chrome fires `pointercancel` on the first move and kills the
+       held-drag (measured: held=true at 450 ms, gone before release).
+       All the contract logic then lives in board-touch.js, where it is
+       deterministic and unit-testable:
+         - hold stationary ≥ 450 ms  → held-drag (real card move)
+         - move before 450 ms       → hold aborted, the touch is a no-op
+                                     (a swipe can NEVER pick up a card)
+         - quick tap                → falls through to the existing click
+                                      handler (opens the card modal)
+       Lanes still scroll: the touch-action override is scoped to
+       `.lane-cards .card` only — the lane gaps, headers and footers keep
+       default panning.  */
+    .lane-cards .card {
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;   /* iOS: no long-press callout (board-touch.js owns the drag) */
+        -webkit-tap-highlight-color: transparent;
+    }
+}
+
+/* ---------------- MOB-04: card edit modal, full-bleed on phone --------
+   The modal itself is width/height 100% of the viewport with the
+   modal-overlay padding removed; the existing fixed header / tab bar /
+   scrollable-body layout (CARD-14) is preserved. Safe-area insets
+   honour the iOS home indicator when the viewport is cover-fitted.  */
+@media (max-width: 640px) {
+    .modal-overlay { padding: 0; }
+    .modal--card {
+        max-width: 100%;
+        width: 100%;
+        height: 100%;
+        max-height: 100%;
+        border-radius: 0;
+        /* Cover the viewport fully including under the status bar and
+           home indicator on iOS (viewport-fit=cover); the body scrolls,
+           the header/tab bar stay pinned.  */
+        padding: env(safe-area-inset-top, 0) env(0) env(safe-area-inset-bottom, 0) env(0);
+    }
+    .modal--card > .modal-card-body {
+        overscroll-behavior: contain;
+    }
 }

@@ -575,6 +575,11 @@ $stepLabels = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="<?= $csrfToken ?>">
     <title><?= $appName ?> — <?= t('setup.wizard_title') ?></title>
+    <!-- PWA (spec v1.21 §5.28): install surface is on every page, authed or not. -->
+    <meta name="theme-color" content="#6D28D9">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+    <link rel="icon" type="image/png" href="/img/favicon.png">
     <link rel="stylesheet" href="/css/app.css">
 </head>
 <body class="setup-page">
