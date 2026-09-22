@@ -238,4 +238,42 @@
         });
     }
 
+    /* ------------------------------------- language (INTL-01..10, v1.22) */
+    // Persist the chosen language via PUT /v1/me {language}. The page is
+    // server-rendered PHP, so the visible strings can't swap in place — on
+    // success we reload to land the new locale (the next navigation is always
+    // correct). value "" = explicit reset to the app default (sent as null).
+    // A failed persist reverts the <select> and flashes the error, so the
+    // visible control and the stored value never diverge (THEME-04 convergence).
+    var languageSelect = document.getElementById('language-select');
+    if (languageSelect) {
+        languageSelect.addEventListener('change', function () {
+            if (!isApiReady()) {
+                flash(LANG.language_error || 'Language change failed', false);
+                return;
+            }
+            var prev = languageSelect.value;
+            var value = (languageSelect.value === '') ? null : languageSelect.value;
+            languageSelect.disabled = true;
+            Shuffle.api('/v1/me', {
+                method: 'PUT',
+                body: { language: value }
+            }).then(function (result) {
+                languageSelect.disabled = false;
+                if (result.status === 200) {
+                    flash(LANG.language_saved || 'Language saved', true);
+                    window.location.reload();
+                } else {
+                    languageSelect.value = prev; // roll back to stored state
+                    flash((result && result.data && result.data.error)
+                        || (LANG.language_error || 'Language change failed'), false);
+                }
+            }).catch(function () {
+                languageSelect.disabled = false;
+                languageSelect.value = prev;
+                flash(LANG.language_error || 'Language change failed', false);
+            });
+        });
+    }
+
 })();

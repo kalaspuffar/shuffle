@@ -36,6 +36,8 @@ $profileLang = [
     'save_profile'        => $lang->get('profile.save_profile'),
     'change_password'     => $lang->get('profile.change_password'),
     'saved_ok'            => $lang->get('flash.profile_saved'),
+    'language_saved'      => $lang->get('flash.language_saved'),
+    'language_error'      => $lang->get('flash.language_error'),
     'password_changed'    => $lang->get('flash.password_changed'),
     'test_email_sent'     => $lang->get('flash.test_email_sent'),
     'test_email_failed'   => $lang->get('flash.test_email_failed'),
@@ -122,6 +124,22 @@ require ROOT_DIR . '/include/templates/header.php';
     <div class="form-actions form-actions--inline">
         <button type="button" class="btn btn-primary" id="email-notif-save"><?= htmlspecialchars($lang->get('profile.save_profile'), ENT_QUOTES, 'UTF-8') ?></button>
         <button type="button" class="btn btn-ghost" id="test-email-btn"><?= htmlspecialchars($lang->get('profile.send_test_email'), ENT_QUOTES, 'UTF-8') ?></button>
+    </div>
+</section>
+
+    <!-- Language (INTL-01..10, v1.22 §5.29): PUT /v1/me {language} — immediate persist, page reload -->
+<section class="profile-section profile-form profile-language" id="language-section" aria-labelledby="profile-language-heading">
+    <h2 id="profile-language-heading"><?= htmlspecialchars($lang->get('profile.section_language'), ENT_QUOTES, 'UTF-8') ?></h2>
+
+    <div class="form-group">
+        <label class="form-label" for="language-select"><?= htmlspecialchars($lang->get('profile.language'), ENT_QUOTES, 'UTF-8') ?></label>
+        <select id="language-select" name="language" class="form-input form-input--select">
+            <option value="" <?= ($user['language'] ?? null) === null ? 'selected' : '' ?>><?= htmlspecialchars($lang->get('profile.language_default'), ENT_QUOTES, 'UTF-8') ?></option>
+            <?php foreach (\Shuffle\Core\Lang::availableLanguages(ROOT_DIR . '/include/lang') as $code => $nativeName): ?>
+            <option value="<?= htmlspecialchars($code, ENT_QUOTES, 'UTF-8') ?>" <?= ($user['language'] ?? null) === $code ? 'selected' : '' ?>><?= htmlspecialchars($nativeName, ENT_QUOTES, 'UTF-8') ?></option>
+            <?php endforeach; ?>
+        </select>
+        <small class="form-help"><?= htmlspecialchars($lang->get('profile.language_hint'), ENT_QUOTES, 'UTF-8') ?></small>
     </div>
 </section>
 
