@@ -105,7 +105,9 @@ Shuffle is open to contributions. Here's how to get involved:
 
 4. **Follow the existing patterns.** No Composer, no npm, no frameworks. All text must be externalizable (no hardcoded user-facing strings). WCAG 2.1 AA compliance is required.
 
-5. **Submit a pull request.** Include a clear description of what changed and reference any related issues.
+5. **Adding a language?** That's a one-file change — see [doc/i18n.md](doc/i18n.md). Copy `include/lang/sv.json`, translate, done; keys you omit safely fall back to English.
+
+6. **Submit a pull request.** Include a clear description of what changed and reference any related issues.
 
 ### Reporting Issues
 
