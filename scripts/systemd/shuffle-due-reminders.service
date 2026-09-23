@@ -1,0 +1,60 @@
+# shuffle-due-reminders.service — NOTIF-05 due-date reminders (SPEC v1.23 §5.30)
+#
+# Template — DO NOT install directly. It contains __USER__ / __SHUFFLE_ROOT__
+# placeholders. `scripts/install-due-reminders.sh` substitutes the real values,
+# installs the service + its companion timer, enables + starts them.
+#
+# Why a one-shot service + timer (and not a long-lived daemon): the due-date
+# scan is a discrete, rarely-fired job — a handful of SQL rows scanned once per
+# hour, not a socket server. A one-shot runs, prints "N fired", exits; the
+# claim table (due_reminders) makes it idempotent AND crash-safe, so running
+# it twice (timer + a missed-hour catch-up, or timer + a manual run) just
+# no-ops the second run. Keep it out of the shuffle-ws push daemon so a broken
+# scan never takes down live board-push, and the two have separate restart
+# domains + logs.
+#
+# Scheduling: shuffle-due-reminders.timer (OnCalendar=hourly,
+# Persistent=true — a host that was down at the tick catches up on next boot).
+# Cron fallback (no systemd timers): doc/setup.md, `0 * * * * php …/due-reminder-scan.php`.
+#
+# Logs:   journalctl -u shuffle-due-reminders
+# Status: systemctl status shuffle-due-reminders (service: last run)
+#         systemctl list-timers shuffle-due-reminders
+#
+# NOTE: hardening is lighter than shuffle-ws because this is a short
+# foreground PHP job (no sockets, no network listeners of its own — it only
+# opens the MariaDB socket + the optional SMTP socket, both outbound).
+
+[Unit]
+Description=Shuffle due-date reminder scan (one-shot, NOTIF-05)
+After=network.target mariadb.service
+
+[Service]
+Type=oneshot
+User=__USER__
+WorkingDirectory=__SHUFFLE_ROOT__
+# Idempotent migrations — safe on every scheduled run (a brand-new host gets
+# its schema on the first tick; existing hosts no-op). Keeps the service
+# self-healing across code upgrades.
+ExecStartPre=/usr/bin/php __SHUFFLE_ROOT__/bin/add-user-due-remind-hours.php
+ExecStartPre=/usr/bin/php __SHUFFLE_ROOT__/bin/add-due-reminders.php
+ExecStartPre=/usr/bin/php __SHUFFLE_ROOT__/bin/add-notification-due-type.php
+ExecStart=/usr/bin/php __SHUFFLE_ROOT__/bin/due-reminder-scan.php
+# Do not retry a failed scan automatically — the next hourly tick (or the
+# Persistent catch-up on boot) is the retry. No Restart= for oneshot.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# Give a single pass a sane wall time (no sockets to hang on; a wedged SMTP
+# connect is bounded by the Mailer's own timeout).
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

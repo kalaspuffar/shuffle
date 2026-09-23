@@ -370,3 +370,51 @@ git pull
 ```
 
 There is no automated migration tool; schema changes between versions are listed in the release notes.
+
+## 11. Scheduled jobs (due-date reminders, NOTIF-05)
+
+The due-date reminder scan is a short one-shot pass, run on a schedule. It is
+idempotent and crash-safe: a `due_reminders` claim table records each fired
+`card / user / due date` triple, so a second run — the next hourly tick, a
+catch-up after downtime, or a manual run — never re-fires a reminder it has
+already sent.
+
+**Install (systemd service + hourly timer, recommended):**
+
+```bash
+sudo bash scripts/install-due-reminders.sh
+# renders + installs shuffle-due-reminders.{service,timer}, validates the
+# first pass by hand, enables the timer. Re-run after every code update.
+```
+
+```bash
+systemctl status shuffle-due-reminders             # last scan run
+systemctl list-timers shuffle-due-reminders.timer  # next scheduled tick
+journalctl -u shuffle-due-reminders -f             # watch it fire
+```
+
+The timer is `OnCalendar=hourly` + `Persistent=true` (a host that was off at
+the tick catches it up on boot, and the claim table keeps that catch-up run
+from double-firing).
+
+**Cron fallback (no systemd timers):**
+
+```bash
+crontab -e
+# hourly — the claim table keeps this idempotent, exactly like the timer
+0 * * * * /usr/bin/php /path/to/shuffle/bin/due-reminder-scan.php >> /var/log/shuffle-due.log 2>&1
+```
+
+**First-run migrations (idempotent, run once by the installer or by hand):**
+
+```bash
+php bin/add-user-due-remind-hours.php     # users.due_remind_hours (NULL = off)
+php bin/add-due-reminders.php             # due_reminders claim table
+php bin/add-notification-due-type.php     # notifications.type += 'due'
+```
+
+Users opt in on their profile page (a "remind me N hours before" field,
+1–720); until they set it, a card's due date never reminds them (the default
+is off, matching email notifications). The scan reuses the SMTP +
+`app.url` + `email_notifications` plumbing from the email-notification
+feature, so a delivery failure is logged and never blocks the app.

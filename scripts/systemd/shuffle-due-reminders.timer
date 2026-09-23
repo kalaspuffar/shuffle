@@ -1,0 +1,30 @@
+# shuffle-due-reminders.timer — NOTIF-05 due-date reminders (SPEC v1.23 §5.30)
+#
+# Hourly schedule for the shuffle-due-reminders.service one-shot scan.
+#
+# OnCalendar=hourly          — a pass at the top of every hour, all day.
+#                              Hourly is the floor the spec names (per-user
+#                              offsets are whole hours 1..720, so an hourly
+#                              pass is the natural granularity).
+# Persistent=true            — if the host was powered off at a tick, run
+#                              once on (re)boot instead of skipping the hour.
+#                              The due_reminders claim table makes the
+#                              catch-up run idempotent (already-fired
+#                              reminders no-op), so "missed then fired" can
+#                              never produce a double reminder.
+# AccuracySec=1m             — small slack so the timer doesn't fire a burst
+#                              right at :00:00 alongside other hourly jobs.
+#
+# Status: systemctl list-timers shuffle-due-reminders
+
+[Unit]
+Description=Shuffle due-date reminder scan (hourly)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+AccuracySec=1min
+Unit=shuffle-due-reminders.service
+
+[Install]
+WantedBy=timers.target

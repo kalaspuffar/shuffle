@@ -115,6 +115,9 @@ class UserController
             // v1.18 NOTIF-06: email_notifications is the user's own
             // preference — admin/self-only, the same privacy class as email.
             $user['email_notifications'] = null;
+            // v1.23 NOTIF-05: due_remind_hours is the user's own preference
+            // (remind-me N hours before a due date) — same privacy class.
+            $user['due_remind_hours'] = null;
         }
 
         $response->json(['user' => $user]);

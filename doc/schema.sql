@@ -360,21 +360,25 @@ CREATE TABLE IF NOT EXISTS `board_events` (
 
 -- -----------------------------------------------------------
 -- due_reminders (NOTIF-05 due-date reminders, v1.23 §5.30): the
--- claim table that makes "one reminder per card per recipient"
--- true and crash-safe. One row = "this user was already reminded
--- about this card's due date". The scan claims (INSERT IGNORE,
--- PK = card_id, user_id) BEFORE firing; affectedRows()==0 means
--- an earlier scan already fired for this pair, so it is skipped.
--- A crash between claim and fire therefore biases to "at most
--- one reminder, never two" (a missed reminder is tolerable, a
--- double reminder is noise). Card/lane/board cascade-deletion
--- carries the card_id FK; user_id is cascade-deleted too.
+-- claim table that makes "one due-date reminder per card per
+-- recipient per due date" true and crash-safe. One row = "this user
+-- was already reminded about this card AT THIS due date". The scan
+-- claims (INSERT IGNORE, PK = card_id, user_id, due_date) BEFORE
+-- firing; affectedRows()==0 means an earlier scan already fired for
+-- this (card, user, due date) triple, so it is skipped. A crash
+-- between the claim and the fire therefore biases to "at most one
+-- reminder, never two" (a missed reminder is tolerable, a double
+-- reminder is noise). Keying on due_date (not just card+user) means
+-- a CHANGED due date re-arms the reminder while the SAME due date
+-- never re-fires. Card/lane/board cascade-deletion carries the
+-- card_id FK; user_id is cascade-deleted too.
 -- -----------------------------------------------------------
 CREATE TABLE IF NOT EXISTS `due_reminders` (
     `card_id`     INT UNSIGNED NOT NULL,
     `user_id`     INT UNSIGNED NOT NULL,
+    `due_date`    DATE         NOT NULL,
     `reminded_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`card_id`, `user_id`),
+    PRIMARY KEY (`card_id`, `user_id`, `due_date`),
     CONSTRAINT `fk_due_reminders_card` FOREIGN KEY (`card_id`)
         REFERENCES `cards` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_due_reminders_user` FOREIGN KEY (`user_id`)
