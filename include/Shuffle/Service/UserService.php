@@ -224,6 +224,33 @@ TEXT;
             $updateData['theme_preference'] = $theme;
         }
 
+        // Language preference (INTL-05, v1.22 §5.29). `users.language` is
+        // VARCHAR(10) NULL — NULL is a first-class value meaning "app default"
+        // (the setup-wizard app.locale), so the setter must be able to WRITE
+        // null: {language: null} is the explicit reset, an omitted key writes
+        // nothing (the array_key_exists discriminator, same as theme_preference).
+        // A non-null value must name an available language (INTL-06: available
+        // := include/lang/{code}.json exists + parses) and match the locale
+        // format EXACTLY (case-sensitive — "SV" is 400, stored values are
+        // lowercase codes). Non-strings are 400. The admin path is gated at
+        // the controller layer (UserController::update does not advertise a
+        // language field — self-service only, the THEME-01 model); the shared
+        // funnel accepts the value regardless of which path brought it.
+        if (array_key_exists('language', $data)) {
+            $langValue = $data['language'];
+            if ($langValue !== null) {
+                // Locale format (also the path-traversal guard) + the file
+                // must exist: available language (INTL-06) — case-sensitive.
+                if (!is_string($langValue)
+                    || preg_match('/^[a-z]{2,3}(_[A-Z]{2})?$/', $langValue) !== 1
+                    || !file_exists(ROOT_DIR . '/include/lang/' . $langValue . '.json')
+                ) {
+                    throw new \InvalidArgumentException('Invalid language');
+                }
+            }
+            $updateData['language'] = $langValue; // null passes through → the column's NULL
+        }
+
         // Admin-only fields: role, organization_id, status
         if ($isAdmin) {
             if (isset($data['role'])) {

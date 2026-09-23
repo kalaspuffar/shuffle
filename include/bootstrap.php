@@ -66,10 +66,63 @@ try {
 $session = new Shuffle\Core\Session($db, $config['session']);
 $session->start();
 
-// 6. Initialize i18n
+// 6. Initialize i18n (INTL-02/03, v1.22 §5.29)
+//
+// Locale resolution order:
+//   (1) the logged-in user's preference  — users.language (NULL = "app default")
+//   (2) the app default                  — app.locale (setup wizard / config.php)
+//   (3) en                                — ships on every install, authoritative
+//
+// Every hop checks the file exists (INTL-03): a preference whose language file
+// was removed (e.g. a community file) falls back SILENTLY — the user is never
+// told their preference is broken. A language may still be *selected* (its
+// row persists) even if its file is missing; only the render falls back.
+// The English base layer is loaded by Lang itself for non-'en' locales so a
+// KEY MISSING FROM THE LANGUAGE FILE renders in English, never as a raw key
+// (INTL-04). Unauthenticated pages (no $_SESSION['user_id']) skip step (1)
+// and render the app default — the preference travels with the user, not the
+// browser (THEME-03 model).
+$appLocale = $config['app']['locale'] ?? 'en';
+$locale = $appLocale;
+try {
+    if (isset($_SESSION['user_id']) && $_SESSION['user_id'] !== null) {
+        $prefRow = $db->fetch(
+            'SELECT `language` FROM `users` WHERE `id` = ?',
+            [(int) $_SESSION['user_id']]
+        );
+        // Guard against a missing `language` column before the migration has
+        // run on a fresh install: the SELECT would throw, and we must boot.
+        if (is_array($prefRow) && array_key_exists('language', $prefRow)) {
+            $userLang = $prefRow['language'];
+            if (is_string($userLang) && $userLang !== ''
+                && preg_match('/^[a-z]{2,3}(_[A-Z]{2})?$/', $userLang) === 1
+            ) {
+                $locale = $userLang;
+            }
+        }
+    }
+} catch (\Throwable $e) {
+    // DB not reachable / column absent → fall through to the app default.
+    $locale = $appLocale;
+}
+
+$langDir = ROOT_DIR . '/include/lang';
+$exists = static function (string $code) use ($langDir): bool {
+    return file_exists(rtrim($langDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $code . '.json');
+};
+
+// (1) → (2) → (3) file-existence chain (INTL-03 silent fallback).
+if (!$exists($locale)) {
+    $locale = $appLocale;
+}
+if (!$exists($locale)) {
+    $locale = ($exists('en')) ? 'en' : $appLocale; // en is the normal path
+}
+
 $lang = new Shuffle\Core\Lang(
-    $config['app']['locale'] ?? 'en',
-    ROOT_DIR . '/include/lang'
+    $locale,
+    ROOT_DIR . '/include/lang',
+    ($locale === 'en') ? null : 'en'   // INTL-04: English base layer backfill
 );
 
 // 7. Initialize CSRF token manager

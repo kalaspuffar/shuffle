@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `email`                   VARCHAR(255)                          NOT NULL,
     `email_notifications`     TINYINT(1)     NOT NULL DEFAULT 0,    -- NOTIF-06 (v1.18): per-user email opt-in, OFF by default
     `theme_preference`        ENUM('dark','light') NOT NULL DEFAULT 'dark',  -- THEME-01 (v1.20): per-user theme choice, dark by default
+    `language`                VARCHAR(10)                          NULL,          -- INTL-01 (v1.22): per-user interface language, NULL = app default
     `phone`                   VARCHAR(32)                           NULL,          -- USER-01 (v1.14)
     `location`                VARCHAR(120)                          NULL,          -- USER-01 (v1.14)
     `bio`                     TEXT                                  NULL,          -- USER-01 (v1.14)

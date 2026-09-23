@@ -41,7 +41,7 @@ $csrfToken = htmlspecialchars($csrf->getToken(), ENT_QUOTES, 'UTF-8');
 $themePref = (isset($currentUser['theme_preference']) ? $currentUser['theme_preference'] : 'dark');
 if ($themePref !== 'light') { $themePref = 'dark'; }
 ?>
-<html lang="<?= htmlspecialchars($lang->get('app.locale') ?? 'en', ENT_QUOTES, 'UTF-8') ?>" data-theme="<?= $themePref ?>">
+<html lang="<?= htmlspecialchars($lang->getLocale(), ENT_QUOTES, 'UTF-8') ?>" data-theme="<?= $themePref ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -619,5 +619,13 @@
   "admin.users.reset_password_title": "Reset user's password",
   "admin.users.reset_password_hint": "Set a new password for this user. The current password is not required. The user will be able to log in with the new password immediately.",
   "admin.users.reset_password_new": "New password (min 8 characters)",
-  "admin.users.reset_password_btn": "Reset"
+  "admin.users.reset_password_btn": "Reset",
+
+  "en.__native_name": "English",
+  "profile.section_language": "Language",
+  "profile.language": "Interface language",
+  "profile.language_default": "Default (app)",
+  "profile.language_hint": "Applies to your interface on every device you're signed in from. If a language is missing a translation, that text appears in English.",
+  "flash.language_saved": "Interface language saved.",
+  "flash.language_error": "Language change failed. Please try again."
 }
