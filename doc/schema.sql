@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `email_notifications`     TINYINT(1)     NOT NULL DEFAULT 0,    -- NOTIF-06 (v1.18): per-user email opt-in, OFF by default
     `theme_preference`        ENUM('dark','light') NOT NULL DEFAULT 'dark',  -- THEME-01 (v1.20): per-user theme choice, dark by default
     `language`                VARCHAR(10)                          NULL,          -- INTL-01 (v1.22): per-user interface language, NULL = app default
+    `due_remind_hours`        INT UNSIGNED                         NULL,          -- NOTIF-05 (v1.23): remind N hours before a due date, NULL = reminders off
     `phone`                   VARCHAR(32)                           NULL,          -- USER-01 (v1.14)
     `location`                VARCHAR(120)                          NULL,          -- USER-01 (v1.14)
     `bio`                     TEXT                                  NULL,          -- USER-01 (v1.14)
@@ -222,7 +223,7 @@ CREATE TABLE IF NOT EXISTS `attachments` (
 CREATE TABLE IF NOT EXISTS `notifications` (
     `id`           INT UNSIGNED                    NOT NULL AUTO_INCREMENT,
     `user_id`      INT UNSIGNED                    NOT NULL,
-    `type`         ENUM('assignment', 'comment', 'creator') NOT NULL,
+    `type`         ENUM('assignment', 'comment', 'creator', 'due') NOT NULL,      -- NOTIF-05 (v1.23): 'due' = due-date reminder
     `reference_id` INT UNSIGNED                    NOT NULL,
     `comment_id`   INT UNSIGNED                    NULL,
     `message`      VARCHAR(512)                    NOT NULL,
@@ -355,6 +356,29 @@ CREATE TABLE IF NOT EXISTS `board_events` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_board_events_board_version` (`board_id`, `version`),
     KEY `idx_board_events_board_id` (`board_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------
+-- due_reminders (NOTIF-05 due-date reminders, v1.23 §5.30): the
+-- claim table that makes "one reminder per card per recipient"
+-- true and crash-safe. One row = "this user was already reminded
+-- about this card's due date". The scan claims (INSERT IGNORE,
+-- PK = card_id, user_id) BEFORE firing; affectedRows()==0 means
+-- an earlier scan already fired for this pair, so it is skipped.
+-- A crash between claim and fire therefore biases to "at most
+-- one reminder, never two" (a missed reminder is tolerable, a
+-- double reminder is noise). Card/lane/board cascade-deletion
+-- carries the card_id FK; user_id is cascade-deleted too.
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `due_reminders` (
+    `card_id`     INT UNSIGNED NOT NULL,
+    `user_id`     INT UNSIGNED NOT NULL,
+    `reminded_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`card_id`, `user_id`),
+    CONSTRAINT `fk_due_reminders_card` FOREIGN KEY (`card_id`)
+        REFERENCES `cards` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_due_reminders_user` FOREIGN KEY (`user_id`)
+        REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;
