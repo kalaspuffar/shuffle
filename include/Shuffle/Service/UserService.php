@@ -251,6 +251,33 @@ TEXT;
             $updateData['language'] = $langValue; // null passes through → the column's NULL
         }
 
+        // Due-remind offset (NOTIF-05, v1.23 §5.30). `users.due_remind_hours`
+        // is INT UNSIGNED NULL — NULL is a first-class value meaning
+        // "reminders OFF for this user" (the default; never set
+        // automatically, same posture as email_notifications). Accepts
+        //   * null            → stored NULL (turn off)
+        //   * an integer 1..720 → stored as the reminder offset in hours
+        //     (1 hour .. 30 days; a future widen is a code-only change, the
+        //     schema has no bound so no migration)
+        // and nothing else. A non-integer (string "720", float 1.5, boolean,
+        // 0, or a negative/ out-of-range value) is 400. Omitted key writes
+        // nothing (the array_key_exists discriminator, same as language).
+        // Self-service — the admin path is gated at the controller layer
+        // (UserController::update does not advertise the field; a preference
+        // is the user's own choice, the theme_preference model). The shared
+        // funnel accepts the value regardless of which path brought it.
+        if (array_key_exists('due_remind_hours', $data)) {
+            $dueVal = $data['due_remind_hours'];
+            if ($dueVal !== null) {
+                if (!is_int($dueVal) || $dueVal < 1 || $dueVal > 720) {
+                    throw new \InvalidArgumentException(
+                        'due_remind_hours must be an integer between 1 and 720, or null to disable'
+                    );
+                }
+            }
+            $updateData['due_remind_hours'] = $dueVal; // null passes through → the column's NULL
+        }
+
         // Admin-only fields: role, organization_id, status
         if ($isAdmin) {
             if (isset($data['role'])) {

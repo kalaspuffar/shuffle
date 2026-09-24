@@ -46,6 +46,7 @@ $profileLang = [
     'err_password_mismatch' => $lang->get('profile.err_password_mismatch'),
     'err_current_wrong'     => $lang->get('profile.err_current_wrong'),
     'err_name_required'     => $lang->get('profile.err_name_required'),
+    'due_remind_range' => $lang->get('profile.due_remind_range'),
     'err_server'            => $lang->get('error.server_error'),
 ];
 
@@ -124,6 +125,24 @@ require ROOT_DIR . '/include/templates/header.php';
     <div class="form-actions form-actions--inline">
         <button type="button" class="btn btn-primary" id="email-notif-save"><?= htmlspecialchars($lang->get('profile.save_profile'), ENT_QUOTES, 'UTF-8') ?></button>
         <button type="button" class="btn btn-ghost" id="test-email-btn"><?= htmlspecialchars($lang->get('profile.send_test_email'), ENT_QUOTES, 'UTF-8') ?></button>
+    </div>
+</section>
+
+    <!-- Due-date reminders (NOTIF-05, v1.23 §5.30): PUT /v1/me {due_remind_hours} — immediate persist -->
+<section class="profile-section profile-form profile-due-remind" id="due-remind-section" aria-labelledby="profile-due-remind-heading">
+    <h2 id="profile-due-remind-heading"><?= htmlspecialchars($lang->get('profile.section_due_reminders'), ENT_QUOTES, 'UTF-8') ?></h2>
+
+    <div class="form-group">
+        <label class="form-label" for="due-remind-hours"><?= htmlspecialchars($lang->get('profile.due_remind_hours'), ENT_QUOTES, 'UTF-8') ?></label>
+        <input type="number" id="due-remind-hours" name="due_remind_hours" class="form-input"
+            inputmode="numeric" min="1" max="720" step="1"
+            value="<?= $user['due_remind_hours'] !== null ? (int) $user['due_remind_hours'] : '' ?>"
+            placeholder="—">
+        <small class="form-help"><?= htmlspecialchars($lang->get('profile.due_remind_hours_help'), ENT_QUOTES, 'UTF-8') ?></small>
+    </div>
+
+    <div class="form-actions form-actions--inline">
+        <button type="button" class="btn btn-primary" id="due-remind-save"><?= htmlspecialchars($lang->get('profile.save_profile'), ENT_QUOTES, 'UTF-8') ?></button>
     </div>
 </section>
 

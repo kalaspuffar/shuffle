@@ -222,9 +222,11 @@
         item.setAttribute('role', 'listitem');
         item.setAttribute('data-notification-id', notification.id);
 
-        // Icon based on type
+    // Icon based on type: assignment = person; due (NOTIF-05) = clock; else = speech bubble.
         var iconSvg = notification.type === 'assignment'
             ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm0 2c-4 0-6 2-6 3v1h12v-1c0-1-2-3-6-3z" fill="currentColor"/></svg>'
+            : (notification.type === 'due')
+            ? '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M8 4.5V8l2.5 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
             : '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 3h12v8H6l-4 3V3z" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
         var timeAgo = formatTimeAgo(notification.created_at);

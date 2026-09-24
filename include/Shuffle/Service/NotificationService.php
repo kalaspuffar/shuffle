@@ -48,6 +48,19 @@ class NotificationService
         $this->lang = $lang;
     }
 
+    // v1.23 NOTIF-05 delivery (optional — null = no due-date reminders at all;
+    // e.g. standalone test harnesses that do not wire the DB directly).
+    private ?\Shuffle\Core\Database $database = null;
+
+    /**
+     * Injects the raw Database (for the `due_reminders` claim INSERT).
+     * Required for scanDueReminders(); not required for the v1.18 notify* path.
+     */
+    public function setDatabase(\Shuffle\Core\Database $database): void
+    {
+        $this->database = $database;
+    }
+
     /**
      * Injects the User model (recipient email + opt-in lookup).
      * Required alongside setMailer() for email delivery.
@@ -472,5 +485,174 @@ class NotificationService
             $this->emailBody($message, null),
             $message
         );
+    }
+
+    /* ====================================================================
+     * NOTIF-05 (v1.23 §5.30) — due-date reminders
+     * ====================================================================
+     * Scheduled one-shot (bin/due-reminder-scan.php, hourly). Fires a
+     * per-user "remind N hours before" for every card whose due date is
+     * approaching, at each assignee's own offset. One bell row per
+     * (card, recipient), always; an email mirror for that recipient when
+     * their NOTIF-06 opt-in is on (non-fatal). Once per card per
+     * recipient, crash-safe: the due_reminders claim table is the single
+     * dedupe truth — claim (INSERT IGNORE) BEFORE firing, so a crash
+     * between the two biases to "at most one reminder, never two".
+     *
+     * Exclusions (spec §5.30): no due date, archived, completed lane
+     * (LaneRules::isCompleteLane — shared with the priority digest), and
+     * already past due (NOW() >= due_date + 1 day).
+     */
+
+    /**
+     * Scans for due-date reminders that are due now and fires them.
+     *
+     * Returns the number of (card, recipient) reminders fired by this run.
+     * Safe to call repeatedly and concurrently (the claim table serializes
+     * firing per pair; a second run is a no-op for already-claimed pairs).
+     *
+     * Requires setDatabase() (claim INSERT). Bell rows are unconditional;
+     * email fan-out additionally requires setUserModel() + setMailer().
+     */
+    public function scanDueReminders(): int
+    {
+        if ($this->database === null) {
+            return 0; // delivery not wired (legacy / standalone harness)
+        }
+
+        // Candidate (card, assignee) pairs whose personal window has opened:
+        //   NOW() >= due_date - due_remind_hours  (inside the user's window)
+        //   NOW() <  due_date + 1 day             (not already past due)
+        // The completed-lane exclusion is a regex predicate, so it is applied
+        // in PHP below (LaneRules — the single source of truth) BEFORE the
+        // claim, so a completed card never consumes a claim.
+        $rows = $this->database->fetchAll(
+            'SELECT c.id AS card_id, c.title AS card_title, c.due_date AS due_date,
+                    l.title AS lane_title,
+                    ca.user_id AS user_id,
+                    u.due_remind_hours AS remind_hours
+             FROM cards c
+             JOIN lanes l              ON c.lane_id = l.id
+             JOIN card_assignments ca  ON ca.card_id = c.id
+             JOIN users u              ON u.id = ca.user_id
+             WHERE c.due_date IS NOT NULL
+               AND c.is_archived = 0
+               AND u.due_remind_hours IS NOT NULL
+               AND NOW() >= DATE_SUB(c.due_date, INTERVAL u.due_remind_hours HOUR)
+               AND NOW() <  DATE_ADD(c.due_date, INTERVAL 1 DAY)
+             ORDER BY c.due_date ASC, c.id ASC, u.id ASC',
+            []
+        );
+
+        $fired = 0;
+        $firedEmails = []; // list of {user_id, card_id, message} for opted-in recipients
+
+        foreach ($rows as $row) {
+            // Completed lanes are never reminded (LaneRules = digest parity).
+            if (\Shuffle\Core\LaneRules::isCompleteLane((string) $row['lane_title'])) {
+                continue;
+            }
+
+            $cardId  = (int) $row['card_id'];
+            $userId  = (int) $row['user_id'];
+            $dueDate = (string) $row['due_date'];
+            $title   = mb_substr((string) $row['card_title'], 0, 100, 'UTF-8');
+            $dueText = date('D, j M Y', strtotime($dueDate) ?: time());
+            $message = $this->lang->get('notification.due_reminder', [$title, $dueText]);
+
+            try {
+                // CLAIM FIRST: one reminder per (card, user, due date),
+                // crash-safe. execute() returns the affected-row count:
+                // 1 = this run won the claim, 0 = already claimed (either
+                // by an earlier scan or by the same card+user for the SAME
+                // due date — a CHANGED due date is a different PK row and
+                // re-arms the reminder, which is the desired behavior).
+                $claimed = $this->database->execute(
+                    'INSERT IGNORE INTO due_reminders (card_id, user_id, due_date) VALUES (?, ?, ?)',
+                    [$cardId, $userId, $dueDate]
+                );
+                if ((int) $claimed === 0) {
+                    continue; // already claimed
+                }
+
+                // BELL ROW (always, this run won the claim).
+                $this->notificationModel->create([
+                    'user_id'      => $userId,
+                    'type'         => 'due',
+                    'reference_id' => $cardId,
+                    'comment_id'   => null,
+                    'message'      => $message,
+                ]);
+                $fired++;
+
+                // EMAIL (opt-in gated; NOTIF-06 contract) — batched after.
+                $firedEmails[] = ['user_id' => $userId, 'card_id' => $cardId, 'message' => $message];
+            } catch (\Throwable $e) {
+                // A claim that cannot be honoured is logged, not fatal: the
+                // scan continues to the next pair (NOTIF-06 non-fatal discipline).
+                error_log('NOTIF-05 due reminder for card ' . $cardId . ' user ' . $userId . ' failed: ' . $e->getMessage());
+            }
+        }
+
+        // Email fan-out for the fired pairs, opt-in gated, non-fatal.
+        $this->emitDueEmails($firedEmails);
+
+        return $fired;
+    }
+
+    /**
+     * Mirrors fired due-reminder messages to opted-in mailboxes (NOTIF-06
+     * contract: the body/link/footer are the existing NOTIF-06 helpers, so
+     * the email is byte-identical in shape to the in-app row). Non-fatal —
+     * a per-recipient SMTP failure is logged and never escapes.
+     */
+    private function emitDueEmails(array $fired): void
+    {
+        if ($fired === []) {
+            return;
+        }
+        if ($this->mailer === null || $this->userModel === null || $this->appUrl === '') {
+            return; // email delivery not configured (CLI / harness)
+        }
+
+        $userIds = [];
+        foreach ($fired as $f) {
+            $userIds[(int) $f['user_id']] = true;
+        }
+        try {
+            $prefs = $this->userModel->emailPrefsByIds(array_keys($userIds));
+        } catch (\Throwable $e) {
+            error_log('NOTIF-05 due email prefetch failed: ' . $e->getMessage());
+            return;
+        }
+        // Keep only opted-in recipients (id => email).
+        $optedIn = [];
+        foreach ($prefs as $id => $row) {
+            if ((int) $row['email_notifications'] === 1 && (string) $row['email'] !== '') {
+                $optedIn[(int) $id] = (string) $row['email'];
+            }
+        }
+        if ($optedIn === []) {
+            return; // nobody opted in — hot path costs exactly one IN-query
+        }
+
+        foreach ($fired as $f) {
+            $userId = (int) $f['user_id'];
+            if (!isset($optedIn[$userId])) {
+                continue; // bell row already created; email is opt-in
+            }
+            $cardId  = (int) $f['card_id'];
+            $message = (string) $f['message'];
+            try {
+                $link = $this->cardLink($cardId, null);
+                if ($link === null) {
+                    continue; // card's board vanished — degrade, don't send a dead link
+                }
+                $this->mailer->send($optedIn[$userId], $message, $this->emailBody($message, $link), trim($message . "\n\n" . $link));
+            } catch (\Throwable $e) {
+                // Non-fatal by contract: the bell row stands, the scan is done.
+                error_log('NOTIF-05 due email for card ' . $cardId . ' to user ' . $userId . ' failed: ' . $e->getMessage());
+            }
+        }
     }
 }

@@ -701,37 +701,35 @@ class PriorityService
     }
 
     /**
-     * Lane-title matchers (PRIO-04 + v1.9 complete-lane rule):
-     * case-insensitive, anchored, word-bounded.
-     *   isDoneLane     — "Done" / "Done-ness" / "done — v2" match (hyphen IS a
-     *                    word boundary); "In Progress" / "Wont fix" do not.
-     *   isWontFixLane  — "Won't fix" / "Wont fix" / "won't fix (won't repro)"
-     *                    match; "Will fix" / "Don't fix" do not.
-     *   isCompleteLane — the union (v1.9). A card on EITHER lane is out of the
-     *                    active work (PRIO-09 inbox exclusion, PRIO-12 digest).
+     * Lane-title matchers (PRIO-04 + v1.9 complete-lane rule) — now thin
+     * delegates to the shared Shuffle\Core\LaneRules predicates (promoted in
+     * v1.23 §5.30 so NotificationService reuses the exact same "complete lane"
+     * source of truth rather than re-deriving it). Behavior is byte-identical
+     * to the pre-v1.23 private implementations; keep these private so external
+     * callers (the priority suites) reach them unchanged, and they forward.
      */
     private function isDoneLane(string $title): bool
     {
-        return preg_match('/\bdone\b/iu', trim($title)) === 1;
+        return \Shuffle\Core\LaneRules::isDoneLane($title);
     }
 
     private function isWontFixLane(string $title): bool
     {
-        return preg_match("/\bwon'?t fix\b/iu", trim($title)) === 1;
+        return \Shuffle\Core\LaneRules::isWontFixLane($title);
     }
 
     private function isCompleteLane(string $title): bool
     {
-        return $this->isDoneLane($title) || $this->isWontFixLane($title);
+        return \Shuffle\Core\LaneRules::isCompleteLane($title);
     }
 
     private function isInProgressLane(string $title): bool
     {
-        return preg_match('/\bin progress\b/iu', trim($title)) === 1;
+        return \Shuffle\Core\LaneRules::isInProgressLane($title);
     }
 
     private function isInboxLane(string $title): bool
     {
-        return preg_match('/\binbox\b/iu', trim($title)) === 1;
+        return \Shuffle\Core\LaneRules::isInboxLane($title);
     }
 }
