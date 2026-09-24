@@ -41,40 +41,29 @@ $existing = $db->fetch(
 );
 
 $hasTable  = ($existing !== null);
-$hasDateCol = $hasTable
-    && ($db->fetch(
-        "SELECT column_name FROM information_schema.COLUMNS
+// cards.due_date is DATE (deadline = day), so the claim PK carries the
+// day: a re-arm fires when the date moves to a DIFFERENT day.
+$dateType = ($hasTable
+    && $db->fetch(
+        "SELECT COLUMN_TYPE FROM information_schema.COLUMNS
          WHERE table_schema = DATABASE() AND table_name = 'due_reminders' AND column_name = 'due_date'",
         []
-    ) !== null);
+    )['COLUMN_TYPE'] ?? null);
+$goodShape = $hasTable && str_starts_with((string) $dateType, 'date');
 
-if ($hasTable && $hasDateCol) {
-    echo "SKIP   due_reminders table (already present with due_date)\n";
-} elseif ($hasTable) {
-    // The table exists from an early v1.23 build (2-col PK, no due_date).
-    // The table is brand-new everywhere (v1.23 just shipped) and holds no
-    // durable data, so a clean rebuild is the safe idempotent path.
-    if ($dryRun) {
-        echo "DRYRUN DROP TABLE due_reminders -- then CREATE with (card_id, user_id, due_date) PK\n";
-    } else {
-        $db->query('DROP TABLE due_reminders');
-        $db->execute(
-            "CREATE TABLE due_reminders (
-                card_id     INT UNSIGNED NOT NULL,
-                user_id     INT UNSIGNED NOT NULL,
-                due_date    DATE         NOT NULL,
-                reminded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY (card_id, user_id, due_date),
-                CONSTRAINT fk_due_reminders_card FOREIGN KEY (card_id) REFERENCES cards (id) ON DELETE CASCADE,
-                CONSTRAINT fk_due_reminders_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
-        );
-        echo "REBUILD due_reminders (2-col PK -> 3-col PK with due_date)\n";
-    }
+if ($goodShape) {
+    echo "SKIP   due_reminders table (already present with a DATE due_date)\n";
 } else {
+    // Either the table is missing, or it holds an early v1.23 build
+    // (2-col PK, or a DATE-typed due_date). It is brand-new everywhere and
+    // holds no durable data, so a clean rebuild is the safe idempotent path.
     if ($dryRun) {
-        echo "DRYRUN CREATE TABLE due_reminders (3-col PK with due_date)\n";
+        echo "DRYRUN " . ($hasTable ? "DROP+CREATE" : "CREATE")
+            . " due_reminders with (card_id, user_id, due_date DATETIME) PK\n";
     } else {
+        if ($hasTable) {
+            $db->query('DROP TABLE due_reminders');
+        }
         $db->execute(
             "CREATE TABLE due_reminders (
                 card_id     INT UNSIGNED NOT NULL,
@@ -86,7 +75,8 @@ if ($hasTable && $hasDateCol) {
                 CONSTRAINT fk_due_reminders_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
         );
-        echo "CREATE due_reminders\n";
+        echo ($hasTable ? "REBUILD" : "CREATE")
+            . " due_reminders (3-col PK, due_date DATE matching cards.due_date)\n";
     }
 }
 

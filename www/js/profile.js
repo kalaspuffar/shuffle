@@ -114,6 +114,46 @@
         });
     }
 
+    // Due-date reminders (NOTIF-05, v1.23 §5.30): PUT /v1/me {due_remind_hours}.
+    // Empty input = disable (null); a number 1..720 = remind N hours before.
+    var dueRemindSave = document.getElementById('due-remind-save');
+    var dueRemindHours = document.getElementById('due-remind-hours');
+
+    if (dueRemindSave && dueRemindHours) {
+        dueRemindSave.addEventListener('click', function () {
+            if (!isApiReady()) {
+                flash(LANG.err_server || 'Shuffle API unavailable', false);
+                return;
+            }
+            dueRemindSave.disabled = true;
+            var oldVal = dueRemindHours.value;
+            var v = parseInt(dueRemindHours.value, 10);
+            var payload = (dueRemindHours.value === '') ? null : v;
+            if (payload !== null && (!isFinite(v) || v < 1 || v > 720)) {
+                dueRemindSave.disabled = false;
+                flash((LANG.due_remind_range || 'Enter 1–720 hours, or leave empty to disable'), false);
+                return;
+            }
+            Shuffle.api('/v1/me', {
+                method: 'PUT',
+                body: { due_remind_hours: payload }
+            }).then(function (result) {
+                dueRemindSave.disabled = false;
+                if (result.status === 200) {
+                    flash(LANG.saved_ok || 'Saved', true);
+                } else {
+                    flash((result && result.data && result.data.error)
+                        || (LANG.err_server || 'Save failed'), false);
+                    dueRemindHours.value = oldVal;
+                }
+            }).catch(function () {
+                dueRemindSave.disabled = false;
+                dueRemindHours.value = oldVal;
+                flash(LANG.err_server || 'Save failed', false);
+            });
+        });
+    }
+
     if (testEmailBtn) {
         testEmailBtn.addEventListener('click', function () {
             if (!isApiReady()) {
